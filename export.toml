@@ -64,10 +64,10 @@ catalog = "minio"
 
 [containers.{{ inputs.container_name }}.dns]
 routes = [
-  { domain = "{{ inputs.front_route_domain }}", tls = true, port = {{ inputs.front_port }}, service = "{{ inputs.workspace_service_name }}" },
-  { domain = "{{ inputs.admin_route_domain }}", tls = true, port = {{ inputs.admin_port }}, service = "{{ inputs.workspace_service_name }}" },
-  { domain = "{{ inputs.api_route_domain }}", tls = true, port = {{ inputs.api_port }}, service = "{{ inputs.workspace_service_name }}" },
-  { domain = "{{ inputs.s3_route_domain }}", tls = true, port = 9000, service = "minio" },
+  { domain = "{{ route_domain(inputs.host, inputs.routes.front, '') }}", tls = true, port = {{ inputs.front_port }}, service = "{{ inputs.workspace_service_name }}" },
+  { domain = "{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}", tls = true, port = {{ inputs.admin_port }}, service = "{{ inputs.workspace_service_name }}" },
+  { domain = "{{ route_domain(inputs.host, inputs.routes.api, 'api') }}", tls = true, port = {{ inputs.api_port }}, service = "{{ inputs.workspace_service_name }}" },
+  { domain = "{{ route_domain(inputs.host, inputs.routes.s3, 's3') }}", tls = true, port = 9000, service = "minio" },
   { domain = "dbgate.{{ inputs.host }}", tls = true, port = 3000, service = "dbgate" },
   { domain = "mailpit.{{ inputs.host }}", tls = true, port = 8025, service = "mailpit" },
   { domain = "minio.{{ inputs.host }}", tls = true, port = 9001, service = "minio" },
@@ -134,6 +134,112 @@ branch = "main"
 path = "{% if inputs.sources.poodle %}{{ inputs.sources.poodle }}{% else %}../poodle{% endif %}"
 repo = "git@github.com:inflatable-cookie/poodle.git"
 branch = "main"
+
+[deploy.model.app]
+bundle = "{{ bundle.name }}"
+project_name = "{{ inputs.project_name }}"
+source_root = "."
+
+[[deploy.model.services]]
+name = "front"
+role = "static"
+runtime = "node"
+source_root = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}"
+domains = ["{{ route_domain(inputs.host, inputs.routes.front, '') }}"]
+
+[deploy.model.services.build]
+task = "build"
+
+[deploy.model.services.output]
+kind = "directory"
+path = "build"
+detect_static_fallback = true
+
+[[deploy.model.services]]
+name = "admin"
+role = "static"
+runtime = "node"
+source_root = "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}"
+domains = ["{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}"]
+
+[deploy.model.services.build]
+task = "build"
+
+[deploy.model.services.output]
+kind = "directory"
+path = "build"
+detect_static_fallback = true
+
+[[deploy.model.services]]
+name = "api"
+role = "web"
+runtime = "rust"
+source_root = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}"
+port = {{ inputs.api_port }}
+domains = ["{{ route_domain(inputs.host, inputs.routes.api, 'api') }}"]
+secret_refs = ["DATABASE_URL"]
+
+[deploy.model.services.build]
+task = "build"
+
+[deploy.model.services.start]
+task = "api"
+
+[deploy.model.services.release]
+task = "db:migrate"
+optional = true
+warn_if_missing = true
+warning_code = "missing-release-hook"
+warning_target = "api"
+warning_message = "No explicit `db:migrate` release or migration command is promoted into the deployment model yet"
+warning_severity = "warn"
+
+[deploy.model.services.health]
+kind = "http"
+path = "/v1/health"
+
+[[deploy.model.services]]
+name = "jobs"
+role = "worker"
+runtime = "rust"
+source_root = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}"
+secret_refs = ["DATABASE_URL"]
+
+[deploy.model.services.build]
+task = "build"
+
+[deploy.model.services.start]
+task = "jobs"
+omit_service_if_missing = true
+
+[[deploy.model.backing_services]]
+name = "postgres"
+kind = "postgres"
+mode = "managed"
+required = true
+consumers = ["api", "jobs"]
+
+[[deploy.model.domains]]
+host = "{{ route_domain(inputs.host, inputs.routes.front, '') }}"
+service = "front"
+tls = "provider_managed"
+
+[[deploy.model.domains]]
+host = "{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}"
+service = "admin"
+tls = "provider_managed"
+
+[[deploy.model.domains]]
+host = "{{ route_domain(inputs.host, inputs.routes.api, 'api') }}"
+service = "api"
+tls = "provider_managed"
+
+[[deploy.model.secrets]]
+name = "DATABASE_URL"
+services = ["api", "jobs"]
+required = true
+source = "operator"
+notes = "Managed Postgres connection string for primary database `{% if inputs.databases %}{{ inputs.databases|first }}{% else %}app{% endif %}`"
 
 [tasks."smoke:error-logging"]
 run = [{ rhai = "{{ bundle.root }}/scripts/error-reporting.rhai" }]
