@@ -67,9 +67,10 @@ routes = [
   { domain = "{{ inputs.front_route_domain }}", tls = true, port = {{ inputs.front_port }}, service = "{{ inputs.workspace_service_name }}" },
   { domain = "{{ inputs.admin_route_domain }}", tls = true, port = {{ inputs.admin_port }}, service = "{{ inputs.workspace_service_name }}" },
   { domain = "{{ inputs.api_route_domain }}", tls = true, port = {{ inputs.api_port }}, service = "{{ inputs.workspace_service_name }}" },
+  { domain = "{{ inputs.s3_route_domain }}", tls = true, port = 9000, service = "minio" },
   { domain = "dbgate.{{ inputs.host }}", tls = true, port = 3000, service = "dbgate" },
-  { domain = "mailpit.{{ inputs.host }}", port = 8025, service = "mailpit" },
-  { domain = "minio.{{ inputs.host }}", port = 9001, service = "minio" },
+  { domain = "mailpit.{{ inputs.host }}", tls = true, port = 8025, service = "mailpit" },
+  { domain = "minio.{{ inputs.host }}", tls = true, port = 9001, service = "minio" },
 ]
 
 [tasks.health]
@@ -119,6 +120,7 @@ concurrent = [
 run = [
   { rhai = "{{ bundle.root }}/scripts/bootstrap-env.rhai" },
   { task = "container up --detach" },
+  { rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" },
   { task = "bootstrap deps sync {% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}{% if inputs.dirs.api %} {{ inputs.dirs.api }}{% else %} app-api{% endif %}{% if inputs.dirs.client %} {{ inputs.dirs.client }}{% else %} app-client{% endif %}{% if inputs.dirs.ui %} {{ inputs.dirs.ui }}{% else %} app-ui{% endif %}{% if inputs.dirs.front %} {{ inputs.dirs.front }}{% else %} app-front{% endif %}{% if inputs.dirs.admin %} {{ inputs.dirs.admin }}{% else %} app-admin{% endif %}" },
 ]
 start = "dev"

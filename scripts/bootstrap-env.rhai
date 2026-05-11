@@ -17,12 +17,30 @@ fn bundle_host() {
     return host;
 }
 
+fn project_name() {
+    let name = optional_config_string("bundle.project_name", "");
+    if name == "" {
+        throw "underlay bootstrap env helper requires `[bundle].project_name`";
+    }
+    return name;
+}
+
 fn route_domain(host, path, fallback_label) {
     let label = optional_config_string(path, fallback_label);
     if label == "" {
         return host;
     }
     return label + "." + host;
+}
+
+fn blob_bucket_name() {
+    let project = project_name();
+    let base = if str::ends_with(project, "-dev") {
+        str::replace(project, "-dev", "")
+    } else {
+        project
+    };
+    return base + "-media";
 }
 
 fn first_existing_dir(candidates) {
@@ -104,10 +122,12 @@ let host = bundle_host();
 let front_domain = route_domain(host, "bundle.routes.front", "");
 let admin_domain = route_domain(host, "bundle.routes.admin", "admin");
 let api_domain = route_domain(host, "bundle.routes.api", "api");
+let s3_domain = route_domain(host, "bundle.routes.s3", "s3");
 let postgres_domain = "postgres." + host;
 let smtp_domain = "smtp." + host;
 let database = primary_database_name();
 let test_database = secondary_database_name();
+let blob_bucket = blob_bucket_name();
 
 let api_dir = resolve_api_dir();
 let front_dir = resolve_front_dir();
@@ -158,7 +178,14 @@ if api_dir != "" {
         "SMTP_TLS=none",
         "",
         "# Blob Storage",
-        "BLOB_STORAGE_DIR=./dev-uploads",
+        "BLOB_S3_BUCKET=" + blob_bucket,
+        "BLOB_S3_REGION=us-east-1",
+        "BLOB_S3_ENDPOINT_URL=http://" + s3_domain + ":9000",
+        "BLOB_S3_PUBLIC_URL_BASE=https://" + s3_domain + "/" + blob_bucket,
+        "BLOB_S3_PRESIGN_URL_BASE=https://" + s3_domain,
+        "BLOB_S3_PATH_STYLE=true",
+        "AWS_ACCESS_KEY_ID=minioadmin",
+        "AWS_SECRET_ACCESS_KEY=minioadmin",
         "",
         "# JWT Authentication (generated for local bootstrap only)",
         "AUTH_JWT_ISSUER=local",
