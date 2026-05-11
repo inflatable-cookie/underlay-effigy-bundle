@@ -184,6 +184,8 @@ if api_dir != "" {
         "BLOB_S3_PUBLIC_URL_BASE=https://" + s3_domain + "/" + blob_bucket,
         "BLOB_S3_PRESIGN_URL_BASE=https://" + s3_domain,
         "BLOB_S3_PATH_STYLE=true",
+        "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+        "AWS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt",
         "AWS_ACCESS_KEY_ID=minioadmin",
         "AWS_SECRET_ACCESS_KEY=minioadmin",
         "",
