@@ -180,7 +180,7 @@ if api_dir != "" {
         "# Blob Storage",
         "BLOB_S3_BUCKET=" + blob_bucket,
         "BLOB_S3_REGION=us-east-1",
-        "BLOB_S3_ENDPOINT_URL=http://" + s3_domain + ":9000",
+        "BLOB_S3_ENDPOINT_URL=https://" + s3_domain,
         "BLOB_S3_PUBLIC_URL_BASE=https://" + s3_domain + "/" + blob_bucket,
         "BLOB_S3_PRESIGN_URL_BASE=https://" + s3_domain,
         "BLOB_S3_PATH_STYLE=true",
