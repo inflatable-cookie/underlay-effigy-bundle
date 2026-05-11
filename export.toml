@@ -84,7 +84,7 @@ run = [
 ]
 
 [tasks."minio:reconcile"]
-run = "effigy container shell minio --command 'sh -lc \"mc alias set local http://127.0.0.1:9000 minioadmin minioadmin >/dev/null 2>&1 && until mc ready local >/dev/null 2>&1; do sleep 1; done && mc mb local/{% if inputs.project_name and inputs.project_name | ends_with(\"-dev\") %}{{ inputs.project_name | replace(\"-dev\", \"\") }}{% else %}{{ inputs.project_name }}{% endif %}-media --ignore-existing >/dev/null && mc anonymous set download local/{% if inputs.project_name and inputs.project_name | ends_with(\"-dev\") %}{{ inputs.project_name | replace(\"-dev\", \"\") }}{% else %}{{ inputs.project_name }}{% endif %}-media >/dev/null && cat > /tmp/effigy-minio-cors.json <<\\\"EOF\\\"\n[{\\\"AllowedOrigins\\\":[\\\"https://{{ route_domain(inputs.host, inputs.routes.front, '') }}\\\",\\\"https://{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}\\\"],\\\"AllowedMethods\\\":[\\\"GET\\\",\\\"HEAD\\\",\\\"PUT\\\"],\\\"AllowedHeaders\\\":[\\\"*\\\"],\\\"ExposeHeaders\\\":[\\\"ETag\\\",\\\"x-amz-request-id\\\",\\\"x-amz-id-2\\\"],\\\"MaxAgeSeconds\\\":3000}]\nEOF\nmc cors set local/{% if inputs.project_name and inputs.project_name | ends_with(\"-dev\") %}{{ inputs.project_name | replace(\"-dev\", \"\") }}{% else %}{{ inputs.project_name }}{% endif %}-media /tmp/effigy-minio-cors.json >/dev/null\"'"
+run = [{ rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" }]
 run_in = "host"
 
 [tasks.validate]
