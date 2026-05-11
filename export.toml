@@ -1,0 +1,146 @@
+[manifest]
+extend = ["bootstrap.children"]
+
+[package_manager]
+js = "bun"
+
+[systems]
+default = "{{ inputs.system_name }}"
+
+[systems.{{ inputs.system_name }}]
+container = "{{ inputs.container_name }}"
+default_workspace = "{{ inputs.default_workspace }}"
+working_dir = "/workspace-root/{{ inputs.workspace_subdir }}"
+user = "dev"
+home = "/home/dev"
+mounts = []
+
+[systems.{{ inputs.system_name }}.workspaces.{{ inputs.default_workspace }}]
+
+[containers]
+default = "{{ inputs.container_name }}"
+
+[containers.{{ inputs.container_name }}]
+startup = "detached"
+context = "{{ inputs.system_name }}"
+project_name = "{{ inputs.project_name }}"
+primary_service = "{{ inputs.workspace_service_name }}"
+
+[containers.{{ inputs.container_name }}.aliases]
+psql = "postgres"
+
+[containers.{{ inputs.container_name }}.services.{{ inputs.workspace_service_name }}]
+catalog = "workspace-rust-bun"
+working_subdir = "{{ inputs.workspace_subdir }}"
+host_ports = [
+  "{{ inputs.api_port }}:{{ inputs.api_port }}",
+  "{{ inputs.admin_port }}:{{ inputs.admin_port }}",
+  "{{ inputs.front_port }}:{{ inputs.front_port }}",
+]
+isolated_dirs = [
+  "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/target",
+  "{% if inputs.dirs.client %}{{ inputs.dirs.client }}{% else %}app-client{% endif %}/node_modules",
+  "{% if inputs.dirs.ui %}{{ inputs.dirs.ui }}{% else %}app-ui{% endif %}/node_modules",
+  "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}/node_modules",
+  "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}/node_modules",
+]
+
+[containers.{{ inputs.container_name }}.services.postgres]
+catalog = "postgres"
+database = "{{ inputs.databases|first }}"
+databases = [{% for database in inputs.databases %}"{{ database }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+
+[containers.{{ inputs.container_name }}.services.dbgate]
+catalog = "dbgate"
+database_host = "postgres"
+database = "{{ inputs.databases|first }}"
+connection_label = "{{ inputs.project_name }}"
+
+[containers.{{ inputs.container_name }}.services.mailpit]
+catalog = "mailpit"
+
+[containers.{{ inputs.container_name }}.services.minio]
+catalog = "minio"
+
+[containers.{{ inputs.container_name }}.dns]
+routes = [
+  { domain = "{{ inputs.front_route_domain }}", tls = true, port = {{ inputs.front_port }}, service = "{{ inputs.workspace_service_name }}" },
+  { domain = "{{ inputs.admin_route_domain }}", tls = true, port = {{ inputs.admin_port }}, service = "{{ inputs.workspace_service_name }}" },
+  { domain = "{{ inputs.api_route_domain }}", tls = true, port = {{ inputs.api_port }}, service = "{{ inputs.workspace_service_name }}" },
+  { domain = "dbgate.{{ inputs.host }}", tls = true, port = 3000, service = "dbgate" },
+  { domain = "mailpit.{{ inputs.host }}", port = 8025, service = "mailpit" },
+  { domain = "minio.{{ inputs.host }}", port = 9001, service = "minio" },
+]
+
+[tasks.health]
+run = [
+{% if inputs.dirs.docs %}  { task = "{{ inputs.dirs.docs }}/health" },
+{% endif %}  { task = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/health" },
+  { task = "{% if inputs.dirs.client %}{{ inputs.dirs.client }}{% else %}app-client{% endif %}/health" },
+{% if inputs.dirs.ui %}  { task = "{{ inputs.dirs.ui }}/health" },
+{% endif %}  { task = "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}/health" },
+  { task = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}/health" },
+]
+
+[tasks.validate]
+run = [
+  { task = "underlay/validate" },
+{% if inputs.dirs.docs %}  { task = "{{ inputs.dirs.docs }}/validate" },
+{% endif %}  { task = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/validate" },
+  { task = "{% if inputs.dirs.client %}{{ inputs.dirs.client }}{% else %}app-client{% endif %}/validate" },
+{% if inputs.dirs.ui %}  { task = "{{ inputs.dirs.ui }}/validate" },
+{% endif %}  { task = "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}/validate" },
+  { task = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}/validate" },
+]
+
+[tasks.qa]
+run = [
+  { task = "health" },
+  { task = "validate" },
+{% if inputs.dirs.docs %}  { task = "{{ inputs.dirs.docs }}/qa:docs" },
+  { task = "{{ inputs.dirs.docs }}/qa:northstar" },
+{% endif %}]
+
+[tasks.dev]
+mode = "tui"
+container_lifecycle = true
+gateway = true
+health_wait = true
+concurrent = [
+  { name = "front", task = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}/dev", setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = 6, tab = 1 },
+  { name = "admin", task = "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}/dev", setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = 5, tab = 2 },
+  { name = "api", task = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/api", start = 4, tab = 3 },
+  { name = "jobs", task = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/jobs", start = 3, tab = 4, start_after_ms = 1500 },
+  { role = "shell", service = "{{ inputs.workspace_service_name }}", start = 2, tab = 5 },
+  { role = "lifecycle", start = 1, tab = 6 },
+]
+
+[bootstrap]
+run = [
+  { rhai = "{{ bundle.root }}/scripts/bootstrap-env.rhai" },
+  { task = "container up --detach" },
+  { task = "bootstrap deps sync {% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}{% if inputs.dirs.api %} {{ inputs.dirs.api }}{% else %} app-api{% endif %}{% if inputs.dirs.client %} {{ inputs.dirs.client }}{% else %} app-client{% endif %}{% if inputs.dirs.ui %} {{ inputs.dirs.ui }}{% else %} app-ui{% endif %}{% if inputs.dirs.front %} {{ inputs.dirs.front }}{% else %} app-front{% endif %}{% if inputs.dirs.admin %} {{ inputs.dirs.admin }}{% else %} app-admin{% endif %}" },
+]
+start = "dev"
+
+[[bootstrap.children]]
+path = "{% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}"
+repo = "git@github.com:inflatable-cookie/underlay.git"
+branch = "main"
+
+[[bootstrap.children]]
+path = "{% if inputs.sources.poodle %}{{ inputs.sources.poodle }}{% else %}../poodle{% endif %}"
+repo = "git@github.com:inflatable-cookie/poodle.git"
+branch = "main"
+
+[tasks."smoke:error-logging"]
+run = [{ rhai = "{{ bundle.root }}/scripts/error-reporting.rhai" }]
+run_in = "host"
+
+[tasks."metrics:error-log"]
+run = [{ rhai = "{{ bundle.root }}/scripts/error-reporting.rhai" }]
+run_in = "host"
+
+[tasks."validate:error-reporting"]
+run = [{ rhai = "{{ bundle.root }}/scripts/error-reporting.rhai" }]
+run_in = "host"

@@ -1,0 +1,145 @@
+[bundle]
+name = "underlay"
+description = "Underlay-style Rust + Bun workspace stack with one long-running workspace container, bundled postgres/dbgate/mailpit/minio services, and gateway-published app routes plus loopback alias discovery for db/smtp/s3."
+defaults = "export.toml"
+
+[[inputs]]
+name = "host"
+type = "string"
+required = true
+description = "Primary local hostname for the front-end route; bundle defaults also publish `admin.<host>`, `api.<host>`, `dbgate.<host>`, `mailpit.<host>`, and `minio.<host>`."
+example = "acme.test"
+
+[[inputs]]
+name = "project_name"
+type = "string"
+required = true
+description = "Compose project name used for the generated dev stack."
+example = "underlay-reference-dev"
+
+[[inputs]]
+name = "workspace_subdir"
+type = "string"
+required = true
+description = "Repo path under `/workspace-root` for the workspace container's working directory."
+example = "underlay-reference"
+
+[[inputs]]
+name = "databases"
+type = "list"
+required = true
+description = "Postgres databases to create for the stack. The first entry becomes the primary app database."
+example = ["acme", "acme_test"]
+
+[[inputs]]
+name = "api_port"
+type = "integer"
+description = "Host and workspace port for the API dev server."
+default = 41001
+
+[[inputs]]
+name = "admin_port"
+type = "integer"
+description = "Host and workspace port for the admin dev server."
+default = 41002
+
+[[inputs]]
+name = "front_port"
+type = "integer"
+description = "Host and workspace port for the public front-end dev server."
+default = 41003
+
+[[inputs]]
+name = "dirs.api"
+type = "string"
+description = "API package directory for bootstrap env generation and dependency sync. When omitted, the bundle falls back to the shipped Underlay guesses."
+example = "farmyard"
+
+[[inputs]]
+name = "dirs.front"
+type = "string"
+description = "Front-end package directory for the bundled UI setup helper. When omitted, the helper falls back to the shipped Underlay guesses."
+example = "cream"
+
+[[inputs]]
+name = "dirs.admin"
+type = "string"
+description = "Admin package directory for the bundled UI setup helper. When omitted, the helper falls back to the shipped Underlay guesses."
+example = "dairy"
+
+[[inputs]]
+name = "sources.underlay"
+type = "string"
+description = "Relative path from the consumer repo to the sibling underlay checkout used by bootstrap sync, bootstrap children, and the bundled UI setup helper."
+default = "../underlay"
+example = "../../underlay"
+
+[[inputs]]
+name = "sources.poodle"
+type = "string"
+description = "Relative path from the consumer repo to the sibling poodle checkout used by bootstrap children and the bundled UI setup helper."
+default = "../poodle"
+example = "../../poodle"
+
+[[inputs]]
+name = "dirs.client"
+type = "string"
+description = "Shared client package directory the bundled UI setup helper should hydrate before front/admin startup. When omitted, the helper falls back to the shipped Underlay guesses."
+example = "froyo"
+
+[[inputs]]
+name = "dirs.ui"
+type = "string"
+description = "Optional UI package directory to include in bootstrap dependency sync and UI hydration. When omitted, the helper falls back to the shipped Underlay guesses."
+example = "app-ui"
+
+[[inputs]]
+name = "dirs.docs"
+type = "string"
+description = "Optional docs package directory. When set, the bundle wires docs health, validate, qa:docs, and qa:northstar into the root task defaults."
+example = "acme-docs"
+
+[[inputs]]
+name = "routes.front"
+type = "string"
+description = "Gateway subdomain label for the front-end route. Empty keeps the bare host."
+default = ""
+example = "cream"
+
+[[inputs]]
+name = "routes.admin"
+type = "string"
+description = "Gateway subdomain label for the admin route."
+default = "admin"
+example = "dairy"
+
+[[inputs]]
+name = "routes.api"
+type = "string"
+description = "Gateway subdomain label for the API route."
+default = "api"
+example = "farmyard"
+
+[[inputs]]
+name = "system_name"
+type = "string"
+description = "Name of the `[systems.<name>]` block rendered by the bundle."
+default = "dev"
+
+[[inputs]]
+name = "container_name"
+type = "string"
+description = "Name of the `[containers.<name>]` block that hosts the stack (also used as the default container)."
+default = "stack"
+
+[[inputs]]
+name = "workspace_service_name"
+type = "string"
+description = "Name of the long-running workspace service inside the container (referenced by `primary_service` and by the published HTTP routes)."
+default = "workspace"
+
+[[inputs]]
+name = "default_workspace"
+type = "string"
+description = "Name of the `[systems.<system>.workspaces.<name>]` workspace treated as the system default."
+default = "app"
