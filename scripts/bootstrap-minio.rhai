@@ -82,7 +82,7 @@ let shell_script = "set -eu\n"
 
 let result = exec::run(
     ["sh", "-lc", shell_script],
-    #{ run_in: "container", container: container_name, service: "minio" },
+    #{ run_in: "container", container: container_name, service: "minio", cwd: "/" },
 );
 
 require_success(result, "failed to configure minio bucket and cors");
