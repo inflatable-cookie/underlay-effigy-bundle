@@ -83,6 +83,10 @@ run = [
   { task = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}/health" },
 ]
 
+[tasks."minio:reconcile"]
+run = [{ rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" }]
+run_in = "host"
+
 [tasks.validate]
 run = [
   { task = "underlay/validate" },
