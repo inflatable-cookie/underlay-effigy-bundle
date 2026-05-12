@@ -84,7 +84,28 @@ run = [
 ]
 
 [tasks."minio:reconcile"]
-run = [{ rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" }]
+run = """
+container_id="$(docker ps \
+  --filter label=com.docker.compose.project={{ inputs.project_name }} \
+  --filter label=com.docker.compose.service=minio \
+  --format '{{"{{"}}.ID{{"}}"}}' \
+  | head -n 1)"
+if [ -z "$container_id" ]; then
+  printf '%s\n' 'minio container not found for project {{ inputs.project_name }}' 1>&2
+  exit 1
+fi
+docker exec -w / "$container_id" sh -lc '
+  set -eu
+  mc alias set local http://127.0.0.1:9000 minioadmin minioadmin >/dev/null 2>&1
+  until mc ready local >/dev/null 2>&1; do sleep 1; done
+  mc mb local/{{ inputs.project_name | replace("-dev", "") }}-media --ignore-existing >/dev/null
+  mc anonymous set download local/{{ inputs.project_name | replace("-dev", "") }}-media >/dev/null
+  cat > /tmp/effigy-minio-cors.json <<'"'"'EOF'"'"'
+[{"AllowedOrigins":["https://{{ route_domain(inputs.host, inputs.routes.front, '') }}","https://{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}"],"AllowedMethods":["GET","HEAD","PUT"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag","x-amz-request-id","x-amz-id-2"],"MaxAgeSeconds":3000}]
+EOF
+  mc cors set local/{{ inputs.project_name | replace("-dev", "") }}-media /tmp/effigy-minio-cors.json >/dev/null
+'
+"""
 run_in = "host"
 
 [tasks.validate]
