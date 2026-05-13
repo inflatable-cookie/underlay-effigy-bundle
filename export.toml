@@ -82,6 +82,7 @@ backend = "effigy-vault"
 path = ".effigy/secrets/local.vault"
 identity = "passphrase"
 unlock = "passphrase"
+generate = { rhai = "{{ bundle.root }}/scripts/generate-dev-secrets.rhai", run_in = "host" }
 
 [secrets.keys.auth_jwt_private_key]
 required = false
@@ -112,6 +113,11 @@ description = "S3-compatible object-store access key id for media state/artifact
 required = false
 targets = ["tasks", "containers", "state", "artifacts", "rhai"]
 description = "S3-compatible object-store secret access key for media state/artifact workflows."
+
+[secrets.keys.ai_router_api_key]
+required = false
+targets = ["tasks", "containers", "rhai"]
+description = "AI router API key when the AI runtime is enabled."
 
 [secrets.keys.smtp_password]
 required = false
@@ -158,10 +164,6 @@ EOF
 """
 run_in = "host"
 
-[tasks."secrets:generate-dev"]
-run = { rhai = "{{ bundle.root }}/scripts/generate-dev-secrets.rhai" }
-run_in = "host"
-
 [tasks.validate]
 run = [
   { task = "underlay/validate" },
@@ -198,8 +200,7 @@ concurrent = [
 
 [bootstrap]
 run = [
-  { rhai = "{{ bundle.root }}/scripts/bootstrap-env.rhai" },
-  { task = "secrets:generate-dev" },
+  { task = "secrets init" },
   { task = "container up --detach" },
   { rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" },
   { task = "bootstrap deps sync {% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}{% if inputs.dirs.api %} {{ inputs.dirs.api }}{% else %} app-api{% endif %}{% if inputs.dirs.client %} {{ inputs.dirs.client }}{% else %} app-client{% endif %}{% if inputs.dirs.ui %} {{ inputs.dirs.ui }}{% else %} app-ui{% endif %}{% if inputs.dirs.front %} {{ inputs.dirs.front }}{% else %} app-front{% endif %}{% if inputs.dirs.admin %} {{ inputs.dirs.admin }}{% else %} app-admin{% endif %}" },
