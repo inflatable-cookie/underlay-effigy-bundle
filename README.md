@@ -25,3 +25,18 @@ Key required inputs:
 - `host` — Primary local hostname
 - `workspace_subdir` — Repo path under `/workspace-root`
 - `databases` — Postgres databases to create
+
+## Bundle-owned secrets
+
+The bundle declares the shared Underlay runtime secret contract, including:
+
+- `auth_jwt_private_key`
+- `auth_jwt_public_key`
+- `auth_oauth_secret_key`
+- `encryption_key`
+- `aws_access_key_id`
+- `aws_secret_access_key`
+- `smtp_password`
+- `auth_google_client_secret`
+
+App-specific secrets should stay in the consuming repo.

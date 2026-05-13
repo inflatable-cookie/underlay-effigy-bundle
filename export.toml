@@ -75,6 +75,46 @@ routes = [
   { domain = "minio.{{ inputs.host }}", tls = true, port = 9001, service = "minio" },
 ]
 
+[secrets.keys.auth_jwt_private_key]
+required = false
+targets = ["tasks", "containers", "rhai"]
+description = "JWT signing private key for local/API runtime."
+
+[secrets.keys.auth_jwt_public_key]
+required = false
+targets = ["tasks", "containers", "rhai"]
+description = "JWT verification public key paired with AUTH_JWT_PRIVATE_KEY."
+
+[secrets.keys.auth_oauth_secret_key]
+required = false
+targets = ["tasks", "containers", "rhai"]
+description = "OAuth refresh-token encryption key."
+
+[secrets.keys.encryption_key]
+required = false
+targets = ["tasks", "containers", "rhai"]
+description = "Application encryption key for local/API runtime."
+
+[secrets.keys.aws_access_key_id]
+required = false
+targets = ["tasks", "containers", "state", "artifacts", "rhai"]
+description = "S3-compatible object-store access key id for media state/artifact workflows."
+
+[secrets.keys.aws_secret_access_key]
+required = false
+targets = ["tasks", "containers", "state", "artifacts", "rhai"]
+description = "S3-compatible object-store secret access key for media state/artifact workflows."
+
+[secrets.keys.smtp_password]
+required = false
+targets = ["tasks", "containers"]
+description = "SMTP password when real email delivery is enabled."
+
+[secrets.keys.auth_google_client_secret]
+required = false
+targets = ["tasks", "containers"]
+description = "Google OAuth client secret when Google login is enabled."
+
 [tasks.health]
 run = [
 {% if inputs.dirs.docs %}  { task = "{{ inputs.dirs.docs }}/health" },
