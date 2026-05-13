@@ -13,9 +13,8 @@ example = "acme.test"
 [[inputs]]
 name = "project_name"
 type = "string"
-required = true
-description = "Compose project name used for the generated dev stack."
-example = "underlay-reference-dev"
+description = "Compose project name used for the generated dev stack. Defaults to `<workspace_subdir>-underlay`."
+example = "acme-underlay"
 
 [[inputs]]
 name = "workspace_subdir"
