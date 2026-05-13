@@ -136,6 +136,7 @@ run = [
 [tasks.dev]
 mode = "tui"
 container_lifecycle = true
+secrets = "required"
 gateway = true
 health_wait = true
 concurrent = [
