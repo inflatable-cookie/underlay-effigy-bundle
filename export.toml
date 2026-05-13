@@ -1,5 +1,5 @@
 [manifest]
-extend = ["bootstrap.children"]
+extend = ["bootstrap.children", "secrets"]
 
 {% set resolved_project_name = inputs.project_name or inputs.workspace_subdir ~ "-" ~ bundle.name %}
 
@@ -74,6 +74,14 @@ routes = [
   { domain = "mailpit.{{ inputs.host }}", tls = true, port = 8025, service = "mailpit" },
   { domain = "minio.{{ inputs.host }}", tls = true, port = 9001, service = "minio" },
 ]
+
+[secrets]
+backend = "effigy-vault"
+
+[secrets.vault]
+path = ".effigy/secrets/local.vault"
+identity = "passphrase"
+unlock = "passphrase"
 
 [secrets.keys.auth_jwt_private_key]
 required = false
