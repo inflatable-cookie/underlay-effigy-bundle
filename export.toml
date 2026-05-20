@@ -24,7 +24,6 @@ default = "{{ inputs.container_name }}"
 
 [containers.{{ inputs.container_name }}]
 startup = "detached"
-context = "{{ inputs.system_name }}"
 project_name = "{{ resolved_project_name }}"
 primary_service = "{{ inputs.workspace_service_name }}"
 
