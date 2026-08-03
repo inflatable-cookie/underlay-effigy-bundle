@@ -6,6 +6,12 @@ extend = ["bootstrap.children", "secrets"]
 [package_manager]
 js = "bun"
 
+# Shared dev environment identifier for every consumer app process: plain
+# (non-secret) env from the bundle's schema is folded into all rendered task
+# commands, including managed dev-session apps. Secrets stay in the vault.
+[env_schema]
+schema = "{{ bundle.root }}/env/dev.env.schema"
+
 [systems]
 default = "{{ inputs.system_name }}"
 
