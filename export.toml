@@ -12,6 +12,11 @@ js = "bun"
 [env_schema]
 schema = "{{ bundle.root }}/env/dev.env.schema"
 
+# The underlay config stack holds env-named overlays (config/effigy.toml for
+# the dev stack) — never treat those as catalog manifests.
+[catalog.discovery]
+ignore = ["config"]
+
 [systems]
 default = "{{ inputs.system_name }}"
 
