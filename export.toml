@@ -44,6 +44,10 @@ psql = "postgres"
 [containers.{{ inputs.container_name }}.services.{{ inputs.workspace_service_name }}]
 catalog = "workspace-rust-bun"
 working_subdir = "{{ inputs.workspace_subdir }}"
+# Rust toolchain for the workspace image. Must satisfy the family's MSRV
+# floor (sqlx 0.9 needs 1.94, AWS SDK 1.10+ needs 1.94.1) and ideally match
+# the operators' host toolchain. Bump deliberately.
+rust_version = "1.96"
 host_ports = [
   "{{ inputs.api_port }}:{{ inputs.api_port }}",
   "{{ inputs.admin_port }}:{{ inputs.admin_port }}",
