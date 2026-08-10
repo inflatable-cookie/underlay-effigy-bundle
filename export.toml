@@ -1,4 +1,5 @@
 [manifest]
+minimum_effigy_version = "0.10.0"
 extend = ["bootstrap.children", "secrets"]
 
 {% set resolved_project_name = inputs.project_name or inputs.workspace_subdir ~ "-" ~ bundle.name %}
@@ -12,10 +13,16 @@ js = "bun"
 [env_schema]
 schema = "{{ bundle.root }}/env/dev.env.schema"
 
-# The underlay config stack holds env-named overlays (config/effigy.toml for
-# the dev stack) — never treat those as catalog manifests.
-[catalog.discovery]
-ignore = ["config"]
+[catalog.members]
+underlay = "{% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}"
+poodle = "{% if inputs.sources.poodle %}{{ inputs.sources.poodle }}{% else %}../poodle{% endif %}"
+api = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}"
+client = "{% if inputs.dirs.client %}{{ inputs.dirs.client }}{% else %}app-client{% endif %}"
+admin = "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}"
+front = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}"
+{% if inputs.dirs.ui %}ui = "{{ inputs.dirs.ui }}"
+{% endif %}{% if inputs.dirs.docs %}docs = "{{ inputs.dirs.docs }}"
+{% endif %}
 
 [systems]
 default = "{{ inputs.system_name }}"
