@@ -4,6 +4,19 @@ extend = ["bootstrap.children", "secrets"]
 
 {% set resolved_project_name = inputs.project_name or inputs.workspace_subdir ~ "-" ~ bundle.name %}
 
+{# Physical package directories (`inputs.dirs.*`) and Effigy catalog selectors
+   are separate concerns. They coincide in a flat layout, but under the
+   `apps/*` / `packages/*` workspace contract a package lives at
+   `apps/dairy` while its catalog alias stays `dairy`. `catalogs.*` overrides
+   the selector; it falls back to the directory so flat consumers are
+   unchanged. #}
+{% set sel_api = inputs.catalogs.api or inputs.dirs.api or "app-api" %}
+{% set sel_client = inputs.catalogs.client or inputs.dirs.client or "app-client" %}
+{% set sel_admin = inputs.catalogs.admin or inputs.dirs.admin or "app-admin" %}
+{% set sel_front = inputs.catalogs.front or inputs.dirs.front or "app-front" %}
+{% set sel_ui = inputs.catalogs.ui or inputs.dirs.ui %}
+{% set sel_docs = inputs.catalogs.docs or inputs.dirs.docs %}
+
 [package_manager]
 js = "bun"
 
@@ -62,11 +75,14 @@ host_ports = [
 ]
 isolated_dirs = [
   "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/target",
-  "{% if inputs.dirs.client %}{{ inputs.dirs.client }}{% else %}app-client{% endif %}/node_modules",
+{% if inputs.workspace.js_root %}  # One root Bun workspace hoists dependencies to the repo root, so that is
+  # the tree the container must isolate from the host.
+  "node_modules",
+{% else %}  "{% if inputs.dirs.client %}{{ inputs.dirs.client }}{% else %}app-client{% endif %}/node_modules",
   "{% if inputs.dirs.ui %}{{ inputs.dirs.ui }}{% else %}app-ui{% endif %}/node_modules",
   "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}/node_modules",
   "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}/node_modules",
-]
+{% endif %}]
 
 [containers.{{ inputs.container_name }}.services.postgres]
 catalog = "postgres"
@@ -150,14 +166,22 @@ required = false
 targets = ["tasks", "containers"]
 description = "Google OAuth client secret when Google login is enabled."
 
-[tasks.health]
+{% if inputs.workspace.js_root %}
+# One frozen root install for the whole JavaScript workspace. Consumers on the
+# `apps/*` / `packages/*` contract own a single root `package.json` + `bun.lock`,
+# so per-package hydration is drift.
+[tasks."workspace:js:prepare"]
+run = "cd {repo} && bun install --frozen-lockfile"
+run_in = "host"
+
+{% endif %}[tasks.health]
 run = [
-{% if inputs.dirs.docs %}  { task = "{{ inputs.dirs.docs }}/health" },
-{% endif %}  { task = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/health" },
-  { task = "{% if inputs.dirs.client %}{{ inputs.dirs.client }}{% else %}app-client{% endif %}/health" },
-{% if inputs.dirs.ui %}  { task = "{{ inputs.dirs.ui }}/health" },
-{% endif %}  { task = "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}/health" },
-  { task = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}/health" },
+{% if inputs.dirs.docs %}  { task = "{{ sel_docs }}/health" },
+{% endif %}  { task = "{{ sel_api }}/health" },
+  { task = "{{ sel_client }}/health" },
+{% if inputs.dirs.ui %}  { task = "{{ sel_ui }}/health" },
+{% endif %}  { task = "{{ sel_admin }}/health" },
+  { task = "{{ sel_front }}/health" },
 ]
 
 [tasks."minio:reconcile"]
@@ -188,20 +212,20 @@ run_in = "host"
 [tasks.validate]
 run = [
   { task = "underlay/validate" },
-{% if inputs.dirs.docs %}  { task = "{{ inputs.dirs.docs }}/validate" },
-{% endif %}  { task = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/validate" },
-  { task = "{% if inputs.dirs.client %}{{ inputs.dirs.client }}{% else %}app-client{% endif %}/validate" },
-{% if inputs.dirs.ui %}  { task = "{{ inputs.dirs.ui }}/validate" },
-{% endif %}  { task = "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}/validate" },
-  { task = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}/validate" },
+{% if inputs.dirs.docs %}  { task = "{{ sel_docs }}/validate" },
+{% endif %}  { task = "{{ sel_api }}/validate" },
+  { task = "{{ sel_client }}/validate" },
+{% if inputs.dirs.ui %}  { task = "{{ sel_ui }}/validate" },
+{% endif %}  { task = "{{ sel_admin }}/validate" },
+  { task = "{{ sel_front }}/validate" },
 ]
 
 [tasks.qa]
 run = [
   { task = "health" },
   { task = "validate" },
-{% if inputs.dirs.docs %}  { task = "{{ inputs.dirs.docs }}/qa:docs" },
-  { task = "{{ inputs.dirs.docs }}/qa:northstar" },
+{% if inputs.dirs.docs %}  { task = "{{ sel_docs }}/qa:docs" },
+  { task = "{{ sel_docs }}/qa:northstar" },
 {% endif %}]
 
 [tasks.dev]
@@ -211,10 +235,10 @@ secrets = "required"
 gateway = true
 health_wait = true
 concurrent = [
-  { name = "front", task = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}/dev", setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = 6, tab = 1 },
-  { name = "admin", task = "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}/dev", setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = 5, tab = 2 },
-  { name = "api", task = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/api", start = 4, tab = 3 },
-  { name = "jobs", task = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}/jobs", start = 3, tab = 4, start_after_ms = 1500 },
+  { name = "front", task = "{{ sel_front }}/dev", setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = 6, tab = 1 },
+  { name = "admin", task = "{{ sel_admin }}/dev", setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = 5, tab = 2 },
+  { name = "api", task = "{{ sel_api }}/api", start = 4, tab = 3 },
+  { name = "jobs", task = "{{ sel_api }}/jobs", start = 3, tab = 4, start_after_ms = 1500 },
   { role = "shell", service = "{{ inputs.workspace_service_name }}", start = 2, tab = 5 },
   { role = "lifecycle", start = 1, tab = 6 },
 ]
@@ -224,7 +248,9 @@ run = [
   { task = "secrets init" },
   { task = "container up --detach" },
   { rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" },
-  { task = "bootstrap deps sync {% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}{% if inputs.dirs.api %} {{ inputs.dirs.api }}{% else %} app-api{% endif %}{% if inputs.dirs.client %} {{ inputs.dirs.client }}{% else %} app-client{% endif %}{% if inputs.dirs.ui %} {{ inputs.dirs.ui }}{% else %} app-ui{% endif %}{% if inputs.dirs.front %} {{ inputs.dirs.front }}{% else %} app-front{% endif %}{% if inputs.dirs.admin %} {{ inputs.dirs.admin }}{% else %} app-admin{% endif %}" },
+{% if inputs.workspace.js_root %}  { task = "workspace:js:prepare" },
+{% else %}  { task = "bootstrap deps sync {% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}{% if inputs.dirs.api %} {{ inputs.dirs.api }}{% else %} app-api{% endif %}{% if inputs.dirs.client %} {{ inputs.dirs.client }}{% else %} app-client{% endif %}{% if inputs.dirs.ui %} {{ inputs.dirs.ui }}{% else %} app-ui{% endif %}{% if inputs.dirs.front %} {{ inputs.dirs.front }}{% else %} app-front{% endif %}{% if inputs.dirs.admin %} {{ inputs.dirs.admin }}{% else %} app-admin{% endif %}" },
+{% endif %}
 ]
 start = "dev"
 
