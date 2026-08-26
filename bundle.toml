@@ -99,6 +99,54 @@ description = "Optional docs package directory. When set, the bundle wires docs 
 example = "acme-docs"
 
 [[inputs]]
+name = "catalogs.api"
+type = "string"
+default = ""
+description = "Effigy catalog alias for the api package, used in generated task selectors. Defaults to `dirs.api` when empty. Set this when the physical directory is no longer the catalog alias, e.g. `dirs.api = \"apps/farmyard-api\"` with `catalogs.api = \"farmyard-api\"`."
+example = "farmyard-api"
+
+[[inputs]]
+name = "catalogs.admin"
+type = "string"
+default = ""
+description = "Effigy catalog alias for the admin package, used in generated task selectors. Defaults to `dirs.admin` when empty. Set this when the physical directory is no longer the catalog alias, e.g. `dirs.admin = \"apps/dairy-admin\"` with `catalogs.admin = \"dairy-admin\"`."
+example = "dairy-admin"
+
+[[inputs]]
+name = "catalogs.front"
+type = "string"
+default = ""
+description = "Effigy catalog alias for the front package, used in generated task selectors. Defaults to `dirs.front` when empty. Set this when the physical directory is no longer the catalog alias, e.g. `dirs.front = \"apps/cream-front\"` with `catalogs.front = \"cream-front\"`."
+example = "cream-front"
+
+[[inputs]]
+name = "catalogs.client"
+type = "string"
+default = ""
+description = "Effigy catalog alias for the client package, used in generated task selectors. Defaults to `dirs.client` when empty. Set this when the physical directory is no longer the catalog alias, e.g. `dirs.client = \"apps/froyo-client\"` with `catalogs.client = \"froyo-client\"`."
+example = "froyo-client"
+
+[[inputs]]
+name = "catalogs.ui"
+type = "string"
+default = ""
+description = "Effigy catalog alias for the ui package, used in generated task selectors. Defaults to `dirs.ui` when empty. Set this when the physical directory is no longer the catalog alias, e.g. `dirs.ui = \"apps/froyo-ui\"` with `catalogs.ui = \"froyo-ui\"`."
+example = "froyo-ui"
+
+[[inputs]]
+name = "catalogs.docs"
+type = "string"
+default = ""
+description = "Effigy catalog alias for the docs package, used in generated task selectors. Defaults to `dirs.docs` when empty. Set this when the physical directory is no longer the catalog alias, e.g. `dirs.docs = \"apps/acme-docs\"` with `catalogs.docs = \"acme-docs\"`."
+example = "acme-docs"
+
+[[inputs]]
+name = "workspace.js_root"
+type = "bool"
+default = false
+description = "Set true when the repo declares one root Bun workspace with a single root `bun.lock`. Bootstrap and the dev UI setup helper then run exactly one `bun install --frozen-lockfile` at the repo root instead of hydrating each package directory."
+
+[[inputs]]
 name = "routes.front"
 type = "string"
 description = "Gateway subdomain label for the front-end route. Empty keeps the bare host."

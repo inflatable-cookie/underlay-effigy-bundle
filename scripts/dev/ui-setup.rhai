@@ -8,6 +8,11 @@
 // generic `app-*` layout and the Underlay reference `acme-*` layout by
 // default, and repos can override the package directories through
 // `[bundle.dirs]`.
+//
+// When the repo declares one root Bun workspace (root `package.json` with a
+// `workspaces` array plus a root `bun.lock`), hydration collapses to exactly
+// one `bun install --frozen-lockfile` at the repo root. Per-package installs
+// are drift under that contract, so they are skipped entirely.
 // The Effigy runtime already supplies
 // `process::stream`, `path::join`, `task_name`, and `repo_root` as
 // script bindings.
@@ -154,6 +159,39 @@ let shell_functions = "package_fingerprint() {\n"
     + "}\n"
     + "\n";
 
+let shell_root_workspace = "repo_root='" + repo_root + "'\n"
+    + "\n"
+    + "root_workspace_detected() {\n"
+    + "  if [ ! -f \"$repo_root/package.json\" ] || [ ! -f \"$repo_root/bun.lock\" ]; then\n"
+    + "    return 1\n"
+    + "  fi\n"
+    + "  bun -e '\n"
+    + "const fs = require(\"node:fs\");\n"
+    + "const path = require(\"node:path\");\n"
+    + "const pkg = JSON.parse(fs.readFileSync(path.join(process.argv[1], \"package.json\"), \"utf8\"));\n"
+    + "if (!Array.isArray(pkg.workspaces) || pkg.workspaces.length === 0) process.exit(1);\n"
+    + "' \"$repo_root\"\n"
+    + "}\n"
+    + "\n"
+    + "ensure_root_workspace_install() {\n"
+    + "  fingerprint=$(package_fingerprint \"$repo_root\")\n"
+    + "  stamp_path=\"$stamp_root/workspace-root.stamp\"\n"
+    + "\n"
+    + "  if [ -f \"$stamp_path\" ] && [ \"$(cat \"$stamp_path\")\" = \"$fingerprint\" ]; then\n"
+    + "    printf '[info] root workspace already hydrated\\n'\n"
+    + "    return 0\n"
+    + "  fi\n"
+    + "\n"
+    + "  printf '[info] bun install --frozen-lockfile -> workspace root\\n'\n"
+    + "  rm -f \"$stamp_path\"\n"
+    + "  (\n"
+    + "    cd \"$repo_root\"\n"
+    + "    bun install --frozen-lockfile\n"
+    + "  )\n"
+    + "  printf '%s\\n' \"$fingerprint\" > \"$stamp_path\"\n"
+    + "}\n"
+    + "\n";
+
 let shell_layout_helpers = "ensure_bun_install_if_present() {\n"
     + "  dir=\"$1\"\n"
     + "  label=\"$2\"\n"
@@ -184,11 +222,15 @@ let shell_layout_helpers = "ensure_bun_install_if_present() {\n"
     + "  printf '[info] svelte-kit sync -> %s\\n' \"$label\"\n"
     + "  (\n"
     + "    cd \"$dir\"\n"
-    + "    if [ ! -f node_modules/@sveltejs/kit/svelte-kit.js ]; then\n"
+    + "    kit_cli=\"\"\n"
+    + "    for candidate in node_modules/@sveltejs/kit/svelte-kit.js \"$repo_root/node_modules/@sveltejs/kit/svelte-kit.js\"; do\n"
+    + "      if [ -f \"$candidate\" ]; then kit_cli=\"$candidate\"; break; fi\n"
+    + "    done\n"
+    + "    if [ -z \"$kit_cli\" ]; then\n"
     + "      printf '[error] missing @sveltejs/kit CLI in %s\\n' \"$dir\" >&2\n"
     + "      exit 1\n"
     + "    fi\n"
-    + "    bun ./node_modules/@sveltejs/kit/svelte-kit.js sync\n"
+    + "    bun \"$kit_cli\" sync\n"
     + "  )\n"
     + "}\n"
     + "\n"
@@ -205,24 +247,32 @@ let shell_layout_helpers = "ensure_bun_install_if_present() {\n"
     + "}\n"
     + "\n";
 
+// Sibling framework checkouts are separate repos, not workspace members, so
+// they hydrate the same way in both layouts.
 let shell_targets = "ensure_bun_install_if_present \"" + underlay_dir + "\" \"underlay\"\n"
     + "ensure_bun_install_if_present \"" + poodle_dir + "\" \"poodle\"\n";
 
+shell_targets += "\nif root_workspace_detected; then\n";
+shell_targets += "  ensure_root_workspace_install\n";
+shell_targets += "else\n";
+
 if client_dir != "" {
-    shell_targets += "ensure_bun_install_if_present \"" + client_abs_dir + "\" \"" + client_dir + "\"\n";
+    shell_targets += "  ensure_bun_install_if_present \"" + client_abs_dir + "\" \"" + client_dir + "\"\n";
 } else {
-    shell_targets += "ensure_bun_install_if_present \"" + app_client_dir + "\" \"app-client\"\n";
-    shell_targets += "ensure_bun_install_if_present \"" + acme_client_dir + "\" \"acme-client\"\n";
-    shell_targets += "ensure_bun_install_if_present \"" + legacy_client_dir + "\" \"client\"\n";
+    shell_targets += "  ensure_bun_install_if_present \"" + app_client_dir + "\" \"app-client\"\n";
+    shell_targets += "  ensure_bun_install_if_present \"" + acme_client_dir + "\" \"acme-client\"\n";
+    shell_targets += "  ensure_bun_install_if_present \"" + legacy_client_dir + "\" \"client\"\n";
 }
 
 if ui_dir != "" {
-    shell_targets += "ensure_bun_install_if_present \"" + ui_abs_dir + "\" \"" + ui_dir + "\"\n";
+    shell_targets += "  ensure_bun_install_if_present \"" + ui_abs_dir + "\" \"" + ui_dir + "\"\n";
 } else {
-    shell_targets += "ensure_bun_install_if_present \"" + app_ui_dir + "\" \"app-ui\"\n";
-    shell_targets += "ensure_bun_install_if_present \"" + acme_ui_dir + "\" \"acme-ui\"\n";
-    shell_targets += "ensure_bun_install_if_present \"" + legacy_ui_dir + "\" \"ui\"\n";
+    shell_targets += "  ensure_bun_install_if_present \"" + app_ui_dir + "\" \"app-ui\"\n";
+    shell_targets += "  ensure_bun_install_if_present \"" + acme_ui_dir + "\" \"acme-ui\"\n";
+    shell_targets += "  ensure_bun_install_if_present \"" + legacy_ui_dir + "\" \"ui\"\n";
 }
+
+shell_targets += "fi\n";
 
 shell_targets += "\ncase \"$setup_task_name\" in\n";
 shell_targets += "  front) selected_dir=$(resolve_first_package_dir";
@@ -235,7 +285,7 @@ shell_targets += ")\n";
 shell_targets += "    if [ -z \"$selected_dir\" ]; then\n";
 shell_targets += "      printf '[warn] skipping front; none of these package dirs exist\\n'\n";
 shell_targets += "    else\n";
-shell_targets += "      ensure_bun_install \"$selected_dir\" \"front\"\n";
+shell_targets += "      root_workspace_detected || ensure_bun_install \"$selected_dir\" \"front\"\n";
 shell_targets += "      ensure_svelte_sync_if_present \"$selected_dir\" \"front\"\n";
 shell_targets += "    fi ;;\n";
 shell_targets += "  admin) selected_dir=$(resolve_first_package_dir";
@@ -248,13 +298,13 @@ shell_targets += ")\n";
 shell_targets += "    if [ -z \"$selected_dir\" ]; then\n";
 shell_targets += "      printf '[warn] skipping admin; none of these package dirs exist\\n'\n";
 shell_targets += "    else\n";
-shell_targets += "      ensure_bun_install \"$selected_dir\" \"admin\"\n";
+shell_targets += "      root_workspace_detected || ensure_bun_install \"$selected_dir\" \"admin\"\n";
 shell_targets += "      ensure_svelte_sync_if_present \"$selected_dir\" \"admin\"\n";
 shell_targets += "    fi ;;\n";
 shell_targets += "  *) printf '[error] unsupported ui setup target %s\\n' \"$setup_task_name\"; exit 1 ;;\n";
 shell_targets += "esac\n";
 
-let shell = shell_header + shell_functions + shell_layout_helpers + shell_targets;
+let shell = shell_header + shell_root_workspace + shell_functions + shell_layout_helpers + shell_targets;
 
 // This stays as a shell program on purpose. The helper needs shell-native
 // locking, traps, grouped subshells, and package-manager probes across a small
