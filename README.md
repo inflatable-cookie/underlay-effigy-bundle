@@ -48,8 +48,9 @@ browser_runtime = "chromium"
   basic font set as root at image build. Unknown values fail the image
   build.
 - Changing the value requires rebuilding the workspace image (for example
-  `effigy container reset` followed by `effigy container up`) before the new
-  layer takes effect.
+  `effigy container reset --keep-data` followed by `effigy container up`)
+  before the new layer takes effect. Always pass `--keep-data`: a plain
+  `reset` deletes persistent named volumes, including local database data.
 - The image ships no browser binary, Playwright, or Node. The consuming
   repo owns its matching browser installation into the `dev` user cache
   (for example `bunx playwright install --only-shell chromium` or the
