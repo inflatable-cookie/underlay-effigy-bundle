@@ -197,3 +197,10 @@ name = "default_workspace"
 type = "string"
 description = "Name of the `[systems.<system>.workspaces.<name>]` workspace treated as the system default."
 default = "app"
+
+[[inputs]]
+name = "browser_runtime"
+type = "string"
+description = "Optional Chromium system-library layer for the workspace image. `none` leaves the ordinary Rust/Bun image unchanged; `chromium` installs Debian Bookworm runtime libraries and a basic font set at image build. Changing this value requires an image rebuild, and the consuming repo owns its matching browser download (Playwright/Node stay consumer-owned; the image ships no browser binary)."
+default = "none"
+example = "chromium"

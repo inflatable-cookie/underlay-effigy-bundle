@@ -26,6 +26,36 @@ Key required inputs:
 - `workspace_subdir` — Repo path under `/workspace-root`
 - `databases` — Postgres databases to create
 
+Optional inputs:
+- `browser_runtime` — Workspace image browser layer (`"none"` by default,
+  `"chromium"` for the opt-in Chromium system libraries). Requires
+  Effigy `>= 0.13.1`; older releases reject this bundle revision on the
+  `minimum_effigy_version` floor instead of silently ignoring the setting.
+
+## Browser runtime (`browser_runtime`)
+
+The bundle forwards `browser_runtime` to the `workspace-rust-bun` catalog
+service as its `BROWSER_RUNTIME` image build arg:
+
+```toml
+[bundle]
+# ... required inputs ...
+browser_runtime = "chromium"
+```
+
+- `none` (default) leaves the ordinary Rust/Bun image unchanged.
+- `chromium` installs Debian Bookworm Chromium runtime libraries and a
+  basic font set as root at image build. Unknown values fail the image
+  build.
+- Changing the value requires rebuilding the workspace image (for example
+  `effigy container reset --keep-data` followed by `effigy container up`)
+  before the new layer takes effect. Always pass `--keep-data`: a plain
+  `reset` deletes persistent named volumes, including local database data.
+- The image ships no browser binary, Playwright, or Node. The consuming
+  repo owns its matching browser installation into the `dev` user cache
+  (for example `bunx playwright install --only-shell chromium` or the
+  Playwright revision its lockfile pins), after the rebuilt image is up.
+
 ## Bundle-owned secrets
 
 The bundle declares the shared Underlay runtime secret contract, including:
