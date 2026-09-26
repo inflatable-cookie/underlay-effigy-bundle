@@ -18,7 +18,8 @@ Northstar, `northstar-lean` skill).
 ## Product rules
 
 - Keep inputs backward-compatible. A new input gets a safe default, and a
-  change that needs a newer Effigy raises `minimum_effigy_version` so older
+  change that needs a newer Effigy raises `minimum_effigy_version` (in
+  `export.toml`) so older
   Effigy refuses the bundle instead of silently ignoring the setting.
 - App-specific secrets stay in the consuming repository; the bundle declares
   only the shared Underlay runtime secret contract.

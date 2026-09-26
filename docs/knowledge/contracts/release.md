@@ -6,7 +6,7 @@ no pinned ref, so a merge to `main` is a release to every consumer at once.
 ## Steps
 
 1. Keep the change backward-compatible: new inputs get safe defaults. If it
-   needs a newer Effigy, raise `minimum_effigy_version` in `bundle.toml` in the
+   needs a newer Effigy, raise `minimum_effigy_version` in `export.toml` in the
    same change.
 2. Before merging, assemble it from a consumer: point a consumer checkout's
    `[bundle]` at the branch, run its container build and plan (for example
