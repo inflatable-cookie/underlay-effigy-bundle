@@ -1,0 +1,10 @@
+# Concepts that no longer exist. Run the check with
+# `effigy skill run northstar-lean/retired-concepts`.
+
+[[retired]]
+id = "northstar-process-records"
+retired = "2026-09-26"
+replacement = "Knowledge in docs/knowledge/, intent in docs/plan.md; tasks, briefs, status and outcomes live in Queue."
+owner = "docs/knowledge/README.md"
+terms = ["roadmap card", "generation index", "northstar:lifecycle", "chatterbox handoff"]
+paths = ["docs/roadmaps/", "docs/handoffs/", "docs/logs/"]
