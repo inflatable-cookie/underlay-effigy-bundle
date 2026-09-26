@@ -13,7 +13,7 @@ a release.
 - What's next: `docs/plan.md`
 
 Tasks, briefs and status live in Queue, never in this repository (lean
-Northstar, `northstar-lean` skill).
+Northstar, `northstar` skill).
 
 ## Product rules
 
