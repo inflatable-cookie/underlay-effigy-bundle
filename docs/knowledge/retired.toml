@@ -8,3 +8,11 @@ replacement = "Knowledge in docs/knowledge/, intent in docs/plan.md; tasks, brie
 owner = "docs/knowledge/README.md"
 terms = ["roadmap card", "generation index", "northstar:lifecycle", "chatterbox handoff"]
 paths = ["docs/roadmaps/", "docs/handoffs/", "docs/logs/"]
+
+[[retired]]
+id = "repository-planning-files"
+retired = "2026-09-27"
+replacement = "The plan is Queue lanes, lane documents and plan order; leads are Queue records (lead.add)."
+owner = "docs/knowledge/README.md"
+paths = ["docs/plan.md", "docs/triage/"]
+allow = ["CHANGELOG.md", "docs/knowledge/retired.toml"]

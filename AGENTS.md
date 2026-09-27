@@ -10,7 +10,6 @@ a release.
 - How to use the bundle: `README.md`, with the input schema in `bundle.toml`
 - Knowledge: `docs/knowledge/README.md`
 - How a change is released: `docs/knowledge/contracts/release.md`
-- What's next: `docs/plan.md`
 
 Tasks, briefs and status live in Queue, never in this repository (lean
 Northstar, `northstar` skill).
