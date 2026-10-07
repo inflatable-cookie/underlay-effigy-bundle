@@ -43,6 +43,17 @@ fn optional_config_string(path, fallback) {
     return str::trim(value);
 }
 
+fn optional_config_bool(path, fallback) {
+    let value = config::get(path);
+    if value.type_of() == "()" {
+        return fallback;
+    }
+    if value.type_of() != "bool" {
+        throw `expected Effigy config bool at ${path}, got ${value.type_of()}`;
+    }
+    return value;
+}
+
 fn optional_repo_dir(configured) {
     if configured == "" {
         return "";
@@ -54,10 +65,15 @@ let front_dir = optional_config_string("bundle.dirs.front", "");
 let admin_dir = optional_config_string("bundle.dirs.admin", "");
 let client_dir = optional_config_string("bundle.dirs.client", "");
 let ui_dir = optional_config_string("bundle.dirs.ui", "");
-let underlay_source = optional_config_string("bundle.sources.underlay", "../underlay");
-let poodle_source = optional_config_string("bundle.sources.poodle", "../poodle");
-let underlay_dir = path::join(repo_root, underlay_source);
-let poodle_dir = path::join(repo_root, poodle_source);
+let siblings_enabled = optional_config_bool("bundle.sources.siblings", true);
+let underlay_dir = "";
+let poodle_dir = "";
+if siblings_enabled {
+    let underlay_source = optional_config_string("bundle.sources.underlay", "../underlay");
+    let poodle_source = optional_config_string("bundle.sources.poodle", "../poodle");
+    underlay_dir = path::join(repo_root, underlay_source);
+    poodle_dir = path::join(repo_root, poodle_source);
+}
 let app_client_dir = path::join(repo_root, "app-client");
 let acme_client_dir = path::join(repo_root, "acme-client");
 let legacy_client_dir = path::join(repo_root, "client");
@@ -328,9 +344,11 @@ shell += "}\n";
 // --- hydration targets ------------------------------------------------------
 //
 // Sibling framework checkouts are separate repos, not workspace members, so
-// they hydrate the same way in both layouts.
-shell += "ensure_bun_install_if_present \"" + underlay_dir + "\" \"underlay\"\n";
-shell += "ensure_bun_install_if_present \"" + poodle_dir + "\" \"poodle\"\n";
+// they hydrate the same way in both layouts when enabled.
+if siblings_enabled {
+    shell += "ensure_bun_install_if_present \"" + underlay_dir + "\" \"underlay\"\n";
+    shell += "ensure_bun_install_if_present \"" + poodle_dir + "\" \"poodle\"\n";
+}
 shell += "\n";
 shell += "if root_workspace_detected; then\n";
 shell += "  ensure_root_workspace_install\n";

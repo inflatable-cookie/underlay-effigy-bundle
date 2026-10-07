@@ -31,6 +31,18 @@ Optional inputs:
   `"chromium"` for the opt-in Chromium system libraries). Requires
   Effigy `>= 0.13.1`; older releases reject this bundle revision on the
   `minimum_effigy_version` floor instead of silently ignoring the setting.
+- `sources.siblings` — `true` by default, preserving the sibling Underlay and
+  Poodle checkout workflow. Set it to `false` when using released packages;
+  the bundle then omits sibling catalogs, bootstrap children and dependency
+  sync, Underlay validation, and sibling hydration in the UI setup helper.
+
+For consumers that use released Underlay and Poodle packages, opt out of
+sibling checkouts in the bundle inputs:
+
+```toml
+[bundle.sources]
+siblings = false
+```
 
 ## Browser runtime (`browser_runtime`)
 

@@ -69,16 +69,22 @@ example = "dairy"
 [[inputs]]
 name = "sources.underlay"
 type = "string"
-description = "Relative path from the consumer repo to the sibling underlay checkout used by bootstrap sync, bootstrap children, and the bundled UI setup helper."
+description = "Relative path from the consumer repo to the sibling underlay checkout used by bootstrap sync, bootstrap children, and the bundled UI setup helper when sources.siblings is true."
 default = "../underlay"
 example = "../../underlay"
 
 [[inputs]]
 name = "sources.poodle"
 type = "string"
-description = "Relative path from the consumer repo to the sibling poodle checkout used by bootstrap children and the bundled UI setup helper."
+description = "Relative path from the consumer repo to the sibling poodle checkout used by bootstrap children and the bundled UI setup helper when sources.siblings is true."
 default = "../poodle"
 example = "../../poodle"
+
+[[inputs]]
+name = "sources.siblings"
+type = "bool"
+description = "Keep the sibling Underlay and Poodle checkouts enabled for catalogs, bootstrap, validation, and UI hydration. Set false when consuming released packages without sibling checkouts."
+default = true
 
 [[inputs]]
 name = "dirs.client"

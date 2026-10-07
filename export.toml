@@ -27,9 +27,9 @@ js = "bun"
 schema = "{{ bundle.root }}/env/dev.env.schema"
 
 [catalog.members]
-underlay = "{% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}"
+{% if inputs.sources.siblings %}underlay = "{% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}"
 poodle = "{% if inputs.sources.poodle %}{{ inputs.sources.poodle }}{% else %}../poodle{% endif %}"
-api = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}"
+{% endif %}api = "{% if inputs.dirs.api %}{{ inputs.dirs.api }}{% else %}app-api{% endif %}"
 client = "{% if inputs.dirs.client %}{{ inputs.dirs.client }}{% else %}app-client{% endif %}"
 admin = "{% if inputs.dirs.admin %}{{ inputs.dirs.admin }}{% else %}app-admin{% endif %}"
 front = "{% if inputs.dirs.front %}{{ inputs.dirs.front }}{% else %}app-front{% endif %}"
@@ -212,8 +212,8 @@ run_in = "host"
 
 [tasks.validate]
 run = [
-  { task = "underlay/validate" },
-{% if inputs.dirs.docs %}  { task = "{{ sel_docs }}/validate" },
+{% if inputs.sources.siblings %}  { task = "underlay/validate" },
+{% endif %}{% if inputs.dirs.docs %}  { task = "{{ sel_docs }}/validate" },
 {% endif %}  { task = "{{ sel_api }}/validate" },
   { task = "{{ sel_client }}/validate" },
 {% if inputs.dirs.ui %}  { task = "{{ sel_ui }}/validate" },
@@ -250,12 +250,12 @@ run = [
   { task = "container up --detach" },
   { rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" },
 {% if inputs.workspace.js_root %}  { task = "workspace:js:prepare" },
-{% else %}  { task = "bootstrap deps sync {% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}{% if inputs.dirs.api %} {{ inputs.dirs.api }}{% else %} app-api{% endif %}{% if inputs.dirs.client %} {{ inputs.dirs.client }}{% else %} app-client{% endif %}{% if inputs.dirs.ui %} {{ inputs.dirs.ui }}{% else %} app-ui{% endif %}{% if inputs.dirs.front %} {{ inputs.dirs.front }}{% else %} app-front{% endif %}{% if inputs.dirs.admin %} {{ inputs.dirs.admin }}{% else %} app-admin{% endif %}" },
+{% elif inputs.sources.siblings %}  { task = "bootstrap deps sync {% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}{% if inputs.dirs.api %} {{ inputs.dirs.api }}{% else %} app-api{% endif %}{% if inputs.dirs.client %} {{ inputs.dirs.client }}{% else %} app-client{% endif %}{% if inputs.dirs.ui %} {{ inputs.dirs.ui }}{% else %} app-ui{% endif %}{% if inputs.dirs.front %} {{ inputs.dirs.front }}{% else %} app-front{% endif %}{% if inputs.dirs.admin %} {{ inputs.dirs.admin }}{% else %} app-admin{% endif %}" },
 {% endif %}
 ]
 start = "dev"
 
-[[bootstrap.children]]
+{% if inputs.sources.siblings %}[[bootstrap.children]]
 path = "{% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}"
 repo = "git@github.com:inflatable-cookie/underlay.git"
 branch = "main"
@@ -264,6 +264,7 @@ branch = "main"
 path = "{% if inputs.sources.poodle %}{{ inputs.sources.poodle }}{% else %}../poodle{% endif %}"
 repo = "git@github.com:inflatable-cookie/poodle.git"
 branch = "main"
+{% endif %}
 
 [deploy.model.app]
 bundle = "{{ bundle.name }}"
