@@ -20,6 +20,8 @@ no pinned ref, so a merge to `main` is a release to every consumer at once.
 
 - A consumer on default inputs sees no change.
 - A consumer opting into a new input sees the documented effect.
+- A consumer with `sources.siblings = false` resolves bundle tasks without
+  sibling catalogs or checkout paths.
 
 ## Roll back
 
