@@ -44,6 +44,18 @@ sibling checkouts in the bundle inputs:
 siblings = false
 ```
 
+## Development profile qualification
+
+Run `effigy proof:dev-profiles` to assemble the bundle in a private consumer
+fixture and exercise the supported host-listener boundary. The proof uses a
+private checkout and two private worktrees, leaves the container runtime,
+gateway daemon and system resolver untouched, and uses only OS-assigned host
+ports. Default container startup is deliberately not part of this selector:
+the bundle's TLS routes require Effigy's `mkcert -install` path, which can
+change the host trust store. The disposable fixture goes under `~/Dev/projects`
+when that directory exists; set `UNDERLAY_PROFILE_FIXTURE_PARENT` to another
+existing directory when needed.
+
 ## Browser runtime (`browser_runtime`)
 
 The bundle forwards `browser_runtime` to the `workspace-rust-bun` catalog

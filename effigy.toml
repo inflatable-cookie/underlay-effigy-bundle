@@ -1,0 +1,3 @@
+[tasks."proof:dev-profiles"]
+run = "python3 scripts/qualify-dev-profiles.py"
+run_in = "host"
