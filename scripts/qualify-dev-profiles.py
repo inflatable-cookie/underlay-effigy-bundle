@@ -17,10 +17,11 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from qualification_runtime import require_effigy_binary
 
 
 REPO = Path(__file__).resolve().parents[1]
-EFFIGY = shutil.which("effigy")
+EFFIGY: Path | None = None
 
 
 RUST_SOURCE = r'''use std::env;
@@ -415,15 +416,16 @@ def private_fixture_root() -> Path:
 
 def note_container_startup_boundary() -> None:
     print(
-        "NOT RUN: default TLS route registration invokes `mkcert -install`, which can alter the "
-        "macOS trust store outside this disposable fixture.",
+        "NOT RUN: this synthetic listener proof does not start a gateway or qualify browser routes; "
+        "the designated Reference selector inventories private gateway and app-route receipts.",
         flush=True,
     )
 
 
 def main() -> int:
+    global EFFIGY
     if EFFIGY is None:
-        raise RuntimeError("effigy must be installed to run this proof")
+        EFFIGY = require_effigy_binary()
     token = uuid.uuid4().hex[:10]
     fixture_root = private_fixture_root()
     try:
@@ -439,7 +441,8 @@ def main() -> int:
         prove_host_listener_boundary(checkouts)
         note_container_startup_boundary()
         print(
-            "QUALIFICATION: container profile configuration remains unchanged; hybrid host route ownership is unavailable.",
+            "QUALIFICATION: synthetic Rust/Bun listener ownership and collision checks passed; "
+            "Reference app-route readiness remains subject to the pilot receipts.",
             flush=True,
         )
         return 0

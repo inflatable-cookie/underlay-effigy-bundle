@@ -61,108 +61,108 @@ If supported interfaces cannot establish these properties, report the
 smallest generic Effigy capability gap with an executable reproduction. A
 blocked capability must not become an invented CLI or private protocol.
 
-## Qualification result — 2026-10-09
+## Supported Effigy boundary and Reference execution — 2026-10-09
 
-Effigy source checkout `94dd80a25b279408aa0dcf9b36a4c802b26a237e` and binary
-`v0.14.1+local.7b26a15` were inspected. The binary commit is an ancestor of
-the inspected source checkout. Its current mechanisms support container-owned
-routes and isolated worktree domains; they do not qualify bundle-owned host
-process routes.
+The final Effigy owner handover is source commit
+`bd2dd667302250c7b8fed548c850567df2283038`. Qualification used its privately
+built `effigy v0.14.1` binary (SHA-256
+`ed44140738cc6e76e72ea9ee3ce23cad9aae243748d5833f3f8a15bba483aff2`).
+The inspected source documents were `docs/knowledge/contracts/005-container-runtime-contract.md`
+and `docs/guides/063-container-system-guide.md` in that exact Effigy checkout.
 
-- `container_lifecycle` starts and stops the task's selected container. The
-  `health_wait` contract waits on routes owned by that container and does not
-  probe a route targeting an external host process.
-- Container routes are registered after matching Compose project/service
-  ports are observed. `container hosts` derives distinct HTTPS domain names
-  for linked worktrees while leaving the primary checkout's declared names.
-- A route's `target_host = "host:port"` is an explicit static external target.
-  The current route registration path skips both Compose binding validation
-  and the host-listener collision check for that target. Its route ownership
-  remains attached to the container environment, not to a managed host child.
-- The installed Rhai `gateway` module exposes `down`, `setup_tls`, `status`,
-  and `up`. It has no route publication or owned-listener registration call.
+Effigy supports `containers.<name>.host_processes` declarations with
+`listener.bind`, HTTP readiness, TLS route, and `depends_on`. An adapter
+strictly binds `EFFIGY_MANAGED_HOST_LISTENER_BIND`, then writes
+`effigy.managed.host-listener-report.v1` to
+`EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE` and echoes
+`EFFIGY_MANAGED_HOST_LISTENER_GENERATION`. Effigy verifies kernel socket
+ownership and HTTP readiness before publication. Dependents receive current
+`EFFIGY_MANAGED_HOST_<NAME>_INTERNAL_URL`, `_PUBLIC_URL`, `_STATE_FILE`,
+and `_GENERATION` values and restart after a dependency endpoint or readiness
+change. This supersedes the earlier qualification's missing-capability
+description; do not infer that the Reference profile is ready.
 
-The bounded gap is a language-neutral Effigy ownership contract that connects
-one managed host child to its actual listening endpoint. A bundle adapter must
-be able to describe the child task, requested loopback binding, readiness
-condition, and browser route. Effigy must associate the resulting address with
-the checkout/runtime-generation/profile identity, prove readiness for that
-child before publishing, replace the route after restart, reject a foreign
-listener or hostname claim, and clean only the recorded child and route. If
-ownership is uncertain, the claim must remain explicit. The bundle remains
-responsible for Rust/Vite launch recipes, service URLs, browser origins and
-HMR settings. This describes the missing contract; it is not an existing CLI
-or script protocol.
+Effigy private gateway mode is also supported. A caller-owned mode-0700 root
+can be selected with `EFFIGY_GATEWAY_PRIVATE_STATE_ROOT` and
+`--private-state-root`. Private TLS setup and startup report the fixture CA
+without installing it or changing resolver, aliases, global gateway state, or
+trust. A client must use the CA file and explicit name resolution/SNI. The
+qualification used loopback-only listeners with the HTTPS port pinned to
+`54321`; it did not use global TLS setup or the system trust store.
 
-`effigy proof:dev-profiles` assembles a private consumer from the bundle path
-with `sources.siblings = false`, creates a private main checkout and two
-worktrees, and starts real minimal Rust and Bun listeners at OS-assigned ports.
-It checks that all six listeners work concurrently, that the worktrees receive
-distinct HTTPS domain names, and that strict binding fails without disturbing
-an occupied foreign listener. It inspects the default `dev` plan and leaves the
-container runtime, gateway daemon, and macOS resolver untouched.
+### Designated Reference receipts
 
-The required default container startup was attempted once from the private
-consumer. Effigy generated the Compose plan but `container up` exited 1 during
-TLS route setup: `mkcert -install` attempted to add a local CA to the macOS
-trust store and was denied because the worker had no interactive
-authorization. Effigy's scoped `container retire` exited 0, and a subsequent
-read-only status showed no services. No gateway or resolver was started. The
-selector now stops before that operation; this run does not certify default
-stack startup or HTTPS connectivity.
+The pilot source was a clean Underlay Reference checkout at
+`16b35df4bebe920b14eca9d43abc626de44cb617`. It remained untouched. A private
+main clone and two detached worktrees retained `sources.siblings = false`,
+the `workspace-rust-bun` catalog, the default Reference project name, and
+container ports 41001/41002/41003. Effigy reported three distinct checkout
+scopes, HTTPS host maps and container service port sets. The three isolated
+Colima stacks used separate project names and loopback-published Postgres,
+Mailpit, DbGate and workspace ports.
 
-These proofs do not certify hybrid or `dev:test`: no bundle or Effigy path in
-this version connects the host children to owned gateway routes. Service
-container reachability from host processes, SvelteKit origins, Vite HMR,
-restart route replacement, interrupted owner recovery, and isolated host-route
-teardown remain unavailable pending the Effigy ownership contract. The current
-container `dev` task, inputs, and fixed default ports are unchanged. No input
-schema change is needed until an opt-in profile can be implemented on
-supported interfaces.
+The bundle adds opt-in Rust and Vite adapter programs at
+`scripts/dev/managed-rust-listener.py` and
+`scripts/dev/managed-vite-listener.mjs`. The Rust adapter starts the actual
+Reference `acme-api/api` task with Effigy's loopback bind preference, discovers
+its listener within that task's process tree, and writes the versioned report.
+The Vite adapter loads the consumer's installed Vite/SvelteKit configuration,
+uses Effigy's managed API public URL, writes the generated client URL module,
+sets SvelteKit `ORIGIN`, and configures HMR for the gateway's actual HTTPS
+port. Fixture-only configuration requested port zero and distinct pilot
+domains; no consumer default or source checkout was changed.
 
-## Reference pilot configuration pass — 2026-10-09
+The Reference API compiled and reached Postgres over its host loopback URL;
+migration notices were recorded. It bound a real listener at
+`127.0.0.1:52177`, and an explicit Host-header GET to
+`http://127.0.0.1:52177/v1/health` returned `200`. The adapter wrote the
+generation-bound listener report. However, the exact-source Effigy supervisor
+left its state at `starting`, did not publish the API route, then terminated
+the child and recorded `failed` after 240 seconds with
+`timed out after 240s waiting for an owned ready managed host listener`.
+The report and direct HTTP success did not satisfy Effigy's owned-listener
+verification on this macOS run. The result does not establish why verification
+timed out; route publication remains fail-closed.
 
-The designated consumer source was `/Users/tom/Dev/projects/underlay-reference`,
-clean on `main` at `16b35df4bebe920b14eca9d43abc626de44cb617`. The
-`effigy proof:dev-profiles:reference` selector cloned that commit without
-hardlinks into a fresh temporary root, created two detached Reference worktrees,
-and changed only each disposable root `effigy.toml` bundle source to this task
-checkout. The source checkout stayed read-only. Effigy was
-`v0.14.1+local.7b26a15`.
+The two surviving worktree service stacks accepted SMTP EHLO at
+`127.0.0.1:8526` and `127.0.0.1:8426`. The main stack had already rolled back
+after the managed API listener failure, so its SMTP service was absent. This
+does not qualify MinIO: the disposable catalog used a stub after the pinned
+image was denied by both registries.
 
-The selector exited 0. `bundle inspect`, `config --inspect`, all three
-`container scope` and `container hosts` reads, all three `dev --plan` calls,
-`tasks --json`, and the `acme-api/api --plan`, `acme-admin/dev --plan`, and
-`acme-front/dev --plan` calls exited 0. Effective configuration retained
-`sources.siblings = false`, the `workspace-rust-bun` catalog, project name
-`underlay-reference-dev`, and published ports 41001/41002/41003. It reported
-distinct primary/worktree scope identities and host maps `acme.test`,
-`acme-w942cd9b4.test`, and `acme-wd8428f40.test` for that run.
+The API was the dependency for both Vite/SvelteKit listeners, so those
+processes did not start. The private gateway setup stayed scoped to its
+fixture CA; the earlier global `mkcert -install` denial is superseded. A
+verified client handshake to the registered `acme.test` route received
+`TLSV1_ALERT_ACCESS_DENIED`, so private HTTPS/browser connectivity is still
+blocked. SvelteKit request origins, HMR WebSocket, listener restart/route
+replacement, partial failure recovery, uncertain-owner handling, and isolated
+teardown were not proven.
 
-The actual Reference adapter configuration uses API bind `0.0.0.0:41001` with
-public host `api.acme.test`; admin Vite uses port 41002 with `strictPort: true`;
-front Vite uses port 41003 without `strictPort`. Its `dev --plan` rendered
-Cargo API/jobs and Bun Vite commands using `--host 0.0.0.0`. The API database
-URL names `postgres.acme.test`, while browser hosts are `acme.test` and
-`admin.acme.test`. These are configuration and command-plan observations only:
-no Reference application process, service, container image build, gateway route,
-HTTPS request, or HMR WebSocket was started or exercised. The worktree host maps
-are not evidence that a route reached an app listener.
+The pinned MinIO image could not be pulled from either configured public
+registry (Docker Hub denied the image scope; Quay returned 401). To continue
+the unaffected Reference build/configuration and API/Postgres attempt, only
+the private disposable consumer catalog used a BusyBox stub on the MinIO
+service ports. This is not MinIO connectivity evidence and does not qualify
+the exact default container startup. The standard Reference default ports,
+image declarations and bundle selectors were not changed.
 
-Starting those adapters in all three worktrees with their actual settings would
-bind the same fixed ports on `0.0.0.0`; those ports are also the bundle's
-published container ports. The Reference task/config has no per-instance port
-input. Admin's strict Vite bind would fail on collision, while front Vite may
-choose another port without any bundle mechanism to update its route. Rewriting
-the fixture to port zero would alter the adapter configuration under test, so
-the multi-instance app launch was left blocked rather than reported as a
-supported Reference profile proof.
+### Current assurance
 
-The Reference selector deliberately stops before container startup/build and
-does not invoke TLS helpers. No supported private non-global TLS isolation or
-authorized startup path was established. Therefore the Reference plan pass does
-not close the release-contract startup proof or certify host-to-service
-connectivity, browser origin/HMR behavior, owned listener publication, restart,
-readiness gating, interrupted-owner recovery, or isolated teardown. Those
-runtime acceptance cases remain blocked/unproven, along with the earlier
-`container up` attempt that stopped at denied `mkcert -install`.
+The bundle's default container profile and fixed ports remain unchanged.
+Container-only plans, private assembly with `sources.siblings = false`, and
+generic synthetic Rust/Bun collision checks are evidence for those specific
+cases only. The Reference hybrid and `dev:test` profiles are unavailable:
+Effigy's supported contract exists, but owned API route publication did not
+complete in the designated macOS pilot. MinIO, gateway app connectivity,
+SvelteKit origins/HMR, restart propagation, interrupted cleanup, and
+three-instance managed application concurrency remain unqualified. Do not
+switch a consumer's default or claim either profile ready from these receipts.
+
+The private Reference selector accepts
+`UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT` to inspect an already prepared
+three-instance pilot without writing to it or starting/stopping resources.
+The qualification scripts require both
+`UNDERLAY_PROFILE_EFFIGY_SOURCE` and
+`UNDERLAY_PROFILE_EFFIGY_BIN`, pinned to the exact handover source and
+binary hash above. They do not select a global binary implicitly.

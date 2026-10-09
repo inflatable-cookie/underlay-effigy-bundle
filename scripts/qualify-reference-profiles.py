@@ -4,17 +4,22 @@
 from __future__ import annotations
 
 import json
+import ast
 import os
 import re
 import shutil
+import smtplib
+import socket
+import ssl
 import subprocess
 import tempfile
 from pathlib import Path
+from qualification_runtime import require_effigy_binary
 
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_REFERENCE = Path.home() / "Dev" / "projects" / "underlay-reference"
-EFFIGY = shutil.which("effigy")
+EFFIGY: Path | None = None
 EXPECTED_ADAPTERS = {
     "acme-api/api": ["cargo", "run", "-p", "acme-api"],
     "acme-admin/dev": ["vite", "dev", "--host", "0.0.0.0", "--force"],
@@ -194,6 +199,98 @@ def prove_reference_configuration(checkouts: list[Path]) -> None:
     )
 
 
+def prepared_reference_instances(root: Path, source: Path) -> list[Path]:
+    checkouts = [root / "main", root / "worktrees" / "first", root / "worktrees" / "second"]
+    expected = run(
+        ["git", "-C", str(source), "rev-parse", "HEAD"], show_output=False
+    ).stdout.strip()
+    for checkout in checkouts:
+        if not checkout.is_dir() or checkout.resolve() == source.resolve():
+            raise RuntimeError(f"prepared pilot instance is missing or is the source checkout: {checkout}")
+        commit = run(
+            ["git", "-C", str(checkout), "rev-parse", "HEAD"], show_output=False
+        ).stdout.strip()
+        assert commit == expected, f"{checkout} is at {commit}, expected Reference {expected}"
+    print(f"PREPARED PRIVATE REFERENCE ROOT: {root}", flush=True)
+    print(f"REFERENCE COMMIT: {expected}", flush=True)
+    return checkouts
+
+
+def prove_private_pilot_receipts(checkouts: list[Path]) -> None:
+    main = checkouts[0]
+    manifest = (main / "effigy.toml").read_text(encoding="utf-8")
+    assert 'base = { type = "path"' in manifest
+    assert '[bundle.sources]\nsiblings = false' in manifest
+    assert 'project_name = "underlay-reference-dev"' in manifest
+    for port in (41001, 41002, 41003):
+        assert f'"{port}:{port}"' in run(
+            [str(EFFIGY), "--repo", str(main), "config", "--inspect"], show_output=False
+        ).stdout
+    print("PASS private consumer assembly: branch bundle, siblings=false and unchanged container ports", flush=True)
+
+    rust_config = (main / "apps/acme-api/config/effigy.toml").read_text(encoding="utf-8")
+    assert 'host = "0.0.0.0"' in rust_config and "port = 41001" in rust_config
+    front_config = (main / "apps/acme-front/vite.config.ts").read_text(encoding="utf-8")
+    admin_config = (main / "apps/acme-admin/vite.config.ts").read_text(encoding="utf-8")
+    assert re.search(r"port:\s*41003\b", front_config)
+    assert re.search(r"port:\s*41002\b", admin_config)
+    assert re.search(r"strictPort:\s*true", admin_config)
+    for checkout in checkouts:
+        assert 'bind = "127.0.0.1:0"' in (checkout / "effigy.toml").read_text(encoding="utf-8")
+    print("PASS fixture adapter wiring: Reference Rust and both Vite processes request loopback port zero", flush=True)
+
+    service_ports = [8126, 8526, 8426]
+    for checkout, port in zip(checkouts, service_ports):
+        status = effigy_json(checkout, "container", "status", "--json")["result"]
+        services = {item["name"]: item["status"] for item in status.get("services", [])}
+        if services.get("mailpit") != "Up":
+            print(f"BLOCKED SMTP {checkout.name}: container service status is {services.get('mailpit', 'absent')}", flush=True)
+            continue
+        with smtplib.SMTP("127.0.0.1", port, timeout=3) as client:
+            code, _ = client.ehlo("qualification.invalid")
+            assert 200 <= code < 300, (port, code)
+        print(f"PASS host-to-SMTP loopback: 127.0.0.1:{port} accepted EHLO", flush=True)
+
+    log_path = main / ".effigy/runtime/host-processes/stack/effigy/api.log"
+    state_path = main / ".effigy/runtime/host-processes/stack/effigy/api.listener.json"
+    if log_path.is_file() and state_path.is_file():
+        log = log_path.read_text(encoding="utf-8", errors="replace")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "sqlx::postgres::notice" in log and "api listening, addr: 127.0.0.1:0" in log
+        print("PASS host-to-Postgres: Reference API connected and applied migrations before listener verification", flush=True)
+        assert state["status"] == "failed" and state["address"] is None and state["route_owner"] is None
+        assert "timed out after 240s waiting for an owned ready managed host listener" in log
+        print(
+            "BLOCKED managed publication: API listener bound and direct /v1/health returned 200, "
+            "but Effigy exact-source ownership/readiness verification timed out; no route was published",
+            flush=True,
+        )
+
+    gateway_root = Path(os.environ["EFFIGY_GATEWAY_PRIVATE_STATE_ROOT"]).resolve()
+    status = json.loads(
+        run(
+            [str(EFFIGY), "--json", "gateway", "status", "--private-state-root", str(gateway_root)],
+            show_output=False,
+        ).stdout
+    )["result"]
+    assert status["private"] is True and status["https_addr"] == "127.0.0.1:54321"
+    assert not any(route["domain"] == "api-pilot.acme.test" for route in status["routes"])
+    ca_file = gateway_root / "ca/rootCA.pem"
+    context = ssl.create_default_context(cafile=str(ca_file))
+    try:
+        sock = socket.create_connection(("127.0.0.1", 54321), timeout=3)
+        with context.wrap_socket(sock, server_hostname="acme.test") as tls:
+            cipher = tls.cipher()[0]
+        print(f"PASS private CA/SNI HTTPS handshake through gateway: {cipher}", flush=True)
+    except ssl.SSLError as error:
+        print(
+            f"BLOCKED verified private HTTPS handshake through gateway: {type(error).__name__} {error.reason}",
+            flush=True,
+        )
+    print("BLOCKED browser app route/origin/HMR: the API route is absent, so SvelteKit and WebSocket cannot be certified", flush=True)
+    print("BLOCKED MinIO: the fixture service override is a stub after both public registries denied the pinned image", flush=True)
+    print("NOT PROVEN: simultaneous Reference app listeners, restart/route replacement, interruption recovery, isolated teardown", flush=True)
+
 def prove_worktree_plans(checkouts: list[Path]) -> None:
     scopes = []
     domains = []
@@ -235,10 +332,52 @@ def prove_real_adapter_task_plans(checkout: Path) -> None:
     print(f"PASS Reference Rust/Vite/SvelteKit Effigy adapter plans: {plans}", flush=True)
 
 
+def prove_bundle_adapter_sources() -> None:
+    rust_adapter = REPO / "scripts/dev/managed-rust-listener.py"
+    vite_adapter = REPO / "scripts/dev/managed-vite-listener.mjs"
+    compile(rust_adapter.read_text(encoding="utf-8"), str(rust_adapter), "exec")
+    node = subprocess.run(
+        ["node", "--check", str(vite_adapter)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if node.returncode != 0:
+        raise RuntimeError(f"Vite adapter syntax check failed: {node.stderr.strip()}")
+    rust_source = ast.parse(rust_adapter.read_text(encoding="utf-8"))
+    assert rust_source.body
+    vite_source = vite_adapter.read_text(encoding="utf-8")
+    for token in (
+        "EFFIGY_MANAGED_HOST_LISTENER_BIND",
+        "EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE",
+        "EFFIGY_MANAGED_HOST_LISTENER_GENERATION",
+        "EFFIGY_MANAGED_HOST_API_PUBLIC_URL",
+        "EFFIGY_PROFILE_GATEWAY_HTTPS_PORT",
+        "protocol: publicUrl.protocol === \"https:\" ? \"wss\" : \"ws\"",
+    ):
+        assert token in vite_source, f"Vite adapter is missing {token}"
+    print("PASS bundle Rust/Vite adapter syntax and managed endpoint/origin inputs", flush=True)
+
+
 def main() -> int:
+    global EFFIGY
     if EFFIGY is None:
-        raise RuntimeError("effigy must be installed to run this proof")
+        EFFIGY = require_effigy_binary()
     source = reference_source()
+    prove_bundle_adapter_sources()
+    prepared = os.environ.get("UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT")
+    if prepared:
+        root = Path(prepared).expanduser().resolve(strict=True)
+        checkouts = prepared_reference_instances(root, source)
+        for checkout in checkouts:
+            bundle = effigy_json(checkout, "bundle", "inspect", "--json")["result"]
+            assert bundle["source"]["source_type"] == "path"
+            assert Path(bundle["source"]["source_path"]).resolve() == REPO.resolve()
+        prove_private_pilot_receipts(checkouts)
+        prove_worktree_plans(checkouts)
+        prove_real_adapter_task_plans(checkouts[0])
+        return 0
+
     root = Path(tempfile.mkdtemp(prefix="underlay-reference-profile-"))
     print(f"PRIVATE FIXTURE ROOT: {root}", flush=True)
     try:
@@ -249,14 +388,8 @@ def main() -> int:
         prove_worktree_plans(checkouts)
         prove_real_adapter_task_plans(checkouts[0])
         print(
-            "NOT RUN: no container up/build, gateway/TLS helper, service startup, or "
-            "host app launch; the required TLS isolation/authorization path is not established.",
-            flush=True,
-        )
-        print(
-            "BLOCKED: Reference host listeners have fixed ports and no bundle-owned "
-            "host-child route ownership path; configuration/plans do not prove service "
-            "reachability, HTTPS/HMR, restart, readiness publication, or isolated teardown.",
+            "CONFIGURATION-ONLY: set UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT to a prepared "
+            "private pilot root to inventory runtime receipts; this mode does not start services.",
             flush=True,
         )
         return 0

@@ -46,23 +46,44 @@ siblings = false
 
 ## Development profile qualification
 
-Run `effigy proof:dev-profiles` to assemble the bundle in a private consumer
-fixture and exercise the supported host-listener boundary. The proof uses a
-private checkout and two private worktrees, leaves the container runtime,
-gateway daemon and system resolver untouched, and uses only OS-assigned host
-ports. Default container startup is deliberately not part of this selector:
-the bundle's TLS routes require Effigy's `mkcert -install` path, which can
-change the host trust store. The disposable fixture goes under `~/Dev/projects`
-when that directory exists; set `UNDERLAY_PROFILE_FIXTURE_PARENT` to another
-existing directory when needed.
+The bundle owns optional Rust and Vite managed-listener adapters in
+`scripts/dev/`. They consume Effigy's loopback bind and generation report
+variables. The Vite adapter also consumes the managed API public URL, writes
+the Reference-style generated client URLs at process start, sets SvelteKit's
+`ORIGIN`, and points the HMR WebSocket at the gateway's actual HTTPS port.
+These adapters are not wired into the default `dev` selector; container
+behavior and its published ports remain unchanged.
 
-The designated Underlay Reference pilot uses `effigy proof:dev-profiles:reference`.
-It reads a clean checkout at `~/Dev/projects/underlay-reference` by default;
-set `UNDERLAY_REFERENCE_SOURCE` to another clean Reference checkout when needed.
-The selector clones it into a fresh temporary directory, makes two private
-worktrees, points their bundle source at this checkout, and checks Reference
-configuration and task plans. It does not start apps or containers or invoke
-TLS, gateway, or resolver operations.
+Run both qualification selectors with the privately built Effigy source and
+binary from the approved owner handover:
+
+```sh
+export UNDERLAY_PROFILE_EFFIGY_SOURCE=/path/to/private/effigy
+export UNDERLAY_PROFILE_EFFIGY_BIN=/path/to/private/effigy/target/release/effigy
+"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles
+
+export UNDERLAY_REFERENCE_SOURCE=~/Dev/projects/underlay-reference
+"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference
+```
+
+The scripts reject other source revisions and binary hashes. Set
+`UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT` to inventory a prepared private
+Reference main checkout plus two worktrees and their runtime receipts. That
+mode reads the fixture only and never starts, stops or edits it. It can verify
+the private gateway using `EFFIGY_GATEWAY_PRIVATE_STATE_ROOT`; TLS clients
+trust only the fixture CA.
+
+The 2026-10-09 Reference run used clean source commit
+`16b35df4bebe920b14eca9d43abc626de44cb617`, private sibling-disabled bundle
+assembly, and isolated Colima services. Postgres connectivity and the Rust
+API's direct loopback health request succeeded. Effigy's exact-source managed
+listener verifier then timed out before publishing that API route, so the
+Reference hybrid profile, browser origin/HMR path, restart propagation and
+teardown are not qualified. The pinned MinIO image was denied by both
+configured registries; the disposable run used a stub solely to reach the
+remaining checks. This does not qualify the default service stack. See
+[development profile ownership](docs/knowledge/contracts/dev-profiles.md) for
+the complete receipts and limits.
 
 ## Browser runtime (`browser_runtime`)
 
