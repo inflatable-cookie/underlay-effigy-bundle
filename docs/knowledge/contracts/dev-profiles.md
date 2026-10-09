@@ -44,7 +44,13 @@ remain explicit.
 
 ## Qualification boundary
 
-Use private disposable consumer fixtures and isolated owned resources. Cover
+Underlay Reference is the designated pilot for profile qualification and later
+opt-in implementation and adoption proof. Use disposable owned checkouts,
+worktrees and instances of `underlay-reference`; preserve its operator checkout
+and live stack. Acowtancy is excluded from testing, mutation and rollout until
+the solution is qualified and explicit later adoption is arranged.
+
+Use those private disposable consumer fixtures and isolated owned resources. Cover
 two worktrees and a main-checkout identity starting simultaneously, occupied
 ports, child restart, partial launch failure, interrupted cleanup and uncertain
 ownership. Isolated teardown must preserve foreign processes and routes.
