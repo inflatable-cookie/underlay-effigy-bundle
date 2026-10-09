@@ -116,6 +116,53 @@ this version connects the host children to owned gateway routes. Service
 container reachability from host processes, SvelteKit origins, Vite HMR,
 restart route replacement, interrupted owner recovery, and isolated host-route
 teardown remain unavailable pending the Effigy ownership contract. The current
-container `dev` task, inputs, and fixed default ports are unchanged. No README
-or input-schema change is needed until an opt-in profile can be implemented on
+container `dev` task, inputs, and fixed default ports are unchanged. No input
+schema change is needed until an opt-in profile can be implemented on
 supported interfaces.
+
+## Reference pilot configuration pass — 2026-10-09
+
+The designated consumer source was `/Users/tom/Dev/projects/underlay-reference`,
+clean on `main` at `16b35df4bebe920b14eca9d43abc626de44cb617`. The
+`effigy proof:dev-profiles:reference` selector cloned that commit without
+hardlinks into a fresh temporary root, created two detached Reference worktrees,
+and changed only each disposable root `effigy.toml` bundle source to this task
+checkout. The source checkout stayed read-only. Effigy was
+`v0.14.1+local.7b26a15`.
+
+The selector exited 0. `bundle inspect`, `config --inspect`, all three
+`container scope` and `container hosts` reads, all three `dev --plan` calls,
+`tasks --json`, and the `acme-api/api --plan`, `acme-admin/dev --plan`, and
+`acme-front/dev --plan` calls exited 0. Effective configuration retained
+`sources.siblings = false`, the `workspace-rust-bun` catalog, project name
+`underlay-reference-dev`, and published ports 41001/41002/41003. It reported
+distinct primary/worktree scope identities and host maps `acme.test`,
+`acme-w942cd9b4.test`, and `acme-wd8428f40.test` for that run.
+
+The actual Reference adapter configuration uses API bind `0.0.0.0:41001` with
+public host `api.acme.test`; admin Vite uses port 41002 with `strictPort: true`;
+front Vite uses port 41003 without `strictPort`. Its `dev --plan` rendered
+Cargo API/jobs and Bun Vite commands using `--host 0.0.0.0`. The API database
+URL names `postgres.acme.test`, while browser hosts are `acme.test` and
+`admin.acme.test`. These are configuration and command-plan observations only:
+no Reference application process, service, container image build, gateway route,
+HTTPS request, or HMR WebSocket was started or exercised. The worktree host maps
+are not evidence that a route reached an app listener.
+
+Starting those adapters in all three worktrees with their actual settings would
+bind the same fixed ports on `0.0.0.0`; those ports are also the bundle's
+published container ports. The Reference task/config has no per-instance port
+input. Admin's strict Vite bind would fail on collision, while front Vite may
+choose another port without any bundle mechanism to update its route. Rewriting
+the fixture to port zero would alter the adapter configuration under test, so
+the multi-instance app launch was left blocked rather than reported as a
+supported Reference profile proof.
+
+The Reference selector deliberately stops before container startup/build and
+does not invoke TLS helpers. No supported private non-global TLS isolation or
+authorized startup path was established. Therefore the Reference plan pass does
+not close the release-contract startup proof or certify host-to-service
+connectivity, browser origin/HMR behavior, owned listener publication, restart,
+readiness gating, interrupted-owner recovery, or isolated teardown. Those
+runtime acceptance cases remain blocked/unproven, along with the earlier
+`container up` attempt that stopped at denied `mkcert -install`.

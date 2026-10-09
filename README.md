@@ -56,6 +56,14 @@ change the host trust store. The disposable fixture goes under `~/Dev/projects`
 when that directory exists; set `UNDERLAY_PROFILE_FIXTURE_PARENT` to another
 existing directory when needed.
 
+The designated Underlay Reference pilot uses `effigy proof:dev-profiles:reference`.
+It reads a clean checkout at `~/Dev/projects/underlay-reference` by default;
+set `UNDERLAY_REFERENCE_SOURCE` to another clean Reference checkout when needed.
+The selector clones it into a fresh temporary directory, makes two private
+worktrees, points their bundle source at this checkout, and checks Reference
+configuration and task plans. It does not start apps or containers or invoke
+TLS, gateway, or resolver operations.
+
 ## Browser runtime (`browser_runtime`)
 
 The bundle forwards `browser_runtime` to the `workspace-rust-bun` catalog
