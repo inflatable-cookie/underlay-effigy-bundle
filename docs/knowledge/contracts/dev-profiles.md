@@ -209,19 +209,34 @@ S3Config override: host operations use the actual loopback service endpoint,
 while presigning and public URLs use the registered private HTTPS route/port.
 Reference's unconfigured development branch still hardcodes `s3.acme.test`;
 this adapter patch is qualification code, not a delivered consumer default.
-The focused proof passed server HTTP readiness and `mc ready local`, owned
+The service protocol proofs establish server HTTP readiness and `mc ready local`, owned
 bucket bootstrap/removal, exact front/admin browser-origin controls, signed
 object PUT/GET/DELETE (200/200/204), and rejected incorrect credentials (403).
-A foreign-origin preflight returns 204 without a CORS grant. Through the
-CA-verified registered Silo HTTPS route, Reference's real API creates media,
-initiates its presigned upload, accepts that upload (200), and finalises a
-`ready` media version (200). Signed retrieval of the published object matches
-the uploaded bytes; signed deletion returns 204. Actual front/admin origin and
-HMR probes also pass with this service override. Tokens, credentials, response
-bodies and presigned queries are not included in protocol receipts.
+A foreign-origin preflight returns 204 without a CORS grant. Actual front/admin
+origin and HMR probes also pass with this service override. These service and
+gateway proofs do not certify Reference's application upload/finalisation path.
 
-The API uses a newly registered fixture account granted admin only in the
-fresh private database. The proof does not use operator or seed credentials.
+**Reference application upload/finalisation is unavailable for qualification.**
+The covering `proof:dev-profiles:reference-storage` execution exited 1 during
+`POST /v1/auth/register`: its CA-verified `GatewayHTTPSConnection` timed out
+reading the response with the configured eight-second socket timeout. No
+successful registration response was observed, so media creation, presigning,
+upload, finalisation and retrieval/deletion of that finalised object were not
+reached. Cleanup was verified. The timeout does not establish whether the
+request committed or which API/gateway phase caused the delay; it must not be
+retried as if it were an idempotent probe. No Silo or Effigy capability failure
+is inferred from it. The selector retains this failure rather than converting
+an unavailable path into exit 0.
+
+Earlier successful upload/finalisation receipts remain historical evidence;
+they do not certify the current covering result or profile readiness. A later
+qualification must establish the bounded registration response and complete the
+real Reference media path before this limit can be removed. Tokens, credentials,
+response bodies and presigned queries are not included in protocol receipts.
+
+The storage probe attempts to register a fresh fixture account and grants it
+admin only after successful registration in the private database. It does not
+use operator or seed credentials.
 Exact supported host/container down, recorded process/socket/route absence,
 retirement, zero environment/route inventory and private profile purge all
 settle before `cleanup_verified = true`. Failed fixture preparations remain
@@ -274,8 +289,9 @@ Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
 - `proof:dev-profiles:silo-artifacts`: anonymous pinned registry metadata proof
   for both Linux platforms, without runtime effects.
 - `proof:dev-profiles:reference-storage`: focused real Reference application and
-  Silo storage proof with complete supported owned teardown; retains unchanged
-  three-instance lifecycle receipts instead of repeating their coverage.
+  Silo storage proof with supported owned teardown; application upload/finalisation
+  remains unavailable at the registration-response boundary described above.
+  It retains unchanged three-instance lifecycle coverage.
 
 Runtime selectors create fresh private roots and retain redacted receipts
 outside the repository. Published artifact/config mismatches fail closed; no

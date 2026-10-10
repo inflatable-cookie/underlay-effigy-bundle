@@ -87,9 +87,14 @@ Postgres/SMTP connectivity, restart/dependent propagation, collision,
 interruption recovery and isolated teardown. Its former source-built upstream
 MinIO receipts are historical evidence. Current storage qualification uses
 published PGSTY Silo and MC through fixture-only overrides; Silo is a downstream
-fork, not unchanged upstream MinIO. Real Reference presigned HTTPS upload,
-API finalisation, signed download/delete, credentials/CORS controls and owned
-cleanup passed. Container-only build/start also passed with that override. The original published default MinIO image pull remains
+fork, not unchanged upstream MinIO. Silo signed object operations,
+credentials/CORS controls and container-only build/start passed with that
+override. Reference's application upload/finalisation path is currently
+unavailable for qualification: the covering storage selector timed out reading
+the registration response and did not reach the media path. Historical passes
+do not certify this covering failure; cleanup was verified. See the owning
+development-profile contract above for the exact boundary.
+The original published default MinIO image pull remains
 unqualified (`insufficient_scope`); Silo does not repair that registry access.
 No hybrid/dev:test consumer migration or default switch is delivered.
 
