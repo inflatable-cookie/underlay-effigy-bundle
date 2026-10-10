@@ -65,26 +65,32 @@ export UNDERLAY_REFERENCE_SOURCE=~/Dev/projects/underlay-reference
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:public-origin
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-runtime
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-container
+"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:silo-contract-tests
+"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:silo-artifacts
+"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-storage
 ```
 
 The scripts verify Effigy source
 `2f7b1819fd0e72afff18a6053be424719ecf71fc` and private `effigy v0.14.1`
 binary SHA-256
 `2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc`.
-The runtime selectors require the prepared pinned MinIO/mc source packet,
+The runtime selectors pull approved digest-pinned PGSTY Silo and MC images,
 create fresh private Reference main/worktree instances and retain redacted
 receipts outside the repository. They use a private gateway/CA and isolated
 Colima runtime without installing system trust or changing the operator
 checkout. See [development profile ownership](docs/knowledge/contracts/dev-profiles.md)
 for interfaces, prerequisites and selector coverage.
 
-The Reference pilot proves three concurrent actual API/front/admin stacks,
-owned readiness before routes, public HTTPS origins/HMR, real
-Postgres/SMTP/MinIO connectivity, restart/dependent propagation, collision,
-interruption recovery and isolated teardown. Container-only build/start uses a
-disclosed fixture-local MinIO image built from the catalog's exact upstream
-release source. The published default MinIO image pull remains unqualified
-because registry access was denied; a local source build does not repair it.
+The retained Reference pilot proves three concurrent actual API/front/admin
+stacks, owned readiness before routes, public HTTPS origins/HMR,
+Postgres/SMTP connectivity, restart/dependent propagation, collision,
+interruption recovery and isolated teardown. Its former source-built upstream
+MinIO receipts are historical evidence. Current storage qualification uses
+published PGSTY Silo and MC through fixture-only overrides; Silo is a downstream
+fork, not unchanged upstream MinIO. Real Reference presigned HTTPS upload,
+API finalisation, signed download/delete, credentials/CORS controls and owned
+cleanup passed. Container-only build/start also passed with that override. The original published default MinIO image pull remains
+unqualified (`insufficient_scope`); Silo does not repair that registry access.
 No hybrid/dev:test consumer migration or default switch is delivered.
 
 ## Browser runtime (`browser_runtime`)

@@ -124,7 +124,7 @@ private worktrees. It assembles this bundle branch with
 Reference Rust API and front/admin Vite/SvelteKit applications. The hybrid
 fixture excludes the workspace image and keeps host/Linux artifacts separate.
 
-The proof establishes nine simultaneous distinct ready application listeners
+The retained pre-Silo runtime proof establishes nine simultaneous distinct ready application listeners
 and routes across those three identities. All three reach real isolated
 Postgres, Mailpit and MinIO over loopback. Verified private HTTPS route probes
 return the configured public origin in both SvelteKit URL surfaces, preserving
@@ -137,25 +137,72 @@ scope down, and recovers without signaling uncertain process identities.
 Teardown of one worktree withdraws its sockets/routes while both other
 instances continue serving.
 
-The MinIO fixture builds the catalog's exact server release
-`RELEASE.2025-09-07T16-13-09Z` / commit
-`07c3a429bfed433e49018cb0f78a52145d4bedeb`, with real mc
-`RELEASE.2025-08-13T08-35-41Z` / commit
-`7394ce0dd2a80935aded936b09fa12cbb3cb8096`, verified prepared source archives,
-Go 1.24.6, digest-pinned build/runtime bases and isolated build caches. It
-verifies modules, versions and executable/image hashes. Protocol proof covers
-readiness, signed S3 bucket/object PUT/GET/DELETE and exact-origin CORS. The
-fixture image is local to the private runtime; shared catalog/default pins
-remain unchanged.
+Those lifecycle receipts use the earlier upstream source-image override. The
+focused published-Silo proof covers changed storage inputs; the earlier
+receipts are not presented as Silo artifact or upload assurance.
 
-Container-only assembly/build/start preserves the `workspace-rust-bun` image
-and default 41001/41002/41003 inputs. It succeeds with the disclosed
-fixture-local same-source MinIO image override. The published `minio/minio`
-image pull remains unavailable in gathered evidence (`insufficient_scope`);
-this local build does not repair registry access or certify that published
-default image. A default consumer rollout therefore still needs that catalog
-image precondition resolved. This PR qualifies opt-in fixture mechanisms, not
-a released hybrid/dev:test selector or a consumer migration.
+### Published Silo qualification ruling
+
+Tom selected published PGSTY Silo for qualification in disposable Reference on
+2026-10-10 (owning ruling on main `92e687a`). It supersedes manual upstream
+MinIO image builds. The candidate is a downstream fork; neither source archives
+nor former upstream source-image receipts satisfy its acceptance.
+
+Fixture-only catalog overrides use:
+
+- Server `docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46`.
+- Client `docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd`.
+
+The artifact verifier checks both Linux platforms, selected child/config and
+attestation content hashes, OCI entrypoints and release/source metadata.
+Server source is `pgsty/silo` commit
+`2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c`; client source is `pgsty/mc` commit
+`e952aa78f10a2b77dd525a2b7e3143bcda0cd377`. Matching published in-toto provenance
+is available. This verification does not authenticate a publisher signature;
+OCI SBOM availability is recorded separately per image/platform. The exact
+Silo release also publishes Linux SPDX 2.3 SBOMs and Sigstore checksum/provenance
+assets. The artifact proof verifies the release SBOM content digests and the
+arm64 executable checksum against the pulled image; it does not verify the
+Sigstore signatures or treat an archive SBOM as a complete OCI-image SBOM.
+The MC release has no separate assurance assets in the inspected release.
+Private arm64 pulls and executable version checks match those releases/commits. The server
+provides `silo`, `mc` and `mcli`; the standalone client entrypoint is `mc`.
+The extracted catalog retains its `server` command and `mc ready local`
+contract. No shared catalog or published image is changed.
+
+The focused storage selector prepares fresh owned Postgres/Mailpit/Silo and
+actual Reference API/front/admin. It applies an explicit fixture-only Rust
+S3Config override: host operations use the actual loopback service endpoint,
+while presigning and public URLs use the registered private HTTPS route/port.
+Reference's unconfigured development branch still hardcodes `s3.acme.test`;
+this adapter patch is qualification code, not a delivered consumer default.
+The focused proof passed server HTTP readiness and `mc ready local`, owned
+bucket bootstrap/removal, exact front/admin browser-origin controls, signed
+object PUT/GET/DELETE (200/200/204), and rejected incorrect credentials (403).
+A foreign-origin preflight returns 204 without a CORS grant. Through the
+CA-verified registered Silo HTTPS route, Reference's real API creates media,
+initiates its presigned upload, accepts that upload (200), and finalises a
+`ready` media version (200). Signed retrieval of the published object matches
+the uploaded bytes; signed deletion returns 204. Actual front/admin origin and
+HMR probes also pass with this service override. Tokens, credentials, response
+bodies and presigned queries are not included in protocol receipts.
+
+The API uses a newly registered fixture account granted admin only in the
+fresh private database. The proof does not use operator or seed credentials.
+Exact supported host/container down, recorded process/socket/route absence,
+retirement, zero environment/route inventory and private profile purge all
+settle before `cleanup_verified = true`. Failed fixture preparations remain
+retained separately; their subsequent corrections are not core runtime gap
+claims.
+
+Container-only assembly/build/start passed with the published Silo override,
+preserving `workspace-rust-bun`, default 41001/41002/41003 inputs and
+`sources.siblings = false`. The original published `minio/minio` pull remains
+unavailable in gathered evidence (`insufficient_scope`). This candidate does
+not repair it or certify unchanged published defaults. A shared catalog image,
+client/health/bootstrap change and any consumer migration require separate
+owner work after independent qualification review. Acow remains excluded; no
+live volumes or migration are exercised.
 
 Cleanup stops/reconciles each exact host/container scope and verifies recorded
 process identities, socket closure and route withdrawal while the runtime
@@ -184,11 +231,17 @@ Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
 - `proof:dev-profiles:public-origin`: helper security, opt-out, hook chaining
   and request/body preservation tests with bounded runner lifetime.
 - `proof:dev-profiles:reference-runtime`: real three-instance applications,
-  source-built MinIO, HTTPS/HMR and lifecycle proof with owned teardown.
+  published Silo, HTTPS/HMR and lifecycle proof with owned teardown.
 - `proof:dev-profiles:reference-container`: independent container-only
-  assembly/build/start with the disclosed same-source MinIO override.
+  assembly/build/start with the disclosed published Silo override.
+- `proof:dev-profiles:silo-contract-tests`: hermetic digest/config/source and
+  attestation mismatch controls.
+- `proof:dev-profiles:silo-artifacts`: anonymous pinned registry metadata proof
+  for both Linux platforms, without runtime effects.
+- `proof:dev-profiles:reference-storage`: focused real Reference application and
+  Silo storage proof with complete supported owned teardown; retains unchanged
+  three-instance lifecycle receipts instead of repeating their coverage.
 
 Runtime selectors create fresh private roots and retain redacted receipts
-outside the repository. Their source builder reads the prepared pinned source
-packet from the local release-audits directory; missing or changed inputs fail
-closed. No selector implicitly selects the global Effigy executable.
+outside the repository. Published artifact/config mismatches fail closed; no
+manual source-image build or global Effigy replacement is required.

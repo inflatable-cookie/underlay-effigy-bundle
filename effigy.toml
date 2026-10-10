@@ -17,3 +17,15 @@ run_in = "host"
 [tasks."proof:dev-profiles:reference-container"]
 run = "python3 scripts/qualify-reference-container.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:silo-artifacts"]
+run = "python3 scripts/qualify-silo-artifacts.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:reference-storage"]
+run = "UNDERLAY_PROFILE_STORAGE_ONLY=1 python3 scripts/qualify-reference-runtime.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:silo-contract-tests"]
+run = "python3 scripts/silo_fixture_test.py"
+run_in = "host"

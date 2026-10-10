@@ -13,7 +13,7 @@ import subprocess
 import traceback
 from pathlib import Path
 
-from minio_fixture import IMAGE, prepare_source_image
+from silo_fixture import IMAGE, prepare_published_images
 from qualification_runtime import require_effigy_binary
 
 
@@ -158,8 +158,8 @@ def main() -> int:
         run(["colima", "start", "--profile", "effigy", "--runtime", "containerd",
              "--cpu", "6", "--memory", "8", "--disk", "64"], env=runtime_env, timeout=1200, output=True)
         profile_started = True
-        image = prepare_source_image(fixture_root, runtime_env)
-        receipts["minio_source_image"] = image
+        image = prepare_published_images(fixture_root, runtime_env)
+        receipts["silo_published_images"] = image
 
         reference_root = private_home / "reference"
         reference_root.mkdir(mode=0o700)
@@ -258,8 +258,8 @@ def main() -> int:
         if not receipts["container_up"]["workspace_rust_bun_catalog_mapping"]:
             raise RuntimeError("bundle default no longer maps the workspace service to workspace-rust-bun")
         if not receipts["container_up"]["minio_image_in_compose"]:
-            raise RuntimeError("default stack did not use the disclosed local MinIO image override")
-        print("PASS private Reference default container build/startup with unchanged workspace image and the exact-source MinIO fixture override", flush=True)
+            raise RuntimeError("default stack did not use the disclosed published Silo image override")
+        print("PASS private Reference default container build/startup with unchanged workspace image and the published digest-pinned Silo fixture override", flush=True)
     except Exception as error:
         failure = f"{type(error).__name__}: {error}"
         print(f"REFERENCE DEFAULT-CONTAINER QUALIFICATION BLOCKED: {failure}", flush=True)

@@ -1063,7 +1063,10 @@ def prove_real_adapter_task_plans(checkout: Path) -> None:
 def prove_bundle_adapter_sources() -> None:
     rust_adapter = REPO / "scripts/dev/managed-rust-listener.py"
     fixture_scripts = (
-        REPO / "scripts/minio_fixture.py",
+        REPO / "scripts/silo_fixture.py",
+        REPO / "scripts/reference_storage_probe.py",
+        REPO / "scripts/qualify-silo-artifacts.py",
+        REPO / "scripts/qualify-reference-container.py",
         REPO / "scripts/qualify-reference-runtime.py",
         REPO / "scripts/qualification/managed-listener-probe.py",
     )

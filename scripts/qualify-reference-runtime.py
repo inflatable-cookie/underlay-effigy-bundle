@@ -22,7 +22,8 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from minio_fixture import IMAGE, install_minio_catalog_override, prepare_source_image
+from silo_fixture import IMAGE, RELEASE, install_minio_catalog_override, prepare_published_images
+from reference_storage_probe import prove_reference_upload
 from qualification_runtime import require_effigy_binary
 
 
@@ -141,7 +142,7 @@ def wait_loopback_service(port: int, service: str, timeout_secs: int = 120) -> d
 
 def mktemp_root() -> Path:
     # Keep the fixture under the shared home mount so Colima's guest can read
-    # its source-build context, and keep the prefix short for Lima's socket
+    # its Compose files, and keep the prefix short for Lima's socket
     # path limit. mktemp creates a unique private root for every run.
     temp_parent = Path.home().resolve(strict=True)
     result = subprocess.run(
@@ -862,11 +863,12 @@ def configure_app_urls(checkout: Path, domains: dict[str, str], postgres_port: i
     api_source = api_source_path.read_text(encoding="utf-8")
     old_dev_endpoint = 'let s3_config = S3Config::minio_dev("acme-media", "https://s3.acme.test");'
     new_dev_endpoint = '''let mut s3_config = S3Config::minio_dev("acme-media", "https://s3.acme.test");
-        if let Ok(endpoint) = std::env::var("ACME_S3_ENDPOINT") {
-            s3_config = s3_config.endpoint_url(endpoint);
-        }
-        if let Ok(public_url_base) = std::env::var("ACME_S3_PUBLIC_URL_BASE") {
-            s3_config = s3_config.public_url_base(public_url_base);
+        if std::env::var("EFFIGY_PROFILE_SILO").as_deref() == Ok("true") {
+            let endpoint = std::env::var("ACME_S3_ENDPOINT")?;
+            let public = std::env::var("ACME_S3_PUBLIC_URL_BASE")?;
+            s3_config = s3_config.endpoint_url(endpoint)
+                .presign_url_base(public.clone())
+                .public_url_base(format!("{public}/acme-media"));
         }'''
     old_count = api_source.count(old_dev_endpoint)
     new_count = api_source.count(new_dev_endpoint)
@@ -931,7 +933,8 @@ def append_reference_host_processes(checkout: Path, names: dict[str, str], gatew
         f"run = {quote(rust_command)}\ncwd = \".\"\nrestart = \"on-failure\"\n",
         "env = { ",
         f"ENVIRONMENT = \"effigy\", ACME_S3_ENDPOINT = {quote(minio_internal)}, ",
-        f"ACME_S3_PUBLIC_URL_BASE = {quote(minio_public)}",
+        f"ACME_S3_PUBLIC_URL_BASE = {quote(minio_public)}, EFFIGY_PROFILE_SILO = \"true\", "
+        'AWS_ACCESS_KEY_ID = "minioadmin", AWS_SECRET_ACCESS_KEY = "minioadmin", AWS_EC2_METADATA_DISABLED = "true"',
         " }\n",
         "[containers.hybrid.host_processes.listener]\nbind = \"127.0.0.1:0\"\n",
         "[containers.hybrid.host_processes.listener.readiness]\npath = \"/v1/health\"\nstatus = 200\ntimeout_secs = 540\n",
@@ -1528,7 +1531,7 @@ def service_shell(binary: str, checkout: Path, env: dict[str, str], command: str
     return result.stdout
 
 
-def _s3_request(port: int, method: str, path: str, body: bytes = b"") -> tuple[int, dict[str, str], bytes]:
+def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid_credentials: bool = False) -> tuple[int, dict[str, str], bytes]:
     now = datetime.now(timezone.utc)
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     short_date = now.strftime("%Y%m%d")
@@ -1559,7 +1562,7 @@ def _s3_request(port: int, method: str, path: str, body: bytes = b"") -> tuple[i
     def sign(key: bytes, value: str) -> bytes:
         return hmac.new(key, value.encode(), hashlib.sha256).digest()
 
-    signing_key = sign(b"AWS4minioadmin", short_date)
+    signing_key = sign(b"AWS4invalid-fixture-key" if invalid_credentials else b"AWS4minioadmin", short_date)
     signing_key = sign(signing_key, "us-east-1")
     signing_key = sign(signing_key, "s3")
     signing_key = sign(signing_key, "aws4_request")
@@ -1582,20 +1585,23 @@ def _s3_request(port: int, method: str, path: str, body: bytes = b"") -> tuple[i
         connection.close()
 
 
-def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_origin: str) -> None:
-    minio_version = service_shell(EFFIGY, checkout, env, "minio --version")
+def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_origin: str) -> dict:
+    minio_version = service_shell(EFFIGY, checkout, env, "silo --version")
     mc_version = service_shell(EFFIGY, checkout, env, "mc --version")
     if IMAGE not in (checkout / "infra/dev/catalog/minio/compose.fragment.yml").read_text(encoding="utf-8"):
-        raise RuntimeError("fixture MinIO catalog override is missing the source-built local image")
-    if "RELEASE.2025-09-07T16-13-09Z" not in minio_version or "RELEASE.2025-08-13T08-35-41Z" not in mc_version:
-        raise RuntimeError("the running catalog service did not expose the pinned MinIO and mc releases")
+        raise RuntimeError("fixture MinIO catalog override is missing the published Silo image")
+    if RELEASE not in minio_version or RELEASE not in mc_version:
+        raise RuntimeError("the running catalog service did not expose the pinned Silo and MC releases")
     with socket.create_connection(("127.0.0.1", minio_port), timeout=10):
         pass
-    print(f"PASS host loopback reached the source-built MinIO API listener 127.0.0.1:{minio_port}", flush=True)
+    print(f"PASS host loopback reached the published Silo API listener 127.0.0.1:{minio_port}", flush=True)
     service_shell(EFFIGY, checkout, env, "mc ready local")
     bucket = "underlay-reference-qualification"
     service_shell(EFFIGY, checkout, env, f"mc mb local/{bucket} --ignore-existing")
-    payload = "underlay-reference-source-pinned-minio-proof"
+    invalid_status, _, _ = _s3_request(minio_port, "GET", f"/{bucket}/", invalid_credentials=True)
+    if invalid_status != 403:
+        raise RuntimeError(f"Silo accepted invalid signed fixture credentials: HTTP {invalid_status}")
+    payload = "underlay-reference-published-silo-proof"
     service_shell(EFFIGY, checkout, env, f"printf %s {json.dumps(payload)} | mc pipe local/{bucket}/probe.txt")
     mc_put_status, _, received = _s3_request(
         minio_port, "GET", f"/{bucket}/probe.txt",
@@ -1624,7 +1630,7 @@ def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_or
         allowed_headers = cors_headers.get("access-control-allow-headers", "").lower()
         if not all(header in allowed_headers for header in ("authorization", "x-amz-content-sha256", "x-amz-date")):
             raise RuntimeError("MinIO CORS preflight did not allow the signed S3 request headers")
-        print("PASS source-built MinIO server-level CORS preflight for the exact browser origin, PUT, and signed headers",
+        print("PASS published Silo server-level CORS preflight for the exact browser origin, PUT, and signed headers",
               flush=True)
     finally:
         cors_connection.close()
@@ -1642,7 +1648,26 @@ def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_or
         raise RuntimeError(f"host-signed MinIO object DELETE returned HTTP {delete_status}")
     print(f"PASS host-to-MinIO signed S3 PUT/GET/DELETE through 127.0.0.1:{minio_port}", flush=True)
     service_shell(EFFIGY, checkout, env, f"mc rb local/{bucket}")
-    print(f"PASS source-built MinIO catalog health, pinned versions and CORS for {allowed_origin}", flush=True)
+    # A foreign browser origin must receive no usable CORS grant.
+    connection = http.client.HTTPConnection("127.0.0.1", minio_port, timeout=10)
+    try:
+        connection.request("OPTIONS", f"/{bucket}/foreign-probe", headers={
+            "Origin": "https://foreign.invalid", "Access-Control-Request-Method": "PUT"})
+        response = connection.getresponse()
+        foreign_headers = {key.lower(): value for key, value in response.getheaders()}
+        foreign_status = response.status
+        response.read()
+        if foreign_headers.get("access-control-allow-origin"):
+            raise RuntimeError("Silo granted CORS access to an unconfigured foreign browser origin")
+    finally:
+        connection.close()
+    print(f"PASS published Silo catalog health, pinned versions and CORS for {allowed_origin}", flush=True)
+    return {"product": "PGSTY Silo", "release": RELEASE, "loopback_port": minio_port,
+            "health": "mc ready local exit 0", "bootstrap": "owned bucket created and removed",
+            "signed_put": put_status, "signed_get": get_status, "signed_delete": delete_status,
+            "bytes_equal": True, "allowed_origin": allowed_origin,
+            "foreign_preflight_status": foreign_status, "foreign_cors_grant": False,
+            "invalid_credentials_status": invalid_status}
 
 
 def observe_routes(checkout: Path, gateway_root: Path, env: dict[str, str],
@@ -1749,7 +1774,7 @@ def prove_minio_gateway_route(checkout: Path, gateway_root: Path, domains: dict[
         return {"status": "unavailable", "phase": "private_https_route_response",
                 "domain": domain, "http_status": code, "route_tls": route.get("tls"),
                 "cert_ready": route.get("cert_ready"), "dns_sans": sorted(dns_sans)}
-    print(f"PASS source-built MinIO private HTTPS/SNI route {domain}:{gateway_port} readiness returned 200", flush=True)
+    print(f"PASS published Silo private HTTPS/SNI route {domain}:{gateway_port} readiness returned 200", flush=True)
     return {"status": "passed", "domain": domain, "http_status": code,
             "route_target": route.get("target"), "cert_ready": True, "dns_sans": sorted(dns_sans)}
 
@@ -1834,12 +1859,12 @@ def main() -> int:
         receipts["gateway"] = {"private": True, "https_addr": gateway_status["https_addr"],
                                 "ca_installed": False}
 
-        phase = "private Colima profile and source-pinned MinIO image"
+        phase = "private Colima profile and published digest-pinned Silo images"
         run(["colima", "start", "--profile", "effigy", "--runtime", "containerd",
              "--cpu", "6", "--memory", "8", "--disk", "64"], env=runtime_env,
             timeout=1200)
         profile_started = True
-        image = prepare_source_image(fixture_root, runtime_env)
+        image = prepare_published_images(fixture_root, runtime_env)
         receipts["minio_image"] = image
 
         phase = "private Reference main plus two worktrees"
@@ -1849,10 +1874,15 @@ def main() -> int:
         reference_root = private_home / "reference"
         reference_root.mkdir(mode=0o700)
         checkouts = REFERENCE.make_reference_instances(source, reference_root)
+        storage_only = os.environ.get("UNDERLAY_PROFILE_STORAGE_ONLY") == "1"
+        if storage_only:
+            receipts["coverage"] = "published Silo storage with actual Reference main apps; unchanged lifecycle receipts retained"
         for checkout in checkouts:
             REFERENCE.point_bundle_at_task_branch(checkout)
         receipts["fixture_secrets"] = REFERENCE.initialize_reference_fixture_secrets(checkouts, runtime_env)
         REFERENCE.prove_worktree_plans(checkouts)
+        if storage_only:
+            checkouts = checkouts[:1]
         for checkout in checkouts:
             consumer_baselines[checkout] = baseline_consumer_files(checkout)
             bundle = json.loads(run([EFFIGY, "--repo", str(checkout), "bundle", "inspect", "--json"],
@@ -1863,7 +1893,7 @@ def main() -> int:
             host_map = effigy_json(EFFIGY, checkout, runtime_env, "container", "hosts", "--json")
             domains_by_checkout[checkout] = route_domains(host_map)
             declared_domains_by_checkout[checkout] = declared_route_domains(host_map)
-            cors_origin = f"https://{domains_by_checkout[checkout]['front']}:{gateway_port}"
+            cors_origin = ",".join(f"https://{domains_by_checkout[checkout][app]}:{gateway_port}" for app in ("front", "admin"))
             catalog_baselines[checkout] = {
                 "minio": install_minio_catalog_override(
                     EFFIGY, checkout, runtime_env, cors_origin=cors_origin,
@@ -1964,7 +1994,7 @@ def main() -> int:
             if "sqlx::postgres::notice" not in api_log.read_text(encoding="utf-8", errors="replace"):
                 raise RuntimeError("Reference host API did not report Postgres migration activity")
             observe_routes(checkout, gateway_root, runtime_env, states, gateway_port)
-            prove_minio(
+            receipts["instances"][index]["silo_protocol"] = prove_minio(
                 checkout,
                 runtime_env,
                 minio_port,
@@ -1983,6 +2013,13 @@ def main() -> int:
                 print(f"BLOCKED private MinIO TLS/SNI route: {minio_gateway_route}", flush=True)
             all_states.append((checkout, states))
             states_by_checkout[checkout] = states
+        if storage_only:
+            receipts["storage_app_addresses"] = all_addresses
+            phase = "Reference signed browser upload and finalisation through published Silo"
+            receipts["reference_storage"] = prove_reference_upload(
+                __import__(__name__), checkouts[0], runtime_env, all_states[0][1],
+                gateway_root, gateway_port, int(receipts["instances"][0]["service_endpoints"]["minio"].rsplit(":", 1)[1]))
+            return 0
         if len(set(all_addresses)) != 9 or len(set(all_domains)) != 9:
             raise RuntimeError("the three Reference identities did not own nine distinct listeners/routes")
         if any(len(set(ports)) != 3 for ports in service_ports.values()):
@@ -2240,8 +2277,8 @@ def main() -> int:
         if not receipts["default_container_startup"]["workspace_rust_bun_mapping"]:
             raise RuntimeError("bundle default no longer maps the workspace service to workspace-rust-bun")
         if not receipts["default_container_startup"]["minio_image_in_compose"]:
-            raise RuntimeError("default stack omitted the scoped source-built MinIO image override")
-        print("PASS private Reference default container build/startup; workspace image retained and only MinIO uses the exact-source local fixture image", flush=True)
+            raise RuntimeError("default stack omitted the scoped published Silo image override")
+        print("PASS private Reference default container build/startup; workspace image retained and only MinIO uses the published Silo fixture override", flush=True)
         default_down = effigy_json(EFFIGY, main_checkout, runtime_env, "container", "down", "--json", timeout=600)
         default_started = False
         after_default_down = effigy_json(EFFIGY, main_checkout, runtime_env, "container", "status", "--json", timeout=120)
