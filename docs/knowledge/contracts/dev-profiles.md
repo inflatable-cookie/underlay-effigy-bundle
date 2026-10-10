@@ -66,3 +66,22 @@ consumer host-wiring findings remain separate evidence, not claimed repairs.
 If supported interfaces cannot establish these properties, report the
 smallest generic Effigy capability gap with an executable reproduction. A
 blocked capability must not become an invented CLI or private protocol.
+
+## Object storage qualification
+
+The operator selected PGSTY Silo as the first published-image candidate for
+the disposable Reference pilot on 2026-10-10. Qualification uses release and
+digest pins for the server and its maintained client, rather than requiring
+local MinIO image builds. Silo is a downstream MinIO fork; it must be reported
+as Silo, not as an unchanged upstream MinIO artifact.
+
+Prove image provenance and architecture, service readiness, bucket bootstrap,
+CORS, signed uploads and downloads, deletion, and owned cleanup with fresh
+fixture data. Check the bundled client and health command explicitly; matching
+S3 APIs do not establish identical executable or administration behavior.
+Published-image qualification does not certify the unavailable upstream image.
+
+Keep the existing bundle and catalog defaults until qualification supports a
+separately explicit migration. Existing data and volumes are outside the pilot.
+Any later change to the shared Effigy catalog belongs to its owner; a private
+fixture override must not silently become a fleet default.
