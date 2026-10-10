@@ -118,6 +118,33 @@ port.
 
 ## Reference pilot assurance and limits
 
+### Opt-in admission before a released capability
+
+The qualified Effigy source is `2f7b1819fd0e72afff18a6053be424719ecf71fc`.
+Published `v0.14.1` does not contain the private gateway and managed-listener
+primitives used by these profiles. A version string is not capability proof:
+Effigy's minimum-version check accepts any `+local.*` build, including older
+local builds.
+
+Until a qualified release is available, an explicit opt-in must verify trusted
+source provenance and the selected platform binary's checksum before its first
+runtime effect. Unknown, older or unsupported binaries must refuse with
+actionable guidance. Child execution must retain that verified binary identity;
+falling back to the executable on `PATH` is not allowed. The qualified macOS
+binary does not establish a Linux consumer-host binary checksum or assurance.
+
+New managed-listener/private-gateway fragments must stay outside default
+composition. Consumers omitting the opt-in retain their existing container
+configuration and effective version requirements. A released minimum can be
+added only after its actual immutable release is qualified, and remains
+supplemental to the local-build admission guard.
+
+Opt-in qualification may select the pinned published Silo images through a
+documented local service override. An additive shared Silo catalog entry,
+catalog artifact publication, generated Effigy baseline adoption and consumer
+migration are separately owned changes. They must not rename Silo as MinIO or
+replace existing MinIO defaults, volumes or data implicitly.
+
 Underlay Reference is the designated disposable pilot. Its operator checkout
 and live stack remain untouched. Acowtancy testing or adoption is excluded
 until qualification and a later explicit adoption ruling. No consumer default
