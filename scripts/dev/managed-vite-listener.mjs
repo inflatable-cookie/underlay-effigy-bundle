@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { open, readFile, rename } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -38,6 +39,21 @@ async function main() {
     if (url.protocol !== "https:") throw new Error(`profile route must use HTTPS: ${url}`);
   }
   const cwd = process.cwd();
+  const generator = process.env.EFFIGY_PROFILE_PUBLIC_CONFIG_GENERATOR || "scripts/generate-public-config.ts";
+  const generatorPath = resolve(cwd, generator);
+  if (generatorPath !== cwd && !generatorPath.startsWith(`${cwd}/`)) {
+    throw new Error("Reference public API config generator must stay within the disposable app checkout");
+  }
+  const generated = spawnSync("bun", [generatorPath], {
+    cwd,
+    env: process.env,
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  if (generated.error || generated.status !== 0) {
+    throw new Error(`Reference public API config generation failed (status ${generated.status ?? "spawn"})`);
+  }
+
   const publicConfigPath = resolve(
     process.env.EFFIGY_PROFILE_PUBLIC_CONFIG_FILE || "src/lib/config/public-api.generated.ts",
   );
@@ -69,6 +85,8 @@ async function main() {
   const configFile = resolve(process.env.EFFIGY_PROFILE_VITE_CONFIG || "vite.config.ts");
 
   process.env.ORIGIN = publicUrl.origin;
+  process.env.EFFIGY_PROFILE_PUBLIC_URL = publicUrl.origin;
+  process.env.EFFIGY_PROFILE_PUBLIC_ORIGIN = "true";
   const server = await createServer({
     configFile,
     server: {

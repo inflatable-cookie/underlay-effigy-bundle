@@ -7,16 +7,21 @@ import json
 import ast
 import base64
 from datetime import datetime
+import fcntl
 import hashlib
 import http.client
 import os
+import pty
 import re
+import secrets as py_secrets
+import select
 import shutil
 import signal
 import smtplib
 import socket
 import ssl
 import subprocess
+import termios
 import tempfile
 import time
 from pathlib import Path
@@ -25,7 +30,8 @@ from qualification_runtime import require_effigy_binary
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_REFERENCE = Path.home() / "Dev" / "projects" / "underlay-reference"
-EFFIGY: Path | None = None
+EFFIGY: str | None = None
+LAST_API_RESTART_DIAGNOSTIC: dict = {}
 EXPECTED_ADAPTERS = {
     "acme-api/api": ["cargo", "run", "-p", "acme-api"],
     "acme-admin/dev": ["vite", "dev", "--host", "0.0.0.0", "--force"],
@@ -61,8 +67,21 @@ def run(
             flush=True,
         )
     if result.returncode != expected:
+        context = ""
+        if "--json" in args:
+            try:
+                envelope = json.loads(result.stdout)
+                error = envelope.get("error") or {}
+                message = error.get("message")
+                code = error.get("code")
+                if isinstance(message, str):
+                    context = f"; Effigy error={message[:800]}"
+                elif isinstance(code, str):
+                    context = f"; Effigy error code={code}"
+            except (json.JSONDecodeError, AttributeError, TypeError):
+                pass
         raise RuntimeError(
-            f"expected exit {expected}, got {result.returncode}: {' '.join(args)}"
+            f"expected exit {expected}, got {result.returncode}: {' '.join(args)}{context}"
         )
     return result
 
@@ -211,6 +230,158 @@ def prove_reference_configuration(checkouts: list[Path]) -> None:
     )
 
 
+def safe_secret_terminal_error(raw_output: bytes, passphrase: bytes) -> str:
+    text = raw_output.decode("utf-8", errors="replace")
+    text = text.replace(passphrase.decode("ascii"), "[REDACTED]")
+    text = re.sub(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        "[REDACTED PRIVATE KEY]",
+        text,
+        flags=re.DOTALL,
+    )
+    text = re.sub(r"(?i)(://[^:/\s]+:)[^@/\s]+(@)", r"\1[REDACTED]\2", text)
+    text = re.sub(
+        r"(?i)(password|secret|token|authorization)(\s*[:=]\s*)[^,;\s]+",
+        r"\1\2[REDACTED]",
+        text,
+    )
+    json_start = text.find("{")
+    if json_start >= 0:
+        try:
+            envelope, _ = json.JSONDecoder().raw_decode(text[json_start:])
+            error = envelope.get("error") if isinstance(envelope, dict) else None
+            message = error.get("message") if isinstance(error, dict) else None
+            if isinstance(message, str):
+                return message[:800]
+        except json.JSONDecodeError:
+            pass
+    lines = [line.strip() for line in text.splitlines()
+             if re.search(r"(?i)error|failed|invalid|missing|requires|not found", line)]
+    return " | ".join(lines)[-800:]
+
+
+def run_secret_prompt(checkout: Path, env: dict[str, str], action: str,
+                      passphrase: bytes) -> None:
+    """Use Effigy's normal interactive secret command without logging input."""
+    command = [EFFIGY, "--repo", str(checkout), "secrets", action, "--json"]
+    print(f"COMMAND: {EFFIGY} --repo {checkout} secrets {action} --json [passphrase via private TTY]", flush=True)
+    master_fd, slave_fd = pty.openpty()
+    attributes = termios.tcgetattr(slave_fd)
+    attributes[3] &= ~termios.ECHO
+    termios.tcsetattr(slave_fd, termios.TCSANOW, attributes)
+
+    def acquire_controlling_tty() -> None:
+        fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
+
+    process = subprocess.Popen(
+        command,
+        cwd=checkout,
+        env=env,
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        start_new_session=True,
+        preexec_fn=acquire_controlling_tty,
+    )
+    os.close(slave_fd)
+    output_tail = bytearray()
+    prompt_tail = bytearray()
+    prompt = b"create vault passphrase:" if action == "init" else b"vault passphrase:"
+    sent = False
+    deadline = time.monotonic() + 120
+    try:
+        while process.poll() is None:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Effigy secrets {action} exceeded its private TTY timeout")
+            ready, _, _ = select.select([master_fd], [], [], 0.2)
+            if not ready:
+                continue
+            try:
+                chunk = os.read(master_fd, 2048)
+            except OSError:
+                break
+            if not chunk:
+                break
+            output_tail.extend(chunk)
+            if len(output_tail) > 8192:
+                del output_tail[:-8192]
+            prompt_tail.extend(chunk.lower())
+            if len(prompt_tail) > 256:
+                del prompt_tail[:-256]
+            if not sent and prompt in prompt_tail:
+                os.write(master_fd, passphrase + b"\n")
+                sent = True
+        code = process.wait(timeout=max(1, int(deadline - time.monotonic())))
+    except Exception:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=5)
+        raise
+    finally:
+        os.close(master_fd)
+    detail = safe_secret_terminal_error(bytes(output_tail), passphrase)
+    if not sent:
+        raise RuntimeError(f"Effigy secrets {action} did not request the expected passphrase prompt; {detail or 'no safe diagnostic emitted'}")
+    print(f"EXIT: {code}; passphrase input and terminal output suppressed", flush=True)
+    if code != 0:
+        raise RuntimeError(f"Effigy secrets {action} exited {code}; {detail or 'no safe diagnostic emitted'}")
+
+
+def initialize_reference_fixture_secrets(checkouts: list[Path], env: dict[str, str]) -> dict[str, object]:
+    """Initialize separate declared local-dev vaults in all private identities."""
+    initialized = []
+    for checkout in checkouts:
+        vault_path = checkout / ".effigy/secrets/local.vault"
+        if vault_path.exists():
+            raise RuntimeError("fresh private Reference identity unexpectedly already contains an Effigy vault")
+        manifest_path = checkout / "effigy.toml"
+        original_manifest = manifest_path.read_text(encoding="utf-8")
+        fixture_manifest = original_manifest
+        for name in ("auth_jwt_private_key", "auth_jwt_public_key"):
+            header = f"[secrets.keys.{name}]"
+            start = fixture_manifest.find(header)
+            if start < 0:
+                raise RuntimeError(f"private Reference fixture lacks the declared secret {name}")
+            next_table = fixture_manifest.find("\n[", start + len(header))
+            end = next_table if next_table >= 0 else len(fixture_manifest)
+            section = fixture_manifest[start:end]
+            changed, count = re.subn(r"(?m)^required\s*=\s*true\s*$",
+                                     "required = false", section, count=1)
+            if count != 1:
+                raise RuntimeError(f"private Reference fixture secret {name} was not required before bootstrap")
+            fixture_manifest = fixture_manifest[:start] + changed + fixture_manifest[end:]
+        print("FIXTURE ONLY: temporarily mark the generated JWT keys optional for this identity's vault bootstrap; restore required declarations before doctor/runtime", flush=True)
+        manifest_path.write_text(fixture_manifest, encoding="utf-8")
+        passphrase = py_secrets.token_urlsafe(36).encode("ascii")
+        try:
+            run_secret_prompt(checkout, env, "init", passphrase)
+        finally:
+            manifest_path.write_text(original_manifest, encoding="utf-8")
+        run_secret_prompt(checkout, env, "unlock", passphrase)
+        mode = vault_path.stat().st_mode & 0o777
+        if mode != 0o600:
+            raise RuntimeError(f"private Reference Effigy vault permissions are {mode:o}, expected 600")
+        initialized.append({"checkout": str(checkout), "vault_mode": "0600",
+                            "passphrase_recorded": False, "secret_values_recorded": False})
+    for checkout in checkouts:
+        doctor = effigy_json(checkout, "secrets", "doctor", "--json")
+        if not doctor.get("ok"):
+            error = doctor.get("error") or {}
+            message = error.get("message") if isinstance(error, dict) else None
+            raise RuntimeError(f"private Reference secrets doctor did not pass: {str(message or 'unknown safe status')[:500]}")
+    print("PASS three identity-local Effigy vaults initialized/unlocked; required declarations resolve for each private Reference checkout, values withheld", flush=True)
+    return {
+        "vaults": initialized,
+        "required_jwt_declarations_restored_before_runtime": True,
+        "secrets_doctor_passed_checkout_count": len(checkouts),
+        "secret_values_or_passphrase_recorded": False,
+    }
+
+
 def prepared_reference_instances(root: Path, source: Path) -> list[Path]:
     checkouts = [root / "main", root / "worktrees" / "first", root / "worktrees" / "second"]
     expected = run(
@@ -290,16 +461,64 @@ def gateway_websocket_upgrade(
         connection.close()
 
 
+def install_public_origin_hooks(checkouts: list[Path]) -> None:
+    """Opt the private front/admin fixtures into the bundle hook wrapper."""
+    helper = (REPO / "scripts/dev/sveltekit-public-origin.mjs").resolve().as_uri()
+    for checkout in checkouts:
+        for app in ("acme-front", "acme-admin"):
+            app_root = checkout / "apps" / app
+            config_path = app_root / "svelte.config.js"
+            config = config_path.read_text(encoding="utf-8")
+            if "qualification-hooks.server.js" not in config:
+                updated, count = re.subn(
+                    r"(?m)(\bkit\s*:\s*\{)",
+                    r'\1\n\t\tfiles: { hooks: { server: "src/qualification-hooks.server.js" } },',
+                    config,
+                    count=1,
+                )
+                if count != 1:
+                    raise RuntimeError(f"could not opt {app} into the disposable SvelteKit hook")
+                config_path.write_text(updated, encoding="utf-8")
+
+            wrapper = app_root / "src/qualification-hooks.server.js"
+            wrapper.write_text(
+                f'''import * as existingHooks from "./hooks.server.js";
+import {{ withSvelteKitPublicOrigin }} from {json.dumps(helper)};
+
+export * from "./hooks.server.js";
+export const handle = withSvelteKitPublicOrigin(existingHooks.handle, {{
+  enabled: import.meta.env.DEV && process.env.EFFIGY_PROFILE_PUBLIC_ORIGIN === "true",
+  publicOrigin: process.env.EFFIGY_PROFILE_PUBLIC_URL,
+  readinessPath: "/__effigy/ready",
+}});
+''',
+                encoding="utf-8",
+            )
+
+
 def install_origin_probe(main: Path) -> None:
-    """Add a temporary route to the disposable Reference clone only."""
-    route = main / "apps/acme-front/src/routes/__qualification/origin/+server.ts"
-    route.parent.mkdir(parents=True, exist_ok=True)
-    route.write_text(
-        """export function GET({ url, request }: { url: URL; request: Request }) {
+    """Add temporary front/admin probes to the disposable Reference clone only."""
+    for app in ("acme-front", "acme-admin"):
+        readiness = main / "apps" / app / "src/routes/__effigy/ready/+server.ts"
+        readiness.parent.mkdir(parents=True, exist_ok=True)
+        readiness.write_text(
+            'export function GET() { return new Response("ready", { status: 200 }); }\n',
+            encoding="utf-8",
+        )
+        route = main / "apps" / app / "src/routes/__qualification/origin/+server.ts"
+        route.parent.mkdir(parents=True, exist_ok=True)
+        route.write_text(
+            """export function GET({ url, request }: { url: URL; request: Request }) {
   return new Response(
     JSON.stringify({
       urlOrigin: url.origin,
-      requestOrigin: request.headers.get("origin"),
+      requestUrl: request.url,
+      requestUrlOrigin: new URL(request.url).origin,
+      requestPath: new URL(request.url).pathname,
+      requestSearch: new URL(request.url).search,
+      method: request.method,
+      host: request.headers.get("host"),
+      origin: request.headers.get("origin"),
       forwardedProto: request.headers.get("x-forwarded-proto"),
       forwardedHost: request.headers.get("x-forwarded-host"),
     }),
@@ -307,8 +526,52 @@ def install_origin_probe(main: Path) -> None:
   );
 }
 """,
-        encoding="utf-8",
-    )
+            encoding="utf-8",
+        )
+
+
+def fixture_public_origin_observations(
+    main: Path, states: dict[str, dict], gateway_port: int, context: ssl.SSLContext
+) -> None:
+    for app in ("acme-front", "acme-admin"):
+        wrapper = main / "apps" / app / "src/qualification-hooks.server.js"
+        if not wrapper.is_file():
+            raise RuntimeError(
+                f"{app} public-origin wrapper was not installed before app startup"
+            )
+    for name in ("front", "admin"):
+        if name not in states:
+            raise RuntimeError(f"cannot qualify {name} public origin without an owned ready route")
+        domain = states[name]["route_domain"]
+        origin = f"https://{domain}:{gateway_port}"
+        path = "/__qualification/origin?probe=public-origin"
+        code, _, body = gateway_request(
+            domain,
+            gateway_port,
+            context,
+            path,
+            {"Host": f"{domain}:{gateway_port}", "Origin": origin},
+        )
+        assert code == 200, (name, code)
+        result = json.loads(body)
+        print(
+            f"Reference {name} origin probe: status={code} path={result.get('requestPath')} "
+            f"Host={result.get('host')} Origin={result.get('origin')} "
+            f"X-Forwarded-Proto={result.get('forwardedProto')} "
+        f"X-Forwarded-Host={result.get('forwardedHost')} "
+        f"event.url.origin={result.get('urlOrigin')} "
+            f"request.url.origin={result.get('requestUrlOrigin')}",
+            flush=True,
+        )
+        expected = origin
+        if (
+            result.get("urlOrigin") != expected
+            or result.get("requestUrlOrigin") != expected
+            or result.get("requestPath") != "/__qualification/origin"
+            or result.get("requestSearch") != "?probe=public-origin"
+        ):
+            raise RuntimeError(f"{name} SvelteKit public-origin probe did not preserve configured HTTPS URL")
+    print("PASS actual Reference front/admin configured HTTPS origins through verified private gateway", flush=True)
 
 
 def managed_listener_state(
@@ -341,7 +604,7 @@ def container_status(checkout: Path, name: str) -> dict:
 def service_host_port(status: dict, target: int) -> int | None:
     for service in status.get("services", []):
         for mapping in service.get("ports", []):
-            match = re.search(r"(?:127\.0\.0\.1:)?(\d+)->" + str(target) + r"(?:/tcp)?", mapping)
+            match = re.fullmatch(r"127\.0\.0\.1:(\d+)->" + str(target) + r"(?:/tcp)?", mapping)
             if match:
                 return int(match.group(1))
     return None
@@ -361,65 +624,181 @@ def prove_reference_api_restart(
     main: Path,
     gateway_root: Path,
     before_states: dict[str, dict],
-) -> None:
+) -> bool:
+    global LAST_API_RESTART_DIAGNOSTIC
+    LAST_API_RESTART_DIAGNOSTIC = {
+        "status": "unproven",
+        "phase": "preflight",
+        "termination_signal": "SIGKILL",
+    }
     if "api" not in before_states:
+        LAST_API_RESTART_DIAGNOSTIC["reason"] = "prior API state is unavailable"
         print("BLOCKED Reference API restart: prior API state is unavailable; no process was signaled", flush=True)
-        return
+        return False
     api_path, before_api = managed_listener_state(main, "api")
     old_address = before_api["address"]
     child_pid = int(before_api["child_pid"])
     supervisor_pid = int(before_api["supervisor_pid"])
-    parent = subprocess.run(
+    listener_pid = int(before_api["listener_pid"])
+    child_parent = subprocess.run(
         ["ps", "-p", str(child_pid), "-o", "ppid="],
         check=True,
         capture_output=True,
         text=True,
         timeout=5,
     ).stdout.strip()
-    if parent != str(supervisor_pid):
-        print(
-            f"BLOCKED Reference API restart: recorded child {child_pid} is not a direct child "
-            f"of recorded supervisor {supervisor_pid}",
-            flush=True,
-        )
-        return
-
-    recorded_start = before_api.get("child_start_identity") or {}
-    expected_start = datetime.fromtimestamp(int(recorded_start.get("start_seconds", 0))).strftime(
-        "%a %b %d %H:%M:%S %Y"
-    )
-    actual_start = subprocess.run(
-        ["ps", "-p", str(child_pid), "-o", "lstart="],
+    listener_parent = subprocess.run(
+        ["ps", "-p", str(listener_pid), "-o", "ppid="],
         check=True,
         capture_output=True,
         text=True,
         timeout=5,
     ).stdout.strip()
-    command = subprocess.run(
+    if child_parent != str(supervisor_pid) or listener_parent != str(child_pid):
+        LAST_API_RESTART_DIAGNOSTIC.update({
+            "reason": "recorded supervisor/adapter/listener ancestry did not match",
+            "child_pid": child_pid,
+            "listener_pid": listener_pid,
+            "recorded_supervisor_pid": supervisor_pid,
+            "observed_child_parent_pid": child_parent,
+            "observed_listener_parent_pid": listener_parent,
+        })
+        print(
+            "BLOCKED Reference API restart before signal: recorded supervisor/adapter/listener "
+            f"ancestry did not match (supervisor={supervisor_pid}, adapter={child_pid}, "
+            f"listener={listener_pid}, observed_parents={child_parent}/{listener_parent})",
+            flush=True,
+        )
+        return False
+
+    recorded_start = before_api.get("listener_start_identity") or {}
+    expected_start = datetime.fromtimestamp(int(recorded_start.get("start_seconds", 0))).strftime(
+        "%a %b %d %H:%M:%S %Y"
+    )
+    actual_start = subprocess.run(
+        ["ps", "-p", str(listener_pid), "-o", "lstart="],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    ).stdout.strip()
+    adapter_command = subprocess.run(
         ["ps", "-p", str(child_pid), "-o", "command="],
         check=True,
         capture_output=True,
         text=True,
         timeout=5,
     ).stdout.strip()
-    if (
-        not recorded_start
-        or expected_start != actual_start
-        or str(main) not in command
-        or "managed-rust-listener" not in command
-    ):
+    listener_command = subprocess.run(
+        ["ps", "-p", str(listener_pid), "-o", "command="],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    ).stdout.strip()
+    adapter_cwd_result = subprocess.run(
+        ["lsof", "-a", "-p", str(child_pid), "-d", "cwd", "-Fn"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    listener_cwd_result = subprocess.run(
+        ["lsof", "-a", "-p", str(listener_pid), "-d", "cwd", "-Fn"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    adapter_cwd_paths = [line[1:] for line in adapter_cwd_result.stdout.splitlines() if line.startswith("n")]
+    listener_cwd_paths = [line[1:] for line in listener_cwd_result.stdout.splitlines() if line.startswith("n")]
+    _, port_text = old_address.rsplit(":", 1)
+    socket_result = subprocess.run(
+        ["lsof", "-nP", "-iTCP:" + port_text, "-sTCP:LISTEN", "-Fpcn"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    socket_owner = None
+    current_socket_row = None
+    for line in socket_result.stdout.splitlines():
+        if line.startswith("p"):
+            if current_socket_row and listener_pid == current_socket_row.get("pid"):
+                socket_owner = current_socket_row
+            try:
+                current_socket_row = {"pid": int(line[1:]), "command": None, "names": []}
+            except ValueError:
+                current_socket_row = None
+        elif current_socket_row is not None and line.startswith("c"):
+            current_socket_row["command"] = line[1:]
+        elif current_socket_row is not None and line.startswith("n"):
+            current_socket_row["names"].append(line[1:])
+    if current_socket_row and listener_pid == current_socket_row.get("pid"):
+        socket_owner = current_socket_row
+    identity_checks = {
+        "recorded_start_present": bool(recorded_start),
+        "start_second_matches": expected_start == actual_start,
+        "adapter_command_matches": str(REPO) in adapter_command and "managed-rust-listener" in adapter_command,
+        "adapter_working_directory_matches": (
+            adapter_cwd_result.returncode == 0 and str(main) in adapter_cwd_paths
+        ),
+        "listener_working_directory_matches": (
+            listener_cwd_result.returncode == 0 and str(main) in listener_cwd_paths
+        ),
+        "kernel_socket_owned_by_recorded_listener": (
+            socket_result.returncode in (0, 1)
+            and socket_owner is not None
+            and socket_owner.get("command") == "acme-api"
+            and f"127.0.0.1:{port_text}" in socket_owner.get("names", [])
+        ),
+        "listener_command_is_reference_api": (
+            Path(listener_command.split(" ", 1)[0]).name in {"api", "acme-api"}
+        ),
+    }
+    if not all(identity_checks.values()):
+        LAST_API_RESTART_DIAGNOSTIC.update({
+            "reason": "exact process identity check failed before signal",
+            "child_pid": child_pid,
+            "listener_pid": listener_pid,
+            "recorded_supervisor_pid": supervisor_pid,
+            "observed_child_parent_pid": child_parent,
+            "observed_listener_parent_pid": listener_parent,
+            "identity_checks": identity_checks,
+            "recorded_start": recorded_start,
+            "expected_ps_start": expected_start,
+            "actual_ps_start": actual_start,
+            "adapter_command": adapter_command[:500],
+            "listener_command": listener_command[:500],
+            "adapter_cwd_paths": adapter_cwd_paths,
+            "listener_cwd_paths": listener_cwd_paths,
+            "socket_owner": socket_owner,
+        })
         print(
-            f"BLOCKED Reference API restart: recorded PID/start/path identity did not match "
-            f"the current process (pid={child_pid}, parent={parent})",
+            "BLOCKED Reference API restart before signal: exact process identity check failed "
+            f"(adapter_pid={child_pid}, listener_pid={listener_pid}, "
+            f"parents={child_parent}/{listener_parent}, checks={identity_checks}, "
+            f"recorded_start={recorded_start}, expected_ps_start={expected_start!r}, "
+            f"actual_ps_start={actual_start!r}, adapter_command={adapter_command[:500]!r}, "
+            f"listener_command={listener_command[:500]!r}, "
+            f"adapter_cwd_paths={adapter_cwd_paths!r}, listener_cwd_paths={listener_cwd_paths!r}, "
+            f"socket_owner={socket_owner!r})",
             flush=True,
         )
-        return
+        return False
 
     try:
-        os.kill(child_pid, signal.SIGTERM)
+        # The adapter declares restart="on-failure". SIGTERM is graceful and
+        # may make the application exit with status 0, which does not exercise
+        # that policy. After checking the exact recorded process start,
+        # ancestry, command, cwd, and socket ownership above, SIGKILL the
+        # disposable API listener so the adapter reports a non-zero child exit.
+        os.kill(listener_pid, signal.SIGKILL)
     except ProcessLookupError:
-        print("BLOCKED Reference API restart: recorded child exited before the targeted signal", flush=True)
-        return
+        LAST_API_RESTART_DIAGNOSTIC["reason"] = "recorded socket-owning listener exited before the targeted signal"
+        LAST_API_RESTART_DIAGNOSTIC["listener_pid"] = listener_pid
+        print("BLOCKED Reference API restart: recorded listener exited before the targeted signal", flush=True)
+        return False
     deadline = time.monotonic() + 150
     restarted = None
     while time.monotonic() < deadline:
@@ -437,8 +816,16 @@ def prove_reference_api_restart(
             break
         time.sleep(0.5)
     if restarted is None:
+        LAST_API_RESTART_DIAGNOSTIC.update({
+            "phase": "waiting_for_ready_generation",
+            "reason": "no new ready generation appeared within 150 seconds",
+            "termination_signal": "SIGKILL",
+            "child_pid": child_pid,
+            "old_generation": before_api["generation"],
+            "old_address": old_address,
+        })
         print("BLOCKED Reference API restart: no new ready generation appeared within 150 seconds", flush=True)
-        return
+        return False
 
     report_path = api_path.parent / f"api.{restarted['generation']}.listener-report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -447,6 +834,7 @@ def prove_reference_api_restart(
 
     route_deadline = time.monotonic() + 30
     current_gateway = None
+    route = None
     while time.monotonic() < route_deadline:
         current_gateway = private_gateway_status(main, gateway_root)
         route = next(
@@ -457,8 +845,15 @@ def prove_reference_api_restart(
             break
         time.sleep(0.5)
     if not current_gateway or not route or route["target"] != restarted["address"]:
+        LAST_API_RESTART_DIAGNOSTIC.update({
+            "phase": "route_replacement",
+            "reason": "new listener did not replace the owned route target",
+            "generation": restarted["generation"],
+            "address": restarted["address"],
+            "route_target": route.get("target") if route else None,
+        })
         print("BLOCKED Reference API restart: new listener did not replace the owned route target", flush=True)
-        return
+        return False
 
     endpoint_changed = restarted["address"] != old_address
     dependent_changes = {"front": False, "admin": False}
@@ -481,9 +876,32 @@ def prove_reference_api_restart(
         flush=True,
     )
     if endpoint_changed and all(dependent_changes.values()):
+        LAST_API_RESTART_DIAGNOSTIC = {
+            "status": "passed",
+            "phase": "complete",
+            "old_generation": before_api["generation"],
+            "new_generation": restarted["generation"],
+            "old_address": old_address,
+            "new_address": restarted["address"],
+            "route_target": route["target"],
+            "dependent_generations_changed": dependent_changes,
+        }
         print("PASS owned API child restart, new endpoint report, route replacement, and dependent restarts", flush=True)
+        return True
     else:
+        LAST_API_RESTART_DIAGNOSTIC = {
+            "status": "unproven",
+            "phase": "dependency_propagation",
+            "reason": "API generation/route was ready but address change or dependent restart was not established",
+            "old_generation": before_api["generation"],
+            "new_generation": restarted["generation"],
+            "old_address": old_address,
+            "new_address": restarted["address"],
+            "route_target": route["target"],
+            "dependent_generations_changed": dependent_changes,
+        }
         print("PARTIAL restart proof: the API generation/route is ready; endpoint change or dependent restart was not established", flush=True)
+        return False
 
 
 def prove_private_pilot_receipts(checkouts: list[Path]) -> None:
@@ -583,34 +1001,7 @@ def prove_private_pilot_receipts(checkouts: list[Path]) -> None:
         print("NOT PROVEN: two worktree apps running simultaneously, child restart/address propagation, interrupted/uncertain recovery, partial-failure isolation, and teardown preserving foreign resources", flush=True)
         return
 
-    install_origin_probe(main)
-    front_domain = states["front"]["route_domain"]
-    origin = f"https://{front_domain}:{gateway_port}"
-    code, _, origin_bytes = gateway_request(
-        front_domain,
-        gateway_port,
-        context,
-        "/__qualification/origin",
-        {"Origin": origin},
-    )
-    assert code == 200, code
-    origin_result = json.loads(origin_bytes)
-    print(
-        "SvelteKit origin observation: "
-        f"event.url.origin={origin_result.get('urlOrigin')} "
-        f"Origin={origin_result.get('requestOrigin')} "
-        f"X-Forwarded-Proto={origin_result.get('forwardedProto')} "
-        f"X-Forwarded-Host={origin_result.get('forwardedHost')}",
-        flush=True,
-    )
-    if origin_result.get("urlOrigin") != origin:
-        print(
-            "BLOCKED SvelteKit public origin: gateway request is HTTPS but the actual Reference "
-            "dev adapter constructs event.url with the internal HTTP scheme",
-            flush=True,
-        )
-    else:
-        print("PASS SvelteKit event URL uses the verified HTTPS browser origin", flush=True)
+    fixture_public_origin_observations(main, states, gateway_port, context)
 
     front_status, _, client_bytes = gateway_request(front_domain, gateway_port, context, "/@vite/client")
     assert front_status == 200
@@ -671,8 +1062,15 @@ def prove_real_adapter_task_plans(checkout: Path) -> None:
 
 def prove_bundle_adapter_sources() -> None:
     rust_adapter = REPO / "scripts/dev/managed-rust-listener.py"
+    fixture_scripts = (
+        REPO / "scripts/minio_fixture.py",
+        REPO / "scripts/qualify-reference-runtime.py",
+        REPO / "scripts/qualification/managed-listener-probe.py",
+    )
     vite_adapter = REPO / "scripts/dev/managed-vite-listener.mjs"
     compile(rust_adapter.read_text(encoding="utf-8"), str(rust_adapter), "exec")
+    for fixture_script in fixture_scripts:
+        compile(fixture_script.read_text(encoding="utf-8"), str(fixture_script), "exec")
     node = subprocess.run(
         ["node", "--check", str(vite_adapter)],
         capture_output=True,
@@ -690,9 +1088,22 @@ def prove_bundle_adapter_sources() -> None:
         "EFFIGY_MANAGED_HOST_LISTENER_GENERATION",
         "EFFIGY_MANAGED_HOST_API_PUBLIC_URL",
         "EFFIGY_PROFILE_GATEWAY_HTTPS_PORT",
+        "EFFIGY_PROFILE_PUBLIC_ORIGIN",
+        "EFFIGY_PROFILE_PUBLIC_URL",
+        "EFFIGY_PROFILE_PUBLIC_CONFIG_GENERATOR",
         "protocol: publicUrl.protocol === \"https:\" ? \"wss\" : \"ws\"",
     ):
         assert token in vite_source, f"Vite adapter is missing {token}"
+    origin_hook = REPO / "scripts/dev/sveltekit-public-origin.mjs"
+    assert origin_hook.is_file()
+    node_hook = subprocess.run(
+        ["node", "--check", str(origin_hook)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if node_hook.returncode != 0:
+        raise RuntimeError(f"SvelteKit public-origin helper syntax check failed: {node_hook.stderr.strip()}")
     print("PASS bundle Rust/Vite adapter syntax and managed endpoint/origin inputs", flush=True)
 
 
@@ -723,6 +1134,9 @@ def main() -> int:
         version = run([EFFIGY, "--version"], timeout=30).stdout.strip()
         print(f"EFFIGY: {version}", flush=True)
         prove_reference_configuration(checkouts)
+        fixture_home = root / "home"
+        fixture_home.mkdir(mode=0o700)
+        initialize_reference_fixture_secrets(checkouts, {**os.environ, "HOME": str(fixture_home)})
         prove_worktree_plans(checkouts)
         prove_real_adapter_task_plans(checkouts[0])
         print(

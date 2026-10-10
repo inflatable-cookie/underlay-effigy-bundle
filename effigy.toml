@@ -5,3 +5,15 @@ run_in = "host"
 [tasks."proof:dev-profiles:reference"]
 run = "python3 scripts/qualify-reference-profiles.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:public-origin"]
+run = "node --test --test-timeout=15000 --test-force-exit scripts/dev/sveltekit-public-origin.test.mjs"
+run_in = "host"
+
+[tasks."proof:dev-profiles:reference-runtime"]
+run = "python3 scripts/qualify-reference-runtime.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:reference-container"]
+run = "python3 scripts/qualify-reference-container.py"
+run_in = "host"

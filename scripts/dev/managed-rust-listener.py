@@ -23,6 +23,7 @@ from pathlib import Path
 BIND_ENV = "EFFIGY_MANAGED_HOST_LISTENER_BIND"
 REPORT_ENV = "EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE"
 GENERATION_ENV = "EFFIGY_MANAGED_HOST_LISTENER_GENERATION"
+STARTUP_TIMEOUT_SECONDS = 480
 
 
 def required_env(name: str) -> str:
@@ -150,7 +151,10 @@ def main(argv: list[str]) -> int:
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, stop_child)
 
-    deadline = time.monotonic() + 90
+    # A cold consumer clone may need several minutes for Cargo to download and
+    # compile its workspace before the owned API socket exists. Effigy's
+    # fixture declaration gives readiness a longer 540-second bound.
+    deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
     try:
         while time.monotonic() < deadline:
             if child.poll() is not None:
@@ -166,7 +170,9 @@ def main(argv: list[str]) -> int:
                 break
             time.sleep(0.1)
         else:
-            raise RuntimeError("Rust task did not expose an owned IPv4 loopback listener within 90 seconds")
+            raise RuntimeError(
+                f"Rust task did not expose an owned IPv4 loopback listener within {STARTUP_TIMEOUT_SECONDS} seconds"
+            )
 
         return child.wait()
     finally:
