@@ -67,10 +67,103 @@ If supported interfaces cannot establish these properties, report the
 smallest generic Effigy capability gap with an executable reproduction. A
 blocked capability must not become an invented CLI or private protocol.
 
-## Object storage qualification
+## Supported mechanism
+
+Qualification uses Effigy source
+`2f7b1819fd0e72afff18a6053be424719ecf71fc` and its private `effigy v0.14.1`
+binary, SHA-256
+`2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc`.
+The scripts require explicit source and binary paths and verify both identities.
+The owning interfaces are Effigy's contract 005 managed host listener routes
+and guide 063 managed host listeners/private gateway at that source.
+
+Effigy supports `containers.<name>.host_processes` with `listener.bind`, HTTP
+readiness, a TLS route, and `depends_on`. An adapter strictly binds
+`EFFIGY_MANAGED_HOST_LISTENER_BIND`, then writes
+`effigy.managed.host-listener-report.v1` to
+`EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE`, echoing
+`EFFIGY_MANAGED_HOST_LISTENER_GENERATION`. Effigy verifies kernel ownership
+and readiness before publication. Dependents receive current internal/public
+URLs, state file and generation through `EFFIGY_MANAGED_HOST_<NAME>_*` and
+restart on dependency endpoint/readiness changes. Failed-generation
+diagnostics describe report, ownership, HTTP readiness and publication phases;
+they are not ownership authority.
+
+The bundle's opt-in Rust adapter passes the bind preference into the actual
+Rust task, discovers its descendant's loopback listener and reports the actual
+address. The Vite adapter loads the application's installed configuration,
+strictly binds its managed loopback address, consumes the current API public
+URL, and sets browser/HMR URLs including the gateway's actual HTTPS port.
+Effigy owns their lifecycle; these adapters introduce no allocator or cache
+manager. They are not connected to the bundle's default `dev` selector.
+
+`scripts/dev/sveltekit-public-origin.mjs` supplies an explicit development hook
+wrapper for an HTTP Vite listener behind an HTTPS gateway. A consumer opts in
+through SvelteKit's supported `kit.files.hooks.server` setting. The disposable
+Reference wrapper imports/chains its original `handle` and re-exports the
+original hooks, including `handleError`. It is disabled outside development
+or without the explicit profile flag. The configured HTTPS origin is fixed;
+Host, forwarded context and unsafe request Origin are validated against it.
+The wrapper presents coherent `event.url` and `event.request.url`, retaining
+path/query, method, headers, cookies and the unread body stream. Its narrowly
+scoped readiness path permits Effigy's host-only authority for safe local
+readiness probes. It does not widen CSRF/CORS or change the upstream transport.
+
+Private gateway mode requires a canonical caller-owned mode-0700 root via
+`EFFIGY_GATEWAY_PRIVATE_STATE_ROOT` and explicit `--private-state-root`.
+Certificates/CA remain in that root without trust installation, resolver,
+alias or global gateway changes. Proof clients verify the fixture CA, actual
+registered certificate/SAN, explicit SNI/name resolution and reported HTTPS
+port.
+
+## Reference pilot assurance and limits
+
+Underlay Reference is the designated disposable pilot. Its operator checkout
+and live stack remain untouched. Acowtancy testing or adoption is excluded
+until qualification and a later explicit adoption ruling. No consumer default
+switch is delivered here.
+
+The executable runtime proof uses a clean Reference source checkout (qualified
+commit `fa6a5e89ad83db460a5506b7fa3f915fa767d72a`), a private main clone and two
+private worktrees. It assembles this bundle branch with
+`sources.siblings = false`. Fixture-only app/config overrides exercise actual
+Reference Rust API and front/admin Vite/SvelteKit applications. The hybrid
+fixture excludes the workspace image and keeps host/Linux artifacts separate.
+
+The retained pre-Silo runtime proof establishes nine simultaneous distinct ready application listeners
+and routes across those three identities. All three reach real isolated
+Postgres, Mailpit and MinIO over loopback. Verified private HTTPS route probes
+return the configured public origin in both SvelteKit URL surfaces, preserving
+path/query; front and admin HMR WebSockets upgrade with 101. An owned ready API
+restart changes endpoint/generation and route target, and restarts both
+dependents with the current API URL. Occupied-port launch fails strictly before
+publication while another instance's listener/route survives. A controlled
+startup interruption records owned readiness 503, reconciles through exact
+scope down, and recovers without signaling uncertain process identities.
+Teardown of one worktree withdraws its sockets/routes while both other
+instances continue serving.
+
+Those lifecycle receipts use the earlier upstream source-image override. The
+focused published-Silo proof covers changed storage inputs; the earlier
+receipts are not presented as Silo artifact or upload assurance.
+
+A published-Silo three-instance execution also observed an unrelated worktree
+admin child recycle under the same supervisor during another checkout's
+interruption/reconciliation window. Its API and front remained unchanged.
+That execution stopped before collision and isolated teardown; cleanup settled.
+The child exit/dependency-change cause is unestablished, so earlier passing
+receipts do not establish repeatable lifecycle isolation for this case.
+The harness rejects stale survivor identities before mutation and any changed
+owner, generation, address or process identity afterward. It retains timed
+before/after identity evidence and the interruption/reconciliation receipt even
+when that check fails. A recycled child is never accepted merely because its
+supervisor or replacement route survives. Consumer profile readiness remains
+unclaimed pending independent lifecycle qualification.
+
+### Published Silo qualification ruling
 
 The operator selected PGSTY Silo as the first published-image candidate for
-the disposable Reference pilot on 2026-10-10. Qualification uses release and
+the disposable Reference pilot on 2026-10-10 (owning ruling on main `92e687a`). Qualification uses release and
 digest pins for the server and its maintained client, rather than requiring
 local MinIO image builds. Silo is a downstream MinIO fork; it must be reported
 as Silo, not as an unchanged upstream MinIO artifact.
@@ -85,3 +178,121 @@ Keep the existing bundle and catalog defaults until qualification supports a
 separately explicit migration. Existing data and volumes are outside the pilot.
 Any later change to the shared Effigy catalog belongs to its owner; a private
 fixture override must not silently become a fleet default.
+
+### Published artifact and runtime evidence
+
+Fixture-only catalog overrides use:
+
+- Server `docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46`.
+- Client `docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd`.
+
+The artifact verifier checks both Linux platforms, selected child/config and
+attestation content hashes, OCI entrypoints and release/source metadata.
+Server source is `pgsty/silo` commit
+`2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c`; client source is `pgsty/mc` commit
+`e952aa78f10a2b77dd525a2b7e3143bcda0cd377`. Matching published in-toto provenance
+is available. This verification does not authenticate a publisher signature;
+OCI SBOM availability is recorded separately per image/platform. The exact
+Silo release also publishes Linux SPDX 2.3 SBOMs and Sigstore checksum/provenance
+assets. The artifact proof verifies the release SBOM content digests and the
+arm64 executable checksum against the pulled image; it does not verify the
+Sigstore signatures or treat an archive SBOM as a complete OCI-image SBOM.
+The MC release has no separate assurance assets in the inspected release.
+Private arm64 pulls and executable version checks match those releases/commits. The server
+provides `silo`, `mc` and `mcli`; the standalone client entrypoint is `mc`.
+The extracted catalog retains its `server` command and `mc ready local`
+contract. No shared catalog or published image is changed.
+
+The focused storage selector prepares fresh owned Postgres/Mailpit/Silo and
+actual Reference API/front/admin. It applies an explicit fixture-only Rust
+S3Config override: host operations use the actual loopback service endpoint,
+while presigning and public URLs use the registered private HTTPS route/port.
+Reference's unconfigured development branch still hardcodes `s3.acme.test`;
+this adapter patch is qualification code, not a delivered consumer default.
+The service protocol proofs establish server HTTP readiness and `mc ready local`, owned
+bucket bootstrap/removal, exact front/admin browser-origin controls, signed
+object PUT/GET/DELETE (200/200/204), and rejected incorrect credentials (403).
+A foreign-origin preflight returns 204 without a CORS grant. Actual front/admin
+origin and HMR probes also pass with this service override.
+
+The covering `proof:dev-profiles:reference-storage` execution passed the actual
+Reference application path through the CA-verified private gateway:
+registration and login (200), media creation (201), upload initiation (200),
+presigned PUT to the registered HTTPS Silo authority (200), finalisation (200,
+state `ready`), and signed GET/DELETE (200/204). Retrieved bytes matched the
+uploaded bytes. The selector exited 0 and verified owned cleanup. Tokens,
+credentials, response bodies and presigned queries are not included in protocol
+receipts. This proves the disposable fixture integration, without certifying
+consumer profile rollout or unchanged published defaults.
+
+An earlier covering execution exited 1 during `POST /v1/auth/register` when its
+CA-verified `GatewayHTTPSConnection` timed out reading the response with an
+eight-second socket timeout. That execution did not reach the media path and
+verified cleanup. Its retained receipt does not establish whether registration
+committed or which API/gateway phase caused the delay. The later passing
+execution used a fresh fixture account; it does not explain the earlier timeout
+or establish a runtime fix or repeatability guarantee. No Silo or Effigy
+capability failure is inferred from the historical timeout.
+
+The storage probe attempts to register a fresh fixture account and grants it
+admin only after successful registration in the private database. It does not
+use operator or seed credentials.
+Exact supported host/container down, recorded process/socket/route absence,
+retirement, zero environment/route inventory and private profile purge all
+settle before `cleanup_verified = true`. Failed fixture preparations remain
+retained separately; their subsequent corrections are not core runtime gap
+claims.
+
+Container-only assembly/build/start passed with the published Silo override,
+preserving `workspace-rust-bun`, default 41001/41002/41003 inputs and
+`sources.siblings = false`. The original published `minio/minio` pull remains
+unavailable in gathered evidence (`insufficient_scope`). This candidate does
+not repair it or certify unchanged published defaults. A shared catalog image,
+client/health/bootstrap change and any consumer migration require separate
+owner work after independent qualification review. Acow remains excluded; no
+live volumes or migration are exercised.
+
+Cleanup stops/reconciles each exact host/container scope and verifies recorded
+process identities, socket closure and route withdrawal while the runtime
+profile exists. Worktree retire removes their scope records; the main
+checkout returns an empty idempotent `scope = null` receipt, which is accepted
+only after independent exact-scope reconciliation. Retirement alone is never
+host cleanup evidence. After zero runtime environments/routes are confirmed,
+the private gateway stops and the run-owned profile purges with `exists =
+false`. Interrupted readiness diagnostics remain retained even after ownership
+fields clear. Earlier uncertain records/residue are not reclaimed by these
+proofs; the cause of the historical unavailable Reference generation remains
+unestablished.
+
+Local assurance is macOS host plus Linux containers. It does not establish a
+local Linux Reference host proof or dedicated grace-to-SIGKILL end-to-end
+coverage. Review/CI and any consumer migration remain separate gates.
+
+## Qualification selectors
+
+Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
+`UNDERLAY_REFERENCE_SOURCE` explicitly. The repository owns these selectors:
+
+- `proof:dev-profiles`: supporting synthetic binding/identity proof.
+- `proof:dev-profiles:reference`: disposable Reference assembly/configuration
+  and actual adapter plans; it does not launch applications.
+- `proof:dev-profiles:public-origin`: helper security, opt-out, hook chaining
+  and request/body preservation tests with bounded runner lifetime.
+- `proof:dev-profiles:reference-runtime`: real three-instance applications,
+  published Silo, HTTPS/HMR and lifecycle proof with owned teardown.
+- `proof:dev-profiles:lifecycle-contract-tests`: hermetic survivor identity
+  checks, including a recycled child under an unchanged supervisor.
+- `proof:dev-profiles:reference-container`: independent container-only
+  assembly/build/start with the disclosed published Silo override.
+- `proof:dev-profiles:silo-contract-tests`: hermetic digest/config/source and
+  attestation mismatch controls.
+- `proof:dev-profiles:silo-artifacts`: anonymous pinned registry metadata proof
+  for both Linux platforms, without runtime effects.
+- `proof:dev-profiles:reference-storage`: focused real Reference application and
+  Silo storage proof covering registration, presigned upload, finalisation and
+  signed retrieval/deletion with supported owned teardown. It retains unchanged
+  three-instance lifecycle coverage.
+
+Runtime selectors create fresh private roots and retain redacted receipts
+outside the repository. Published artifact/config mismatches fail closed; no
+manual source-image build or global Effigy replacement is required.
