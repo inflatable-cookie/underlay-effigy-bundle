@@ -120,6 +120,13 @@ port.
 
 ### Opt-in admission before a released capability
 
+The operator authorized bounded implementation within this agreed profile
+direction: "You have blanket approval,you don't need to keep asking". This
+covers the opt-in bundle implementation, its independent review and closeout.
+It does not authorize release/tag changes, global binary replacement, shared
+catalog publication or adoption, consumer default migration, or live settings
+changes. Reference remains the disposable pilot and Acowtancy remains excluded.
+
 The qualified Effigy source is `2f7b1819fd0e72afff18a6053be424719ecf71fc`.
 Published `v0.14.1` does not contain the private gateway and managed-listener
 primitives used by these profiles. A version string is not capability proof:
