@@ -8,8 +8,8 @@ import subprocess
 from pathlib import Path
 
 
-SUPPORTED_EFFIGY_SOURCE = "bd2dd667302250c7b8fed548c850567df2283038"
-SUPPORTED_EFFIGY_SHA256 = "ed44140738cc6e76e72ea9ee3ce23cad9aae243748d5833f3f8a15bba483aff2"
+SUPPORTED_EFFIGY_SOURCE = "2f7b1819fd0e72afff18a6053be424719ecf71fc"
+SUPPORTED_EFFIGY_SHA256 = "2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc"
 
 
 def require_effigy_binary() -> str:
@@ -18,7 +18,7 @@ def require_effigy_binary() -> str:
     if not binary_value or not source_value:
         raise RuntimeError(
             "set UNDERLAY_PROFILE_EFFIGY_BIN and UNDERLAY_PROFILE_EFFIGY_SOURCE "
-            "to the privately built handover binary and source checkout"
+            "to the privately built final-handover binary and source checkout"
         )
 
     binary = Path(binary_value).expanduser().resolve(strict=True)
