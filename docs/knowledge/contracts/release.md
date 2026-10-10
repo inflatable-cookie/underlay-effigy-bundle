@@ -3,6 +3,22 @@
 There are no tags or versions. Consumers reference the bundle by Git URL with
 no pinned ref, so a merge to `main` is a release to every consumer at once.
 
+## Consumer ref policy
+
+Consumers retain `main` tracking. The operator's ruling on 2026-10-10 is:
+"Retain main tracking; revisit on concrete hold-back, regression or
+reproducibility need."
+
+Recheck this policy when a consumer needs to hold a known-good bundle while
+another upgrades, a `main` update causes a consumer regression, or reconstructing
+a CI or development environment requires an exact bundle commit. The reporting
+consumer's planner and the bundle owner collect the concrete evidence.
+
+Immutable commit-pin adoption requires separate planning: prove update and
+rollback in disposable consumer fixtures, inspect current consumer refs and
+affected child catalogs, and establish upgrade ownership before consumer changes.
+The ruling preserves the shared rollback below.
+
 ## Steps
 
 1. Keep the change backward-compatible: new inputs get safe defaults. If it

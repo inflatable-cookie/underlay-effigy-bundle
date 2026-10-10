@@ -44,7 +44,13 @@ remain explicit.
 
 ## Qualification boundary
 
-Use private disposable consumer fixtures and isolated owned resources. Cover
+Underlay Reference is the designated pilot for profile qualification and later
+opt-in implementation and adoption proof. Use disposable owned checkouts,
+worktrees and instances of `underlay-reference`; preserve its operator checkout
+and live stack. Acowtancy is excluded from testing, mutation and rollout until
+the solution is qualified and explicit later adoption is arranged.
+
+Use those private disposable consumer fixtures and isolated owned resources. Cover
 two worktrees and a main-checkout identity starting simultaneously, occupied
 ports, child restart, partial launch failure, interrupted cleanup and uncertain
 ownership. Isolated teardown must preserve foreign processes and routes.
@@ -156,10 +162,24 @@ unclaimed pending independent lifecycle qualification.
 
 ### Published Silo qualification ruling
 
-Tom selected published PGSTY Silo for qualification in disposable Reference on
-2026-10-10 (owning ruling on main `92e687a`). It supersedes manual upstream
-MinIO image builds. The candidate is a downstream fork; neither source archives
-nor former upstream source-image receipts satisfy its acceptance.
+The operator selected PGSTY Silo as the first published-image candidate for
+the disposable Reference pilot on 2026-10-10 (owning ruling on main `92e687a`). Qualification uses release and
+digest pins for the server and its maintained client, rather than requiring
+local MinIO image builds. Silo is a downstream MinIO fork; it must be reported
+as Silo, not as an unchanged upstream MinIO artifact.
+
+Prove image provenance and architecture, service readiness, bucket bootstrap,
+CORS, signed uploads and downloads, deletion, and owned cleanup with fresh
+fixture data. Check the bundled client and health command explicitly; matching
+S3 APIs do not establish identical executable or administration behavior.
+Published-image qualification does not certify the unavailable upstream image.
+
+Keep the existing bundle and catalog defaults until qualification supports a
+separately explicit migration. Existing data and volumes are outside the pilot.
+Any later change to the shared Effigy catalog belongs to its owner; a private
+fixture override must not silently become a fleet default.
+
+### Published artifact and runtime evidence
 
 Fixture-only catalog overrides use:
 
