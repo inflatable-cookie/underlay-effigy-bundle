@@ -213,26 +213,26 @@ The service protocol proofs establish server HTTP readiness and `mc ready local`
 bucket bootstrap/removal, exact front/admin browser-origin controls, signed
 object PUT/GET/DELETE (200/200/204), and rejected incorrect credentials (403).
 A foreign-origin preflight returns 204 without a CORS grant. Actual front/admin
-origin and HMR probes also pass with this service override. These service and
-gateway proofs do not certify Reference's application upload/finalisation path.
+origin and HMR probes also pass with this service override.
 
-**Reference application upload/finalisation is unavailable for qualification.**
-The covering `proof:dev-profiles:reference-storage` execution exited 1 during
-`POST /v1/auth/register`: its CA-verified `GatewayHTTPSConnection` timed out
-reading the response with the configured eight-second socket timeout. No
-successful registration response was observed, so media creation, presigning,
-upload, finalisation and retrieval/deletion of that finalised object were not
-reached. Cleanup was verified. The timeout does not establish whether the
-request committed or which API/gateway phase caused the delay; it must not be
-retried as if it were an idempotent probe. No Silo or Effigy capability failure
-is inferred from it. The selector retains this failure rather than converting
-an unavailable path into exit 0.
+The covering `proof:dev-profiles:reference-storage` execution passed the actual
+Reference application path through the CA-verified private gateway:
+registration and login (200), media creation (201), upload initiation (200),
+presigned PUT to the registered HTTPS Silo authority (200), finalisation (200,
+state `ready`), and signed GET/DELETE (200/204). Retrieved bytes matched the
+uploaded bytes. The selector exited 0 and verified owned cleanup. Tokens,
+credentials, response bodies and presigned queries are not included in protocol
+receipts. This proves the disposable fixture integration, without certifying
+consumer profile rollout or unchanged published defaults.
 
-Earlier successful upload/finalisation receipts remain historical evidence;
-they do not certify the current covering result or profile readiness. A later
-qualification must establish the bounded registration response and complete the
-real Reference media path before this limit can be removed. Tokens, credentials,
-response bodies and presigned queries are not included in protocol receipts.
+An earlier covering execution exited 1 during `POST /v1/auth/register` when its
+CA-verified `GatewayHTTPSConnection` timed out reading the response with an
+eight-second socket timeout. That execution did not reach the media path and
+verified cleanup. Its retained receipt does not establish whether registration
+committed or which API/gateway phase caused the delay. The later passing
+execution used a fresh fixture account; it does not explain the earlier timeout
+or establish a runtime fix or repeatability guarantee. No Silo or Effigy
+capability failure is inferred from the historical timeout.
 
 The storage probe attempts to register a fresh fixture account and grants it
 admin only after successful registration in the private database. It does not
@@ -289,9 +289,9 @@ Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
 - `proof:dev-profiles:silo-artifacts`: anonymous pinned registry metadata proof
   for both Linux platforms, without runtime effects.
 - `proof:dev-profiles:reference-storage`: focused real Reference application and
-  Silo storage proof with supported owned teardown; application upload/finalisation
-  remains unavailable at the registration-response boundary described above.
-  It retains unchanged three-instance lifecycle coverage.
+  Silo storage proof covering registration, presigned upload, finalisation and
+  signed retrieval/deletion with supported owned teardown. It retains unchanged
+  three-instance lifecycle coverage.
 
 Runtime selectors create fresh private roots and retain redacted receipts
 outside the repository. Published artifact/config mismatches fail closed; no

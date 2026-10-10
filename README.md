@@ -89,11 +89,12 @@ MinIO receipts are historical evidence. Current storage qualification uses
 published PGSTY Silo and MC through fixture-only overrides; Silo is a downstream
 fork, not unchanged upstream MinIO. Silo signed object operations,
 credentials/CORS controls and container-only build/start passed with that
-override. Reference's application upload/finalisation path is currently
-unavailable for qualification: the covering storage selector timed out reading
-the registration response and did not reach the media path. Historical passes
-do not certify this covering failure; cleanup was verified. See the owning
-development-profile contract above for the exact boundary.
+override. The covering Reference storage proof also passed registration,
+media creation, presigned upload, finalisation and signed retrieval/deletion,
+with verified owned cleanup. An earlier registration-response timeout remains
+historical evidence with an unestablished cause; the later pass does not explain
+that timeout or establish a runtime fix. See the owning development-profile
+contract above for the qualification boundary.
 The original published default MinIO image pull remains
 unqualified (`insufficient_scope`); Silo does not repair that registry access.
 No hybrid/dev:test consumer migration or default switch is delivered.
