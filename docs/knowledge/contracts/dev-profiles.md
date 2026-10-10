@@ -141,6 +141,19 @@ Those lifecycle receipts use the earlier upstream source-image override. The
 focused published-Silo proof covers changed storage inputs; the earlier
 receipts are not presented as Silo artifact or upload assurance.
 
+A published-Silo three-instance execution also observed an unrelated worktree
+admin child recycle under the same supervisor during another checkout's
+interruption/reconciliation window. Its API and front remained unchanged.
+That execution stopped before collision and isolated teardown; cleanup settled.
+The child exit/dependency-change cause is unestablished, so earlier passing
+receipts do not establish repeatable lifecycle isolation for this case.
+The harness rejects stale survivor identities before mutation and any changed
+owner, generation, address or process identity afterward. It retains timed
+before/after identity evidence and the interruption/reconciliation receipt even
+when that check fails. A recycled child is never accepted merely because its
+supervisor or replacement route survives. Consumer profile readiness remains
+unclaimed pending independent lifecycle qualification.
+
 ### Published Silo qualification ruling
 
 Tom selected published PGSTY Silo for qualification in disposable Reference on
@@ -232,6 +245,8 @@ Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
   and request/body preservation tests with bounded runner lifetime.
 - `proof:dev-profiles:reference-runtime`: real three-instance applications,
   published Silo, HTTPS/HMR and lifecycle proof with owned teardown.
+- `proof:dev-profiles:lifecycle-contract-tests`: hermetic survivor identity
+  checks, including a recycled child under an unchanged supervisor.
 - `proof:dev-profiles:reference-container`: independent container-only
   assembly/build/start with the disclosed published Silo override.
 - `proof:dev-profiles:silo-contract-tests`: hermetic digest/config/source and

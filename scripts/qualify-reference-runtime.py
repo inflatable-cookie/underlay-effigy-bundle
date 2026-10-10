@@ -1085,8 +1085,23 @@ def append_interrupted_readiness_child(checkout: Path, route_domain: str,
     manifest.write_text(text, encoding="utf-8")
 
 
+class ForeignListenerChanged(RuntimeError):
+    def __init__(self, checkout: Path, name: str, before: dict, after: dict, phase: str):
+        fields = ("owner", "runtime_generation", "generation", "address", "status",
+                  "supervisor_pid", "supervisor_start_identity", "child_pid", "child_start_identity")
+        self.evidence = {
+            "checkout": str(checkout), "listener": name, "phase": phase,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "before": {key: before.get(key) for key in fields},
+            "after": {key: after.get(key) for key in fields},
+            "changed_fields": [key for key in fields if before.get(key) != after.get(key)],
+        }
+        super().__init__(f"foreign Reference listener {name} changed during {phase}")
+
+
 def assert_foreign_instances_live(instances: list[tuple[Path, dict[str, dict]]],
-                                  gateway_root: Path, gateway_port: int) -> list[dict]:
+                                  gateway_root: Path, gateway_port: int,
+                                  phase: str = "scope isolation") -> list[dict]:
     ca_context = ssl.create_default_context(cafile=str(gateway_root / "ca/rootCA.pem"))
     receipts = []
     for checkout, states in instances:
@@ -1095,8 +1110,10 @@ def assert_foreign_instances_live(instances: list[tuple[Path, dict[str, dict]]],
                   REFERENCE.private_gateway_status(checkout, gateway_root).get("routes", [])}
         for name, before in states.items():
             _, after = REFERENCE.managed_listener_state(checkout, name)
-            if after["generation"] != before["generation"] or after["address"] != before["address"]:
-                raise RuntimeError(f"foreign Reference listener {name} changed across the main-scope interruption")
+            if any(after.get(key) != before.get(key) for key in
+                   ("owner", "runtime_generation", "generation", "address",
+                    "supervisor_pid", "supervisor_start_identity", "child_pid", "child_start_identity")):
+                raise ForeignListenerChanged(checkout, name, before, after, phase)
             if not address_accepts_connection(after["address"]):
                 raise RuntimeError(f"foreign Reference listener {name} stopped across the main-scope interruption")
             route = routes.get(after["route_domain"])
@@ -1119,7 +1136,12 @@ def assert_foreign_instances_live(instances: list[tuple[Path, dict[str, dict]]],
 def prove_interrupted_startup(main_checkout: Path, main_states: dict[str, dict],
                               foreign_instances: list[tuple[Path, dict[str, dict]]],
                               gateway_root: Path, gateway_port: int,
-                              env: dict[str, str]) -> tuple[dict, dict[str, dict]]:
+                              env: dict[str, str], receipt: dict) -> tuple[dict, dict[str, dict]]:
+    receipt.update({"status": "unproven", "started_at": datetime.now(timezone.utc).isoformat()})
+    # Reject an already stale control before changing any checkout. Never
+    # refresh its baseline to accept a foreign restart as isolation success.
+    receipt["foreign_instances_before_interrupt"] = assert_foreign_instances_live(
+        foreign_instances, gateway_root, gateway_port, "interruption precondition")
     manifest_path = main_checkout / "effigy.toml"
     original_manifest = manifest_path.read_text(encoding="utf-8")
     interrupted_domain = f"interrupted.{main_states['api']['route_domain']}"
@@ -1159,6 +1181,7 @@ def prove_interrupted_startup(main_checkout: Path, main_states: dict[str, dict],
             raise RuntimeError("secret-bearing startup task did not retain its owned process group")
         os.killpg(process_group_id, signal.SIGINT)
         interruption_signal_sent = True
+        receipt["signal_sent_at"] = datetime.now(timezone.utc).isoformat()
     try:
         stdout, stderr = process.communicate(timeout=30)
     except subprocess.TimeoutExpired:
@@ -1247,13 +1270,6 @@ def prove_interrupted_startup(main_checkout: Path, main_states: dict[str, dict],
                       REFERENCE.private_gateway_status(main_checkout, gateway_root).get("routes", [])}
     if interrupted_domain in gateway_routes:
         raise RuntimeError("interrupted, unready child published a gateway route")
-    foreign_receipts = assert_foreign_instances_live(foreign_instances, gateway_root, gateway_port)
-
-    recovery, recovered_states = recover_reference_apps(
-        main_checkout, original_manifest, env, gateway_port,
-        "after-interrupted-startup-recovery",
-    )
-
     control_passed = bool(
         interruption_signal_sent
         and observed_ready_failure
@@ -1262,8 +1278,7 @@ def prove_interrupted_startup(main_checkout: Path, main_states: dict[str, dict],
         and not interrupt_after.get("route_owner")
         and interrupted_domain not in gateway_routes
     )
-    receipt = {
-        "status": "passed" if control_passed else "unproven",
+    receipt.update({
         "interrupted_effigy_command_exit": process.returncode,
         "signal_sent_to_owned_effigy_process_group": "SIGINT" if interruption_signal_sent else None,
         "owned_process_group_id": process_group_id,
@@ -1284,11 +1299,20 @@ def prove_interrupted_startup(main_checkout: Path, main_states: dict[str, dict],
             "route_owner": interrupt_after.get("route_owner") if interrupt_after else None,
         },
         "interrupted_route_absent": interrupted_domain not in gateway_routes,
-        "foreign_instances_after_interrupt": foreign_receipts,
         "exact_scope_down": stopped,
+        "scope_reconciled_at": datetime.now(timezone.utc).isoformat(),
+    })
+    receipt["foreign_instances_after_interrupt"] = assert_foreign_instances_live(
+        foreign_instances, gateway_root, gateway_port, "interrupted startup and reconciliation")
+    recovery, recovered_states = recover_reference_apps(
+        main_checkout, original_manifest, env, gateway_port,
+        "after-interrupted-startup-recovery",
+    )
+    receipt.update({
+        "status": "passed" if control_passed else "unproven",
         "recovery": recovery,
         "recovered_listener_generations": {name: state["generation"] for name, state in recovered_states.items()},
-    }
+    })
     if not control_passed:
         receipt["qualification_limit"] = (
             "the exact pending-start interruption and retained unready-owner state were not both observed"
@@ -2134,9 +2158,10 @@ def main() -> int:
         lifecycle_checkout, lifecycle_states = all_states[1]
         lifecycle_survivors = [all_states[0], all_states[2]]
         phase = "interrupted readiness startup and exact-scope recovery"
+        receipts["interruption_recovery"] = {}
         interruption, lifecycle_states = prove_interrupted_startup(
             lifecycle_checkout, lifecycle_states, lifecycle_survivors,
-            gateway_root, gateway_port, runtime_env,
+            gateway_root, gateway_port, runtime_env, receipts["interruption_recovery"],
         )
         receipts["interruption_recovery"] = interruption
         if interruption.get("status") != "passed":
@@ -2302,6 +2327,8 @@ def main() -> int:
             "error_type": type(error).__name__,
             "detail": detail[:1200],
         }
+        if isinstance(error, ForeignListenerChanged):
+            receipts["failure"]["foreign_listener_change"] = error.evidence
         failure_captures = []
         for checkout in started:
             try:
