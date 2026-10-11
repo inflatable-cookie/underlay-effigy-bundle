@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import stat
 import time
+import transition_snapshot
 from urllib.parse import urlsplit
 
 _sink = None
@@ -162,6 +163,7 @@ def read_document(path, checkout, name, helper, document):
               "provenance": metadata, "old": _old.get((str(checkout), name)),
               "state": _typed(value) if document == "state" else None}
     if document == "state":
+        transition_snapshot.collect(checkout, name, value.get("owner") if isinstance(value, dict) else None, "listener_observation")
         gen = generation(value.get("generation")) if isinstance(value, dict) else None
         if gen and name in ("api", "front", "admin"):
             report, report_meta, _ = _read(path.parent / f"{name}.{gen}.listener-report.json")

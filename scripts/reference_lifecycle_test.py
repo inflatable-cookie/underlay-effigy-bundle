@@ -439,7 +439,7 @@ class FixtureExtensionTests(unittest.TestCase):
         if not binary or not reference_source:
             self.skipTest("actual assembly requires explicit qualified binary and Reference source")
         self.assertEqual(hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
-                         "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324")
+                         "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8")
         bundle = self.fixture / "bundle"
         bundle.mkdir()
         for source, destination, revision in ((optin.ROOT, bundle, "HEAD"),
@@ -896,6 +896,100 @@ class PendingBarrierTests(unittest.TestCase):
                 with patch.dict(os.environ, {**env, "EFFIGY_MANAGED_HOST_LISTENER_GENERATION": bad}), \
                      patch.object(module.Path, "cwd", return_value=root), self.assertRaises(RuntimeError):
                     module.pending_barrier(Mock())
+
+
+class TransitionCollectorTests(unittest.TestCase):
+    def setUp(self):
+        import transition_snapshot as transitions
+        self.t = transitions
+        self.temp = tempfile.TemporaryDirectory(prefix="underlay-transitions-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.checkout = self.root / "main"
+        self.directory = self.checkout / ".effigy/runtime/host-processes/hybrid_services/effigy"
+        self.directory.mkdir(parents=True)
+        self.path = self.directory / "admin.transitions.jsonl"
+        self.events = []
+        transitions.configure(lambda event, **kw: self.events.append((event, kw)), self.root)
+        self.addCleanup(lambda: transitions.configure(None, self.root))
+        self.owner = "main|hybrid_services|effigy|admin"
+        self.proc = {"pid": 123, "boot_identity": "12345678-1234-1234-1234-123456789abc",
+                     "start_identity": {"platform": "macos", "start_seconds": 1234, "start_microseconds": 567}}
+        self.record = {"schema": "effigy.managed.host-transition-evidence.v2", "sequence": 1,
+                       "event": "successor_launched", "owner": self.owner, "runtime_generation": "a"*32,
+                       "supervisor": self.proc, "generation": "b"*32, "phase": "pre_publication",
+                       "child": self.proc, "child_group": 123,
+                       "assignments": {"EFFIGY_MANAGED_HOST_API_GENERATION": "c"*32,
+                                       "EFFIGY_MANAGED_HOST_API_INTERNAL_URL": "http://127.0.0.1:12345",
+                                       "EFFIGY_MANAGED_HOST_API_PUBLIC_URL": "https://api.acme.test:8443",
+                                       "EFFIGY_MANAGED_HOST_API_STATE_FILE": str(self.directory / "api.listener.json")}}
+
+    def collect(self, records=None, suffix=b""):
+        if records is not None:
+            self.path.write_bytes(b"".join(json.dumps(r).encode()+b"\n" for r in records)+suffix)
+        return self.t.collect(self.checkout, "admin", self.owner, "before_cleanup")
+
+    def test_actual_collector_retains_exact_assignments_and_precise_identities(self):
+        result = self.collect([self.record])
+        self.assertEqual(result["knowledge"], "bounded_complete_observation")
+        self.assertEqual(result["records"][0]["assignments"], self.record["assignments"])
+        self.assertEqual(result["records"][0]["child"], self.proc)
+        self.assertEqual(result["authority"], "observation_only")
+        historic = {**self.record, "schema": "effigy.managed.host-transition-evidence.v1", "sequence": 2}
+        self.assertEqual(len(self.collect([self.record, historic])["records"]), 2)
+
+    def test_missing_gaps_regression_tail_retention_and_truncation_are_unknown(self):
+        self.assertIn("missing", self.collect()["issues"])
+        for rows, tail in [([{**self.record, "sequence": 2}], b""),
+                           ([self.record, self.record], b""),
+                           ([self.record, {**self.record, "sequence": 3}], b""),
+                           ([self.record], b'{"SECRET"'),
+                           ([{**self.record, "event": "retention_limit"}], b""),
+                           ([], b"")]:
+            with self.subTest(rows=rows, tail=tail):
+                self.assertEqual(self.collect(rows, tail)["knowledge"], "unknown")
+        self.path.write_bytes(b'x'*(self.t.MAX_BYTES+1))
+        self.assertEqual(self.collect()["knowledge"], "unknown")
+
+    def test_unknown_schema_owner_fields_and_seeded_sensitive_assignments_are_excluded(self):
+        import copy
+        bads = [{**self.record, "schema": "SEEDED_SCHEMA"}, {**self.record, "owner": "SEEDED_OWNER"},
+                {**self.record, "error": "SEEDED_ERROR"},
+                {**self.record, "assignments": {"PASSWORD": "SEEDED_PASSWORD"}},
+                {**self.record, "assignments": {"EFFIGY_MANAGED_HOST_API_PUBLIC_URL": "https://api.acme.test:443/?token=SEEDED"}},
+                {**self.record, "assignments": {"EFFIGY_MANAGED_HOST_API_STATE_FILE": "/SEEDED"}},
+                {**self.record, "observed_dependencies": [{"name": "api", "status": "observed", "tuple_status": "unreadable"}]},
+                {**self.record, "observed_dependencies": [{"name": "api", "status": "observed", "tuple_status": "observed"}]}]
+        for bad in bads:
+            result = self.collect([bad])
+            self.assertEqual(result["knowledge"], "unknown")
+            self.assertNotIn("SEEDED", json.dumps(result))
+            self.assertEqual(result["records"], [])
+        self.path.write_bytes(b'not-json SEEDED\n')
+        self.assertNotIn("SEEDED", json.dumps(self.collect()))
+
+    def test_no_follow_ancestor_escape_and_unreadable_are_unknown(self):
+        self.path.symlink_to(self.directory / "api.listener.json")
+        self.assertEqual(self.collect()["knowledge"], "unknown")
+        self.path.unlink()
+        self.checkout.rename(self.root / "owned")
+        self.checkout.symlink_to(self.root / "owned", target_is_directory=True)
+        self.assertEqual(self.collect()["knowledge"], "unknown")
+        with patch.object(self.t.os, "open", side_effect=PermissionError):
+            self.assertIn("permission_denied", self.collect()["issues"])
+        self.assertEqual(self.t.collect(self.root.parent, "admin", self.owner, "before_cleanup")["knowledge"], "unknown")
+
+    def test_production_listener_collection_keeps_gate_rejection_and_association(self):
+        self.collect([self.record])
+        optin.listener_snapshot.configure(lambda event, **kw: self.events.append((event, kw)))
+        self.addCleanup(lambda: optin.listener_snapshot.configure(None))
+        path = self.directory / "admin.listener.json"
+        path.write_text(json.dumps({"status": "starting", "owner": self.owner, "generation": "b"*32}))
+        with self.assertRaises(RuntimeError):
+            optin.listener_state(self.checkout, "admin", {}, {"admin.acme.test": "admin.acme.test"})
+        self.assertTrue(any(e == "managed_transition_snapshot" for e, _ in self.events))
+        self.assertTrue(any(e == "listener_probe_snapshot" and kw["outcome"] == "validation_rejected" for e, kw in self.events))
+
 
 if __name__ == "__main__":
     unittest.main()

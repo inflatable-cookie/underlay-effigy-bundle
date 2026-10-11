@@ -10,8 +10,8 @@ import subprocess
 from pathlib import Path
 
 
-SUPPORTED_EFFIGY_SOURCE = "8ecd64b37963cd6832a2b6ffa528034c56828504"
-SUPPORTED_EFFIGY_SHA256 = "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324"
+SUPPORTED_EFFIGY_SOURCE = "6da2f94bcc1400f9165b954a5343bd0cb14267ac"
+SUPPORTED_EFFIGY_SHA256 = "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8"
 
 
 def require_effigy_binary() -> str:

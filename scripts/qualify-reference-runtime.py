@@ -1925,9 +1925,9 @@ def main() -> int:
     # second cache manager, and remains separate from the container image.
     runtime_env["CARGO_TARGET_DIR"] = str(private_cargo_target)
     receipts: dict[str, object] = {
-        "effigy_source": "8ecd64b37963cd6832a2b6ffa528034c56828504",
+        "effigy_source": "6da2f94bcc1400f9165b954a5343bd0cb14267ac",
         "effigy_binary": EFFIGY,
-        "effigy_binary_sha256": "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324",
+        "effigy_binary_sha256": "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8",
         "reference_source": subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"],
                                            capture_output=True, text=True, check=True).stdout.strip(),
         "fixture_root": str(fixture_root),

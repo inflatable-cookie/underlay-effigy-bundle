@@ -63,6 +63,19 @@ class ContextDiagnosticTests(unittest.TestCase):
 
 
 class ProfileAdmissionTests(unittest.TestCase):
+    def test_reviewed_source_pin_refuses_historical_capability(self):
+        self.assertEqual(profiles.SUPPORTED_SOURCE, "6da2f94bcc1400f9165b954a5343bd0cb14267ac")
+        self.assertEqual(profiles.SUPPORTED_BINARY_SHA256, "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8")
+        with tempfile.TemporaryDirectory(prefix="underlay-old-pin-") as temporary:
+            source = Path(temporary).resolve()
+            binary = source / "effigy"
+            binary.write_bytes(b"historical")
+            binary.chmod(0o700)
+            with patch.object(profiles, "_git", side_effect=[str(source), "8ecd64b37963cd6832a2b6ffa528034c56828504"]), \
+                 patch.object(profiles.subprocess, "run") as run, self.assertRaises(profiles.ProfileError):
+                profiles.verify_binary(str(source), str(binary), system="Darwin", machine="arm64")
+            run.assert_not_called()
+
     def _write_compose_ports(self, repo: Path, postgres_binding: str) -> dict:
         compose = repo / ".effigy/runtime/compose/.effigy-compose.generated.yml"
         compose.parent.mkdir(parents=True)

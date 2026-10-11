@@ -56,8 +56,8 @@ managed-listener and private-gateway contracts.
 ```toml
 [bundle.profiles]
 enabled = true
-effigy_source = "/path/to/effigy-at-8ecd64b3"
-effigy_binary = "/path/to/qualified/effigy-8ecd64b3-macos-arm64"
+effigy_source = "/path/to/effigy-at-6da2f94b"
+effigy_binary = "/path/to/qualified/effigy-6da2f94b-macos-arm64"
 test_task = "app-api/test" # one bounded Effigy selector for dev:test
 test_timeout_secs = 900
 # silo_bucket = "acme-media" # defaults to <first database>-media
@@ -77,9 +77,9 @@ cleanup. It never invokes full QA. Use `dev:test:down` to reconcile a run
 interrupted before its normal cleanup.
 
 The profile launcher checks the clean Effigy source revision
-`8ecd64b37963cd6832a2b6ffa528034c56828504`, binary version `effigy v0.14.1`,
+`6da2f94bcc1400f9165b954a5343bd0cb14267ac`, binary version `effigy v0.14.1`,
 and qualified macOS arm64 SHA-256
-`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324` before
+`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8` before
 starting services, the gateway, or cleanup. The current opt-in runtime is
 qualified on macOS arm64; unsupported platforms and changed/unknown binaries
 are refused with the container profile still available. Child Effigy calls
@@ -126,9 +126,9 @@ export UNDERLAY_REFERENCE_SOURCE=~/Dev/projects/underlay-reference
 ```
 
 The scripts verify Effigy source
-`8ecd64b37963cd6832a2b6ffa528034c56828504` and private `effigy v0.14.1`
+`6da2f94bcc1400f9165b954a5343bd0cb14267ac` and private `effigy v0.14.1`
 binary SHA-256
-`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324`.
+`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`.
 The runtime selectors pull approved digest-pinned PGSTY Silo and MC images,
 create fresh private Reference main/worktree instances and retain redacted
 receipts outside the repository. They use a private gateway/CA and isolated
@@ -154,7 +154,7 @@ The original published default MinIO image pull remains
 unqualified (`insufficient_scope`); Silo does not repair that registry access.
 No consumer default switch or Reference source migration is delivered.
 
-The opt-in admission pin is Effigy source `8ecd64b3`; listener state already
+The current opt-in admission pin is Effigy source `6da2f94b`; listener state already
 contains the effective scoped hostname. Current-source production-selector
 receipts establish actual Reference registration/login and signed Silo media
 upload/finalisation/download/delete, plus three-instance HTTPS origins/HMR.
@@ -258,3 +258,10 @@ The bundle declares the shared Underlay runtime secret contract, including:
 - `auth_google_client_secret`
 
 App-specific secrets should stay in the consuming repo.
+
+Current opt-in admission uses qualified source `6da2f94b` and its private macOS
+arm64 artifact. Historical runtime receipts above keep their original source
+identity; they do not qualify the new binary. The harness collects bounded v2
+transition observations before validation failures and cleanup, preserving
+selected causes and reserved launch assignments. Missing, partial or lost
+records remain unknown and never authorize cleanup or baseline replacement.

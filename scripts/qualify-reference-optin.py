@@ -46,6 +46,7 @@ RUNTIME = load_module("reference_runtime_helpers", SCRIPTS / "qualify-reference-
 from silo_fixture import CLIENT_IMAGE, IMAGE, RELEASE, prepare_published_images  # noqa: E402
 from reference_storage_probe import StorageDiagnosticJournal  # noqa: E402
 import listener_snapshot  # noqa: E402
+import transition_snapshot
 import pending_start_identity  # noqa: E402
 from listener_snapshot import observed, read_document  # noqa: E402
 
@@ -279,7 +280,7 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
         raise RuntimeError("bundle head does not descend from the retained accepted lifecycle attempt")
     effigy_path = Path(EFFIGY).resolve(strict=True)
     effigy_digest = _sha256_bytes(effigy_path.read_bytes())
-    if effigy_digest != "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324":
+    if effigy_digest != "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8":
         raise RuntimeError("retained lifecycle inputs require the reviewed private Effigy binary")
     stable_files = (
         "bundle.toml", "export.toml", "scripts/qualify-reference-runtime.py",
@@ -1665,9 +1666,9 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                         "reference_checkout": str(checkout),
                         "reference_commit": reference_commit,
                         "auth_fixture": auth_patch_receipt or {},
-                        "effigy_source": "8ecd64b37963cd6832a2b6ffa528034c56828504",
+                        "effigy_source": "6da2f94bcc1400f9165b954a5343bd0cb14267ac",
                         "effigy_binary": str(Path(EFFIGY).resolve()),
-                        "effigy_binary_sha256": "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324",
+                        "effigy_binary_sha256": "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8",
                         "checkout_generation": states["api"].get("runtime_generation"),
                         "listeners": {
                             name: {key: state.get(key) for key in
@@ -1762,7 +1763,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                                                for name in ("front", "admin")
                                            },
                                            "dependent_front_admin_routes_reverified": True}
-            if remaining_lifecycle:
+            if remaining_lifecycle or diagnostics is not None:
                 foreign = [(checkout, app_records[checkout]) for checkout in checkouts[1:]]
                 try:
                     recovered_main = _run_interruptible_profile_start(
@@ -1965,6 +1966,8 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
             if checkout not in started:
                 continue
             try:
+                for name, state in app_records.get(checkout, {}).items():
+                    transition_snapshot.collect(checkout, name, state.get("owner"), "before_cleanup")
                 append_diagnostic_best_effort(
                     diagnostics, "cleanup_started", checkout=str(checkout),
                     selector="dev:hybrid:down")
@@ -1994,7 +1997,8 @@ def _verify_live(checkout: Path, states: dict[str, dict], env: dict[str, str]) -
                ("owner", "runtime_generation", "generation", "address", "supervisor_pid",
                 "supervisor_start_identity", "child_pid", "child_start_identity",
                 "listener_pid", "listener_start_identity")):
-            raise RuntimeError(f"foreign production profile listener {name} changed after scoped down")
+            transition_snapshot.collect(checkout, name, before.get("owner"), "live_identity_mismatch")
+            raise RuntimeError(f"production profile listener {name} changed relative to its strict live baseline")
         route = routes.get(after["route_domain"])
         if not route or route.get("target") != after["address"] or not RUNTIME.address_accepts_connection(after["address"]):
             raise RuntimeError(f"foreign production profile route/listener {name} was affected")
@@ -2039,6 +2043,8 @@ def main() -> int:
     prior_diagnostic_dir_value = os.environ.get("UNDERLAY_PROFILE_PRIOR_DIAGNOSTICS_DIR")
     if (storage_only or remaining_lifecycle) and not diagnostic_dir_value:
         raise RuntimeError("instrumented Reference proof requires UNDERLAY_PROFILE_STORAGE_DIAGNOSTICS_DIR")
+    if remaining_lifecycle:
+        raise RuntimeError("new qualified Effigy source requires fresh source-sensitive runtime acceptance; historical receipts are not new-source proof")
     if remaining_lifecycle and not prior_diagnostic_dir_value:
         raise RuntimeError("remaining-lifecycle proof requires UNDERLAY_PROFILE_PRIOR_DIAGNOSTICS_DIR")
     retained_inputs = (validate_retained_lifecycle_inputs(Path(prior_diagnostic_dir_value), source)
@@ -2060,12 +2066,13 @@ def main() -> int:
     diagnostics = (StorageDiagnosticJournal(diagnostic_dir / "storage-diagnostics.jsonl", fixture_root)
                    if diagnostic_dir is not None else None)
     listener_snapshot.configure(diagnostics.append if diagnostics is not None else None)
+    transition_snapshot.configure(diagnostics.append if diagnostics is not None else None, fixture_root)
     if diagnostics is not None:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
-                           effigy_source="8ecd64b37963cd6832a2b6ffa528034c56828504",
+                           effigy_source="6da2f94bcc1400f9165b954a5343bd0cb14267ac",
                            effigy_binary=str(Path(EFFIGY).resolve()),
-                           effigy_binary_sha256="03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324",
+                           effigy_binary_sha256="5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8",
                            selector=("proof:dev-profiles:reference-storage" if storage_only
                                      else "proof:dev-profiles:reference-runtime"),
                            continuation=("remaining_lifecycle" if remaining_lifecycle
@@ -2220,9 +2227,9 @@ def main() -> int:
         receipts["private_profile_purge"] = profile_status
         safe_to_purge_colima = True
         append_diagnostic_best_effort(diagnostics, "private_profile_purged", exists=False)
-        receipts["effigy_source"] = "8ecd64b37963cd6832a2b6ffa528034c56828504"
+        receipts["effigy_source"] = "6da2f94bcc1400f9165b954a5343bd0cb14267ac"
         receipts["effigy_binary"] = str(Path(EFFIGY).resolve())
-        receipts["effigy_binary_sha256"] = "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324"
+        receipts["effigy_binary_sha256"] = "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8"
         receipts["silo_images"] = image_receipt
         receipts["reference_source"] = str(source)
         receipt_path = fixture_root / "profile-selector-receipts.json"

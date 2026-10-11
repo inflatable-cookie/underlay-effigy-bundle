@@ -19,9 +19,9 @@ does not change the container-only path.
 The bundle inputs `profiles.effigy_source` and `profiles.effigy_binary` must
 name the clean qualified source checkout and absolute executable. Before any
 profile state, service, gateway or cleanup operation, the launcher checks
-source commit `8ecd64b37963cd6832a2b6ffa528034c56828504`, version `effigy
+source commit `6da2f94bcc1400f9165b954a5343bd0cb14267ac`, version `effigy
 v0.14.1`, and macOS arm64 binary SHA-256
-`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324`. Current
+`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`. Current
 runtime qualification is macOS arm64 only. Unknown, changed, wrong-platform or
 unavailable identities fail before runtime effects, with actionable input
 guidance. Each nested Effigy operation uses that verified absolute path, never
@@ -104,9 +104,9 @@ blocked capability must not become an invented CLI or private protocol.
 ## Supported mechanism
 
 Qualification uses Effigy source
-`8ecd64b37963cd6832a2b6ffa528034c56828504` and its private `effigy v0.14.1`
+`6da2f94bcc1400f9165b954a5343bd0cb14267ac` and its private `effigy v0.14.1`
 binary, SHA-256
-`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324`.
+`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`.
 The scripts require explicit source and binary paths and verify both identities.
 The owning interfaces are Effigy's contract 005 managed host listener routes
 and guide 063 managed host listeners/private gateway at that source. The
@@ -167,9 +167,9 @@ catalog publication or adoption, consumer default migration, or live settings
 changes. Reference remains the disposable pilot and Acowtancy remains excluded.
 
 The qualified opt-in Effigy source is
-`8ecd64b37963cd6832a2b6ffa528034c56828504`. Its trusted private macOS arm64
+`6da2f94bcc1400f9165b954a5343bd0cb14267ac`. Its trusted private macOS arm64
 binary has SHA256
-`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324`.
+`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`.
 This source includes the independently qualified managed-listener checkout
 hostname mapping and passed exact-source milestone assurance.
 Published `v0.14.1` does not contain the private gateway and managed-listener
@@ -678,3 +678,34 @@ Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
 Runtime selectors create fresh private roots and retain redacted receipts
 outside the repository. Published artifact/config mismatches fail closed; no
 manual source-image build or global Effigy replacement is required.
+
+### Qualified transition observations
+
+The active opt-in gate admits source
+`6da2f94bcc1400f9165b954a5343bd0cb14267ac` and the privately qualified macOS
+arm64 binary SHA256
+`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`.
+The version string remains `effigy v0.14.1` and is not source attestation.
+Earlier `8ecd64b3`/`03d10d8e` records remain historical evidence. Generic runtime
+changes invalidate transfer of their source-sensitive runtime acceptance;
+the qualification runner requires fresh exported-profile runtime proof rather
+than changing historical matching guards.
+
+The bundle collector observes the supported `<name>.transitions.jsonl` beside
+listener state through bounded, owner-scoped, no-follow opens, including each
+parent directory. It retains at most 512 complete records / 256 KiB, validating
+v2 and historical v1 shapes, exact owner association, precise boot/start and
+child-group identities, selected event/predicate, predecessor/successor and
+reserved dependency launch assignments. The owner is retained as a digest;
+reserved state-file assignments must equal the expected owned dependency path.
+No arbitrary environment, command, error text, credential or response body is
+retained. Snapshots go to the external mode-0600 diagnostic journal before
+listener validation, at strict live-baseline mismatch, and before cleanup.
+
+Missing/unreadable/unsafe receipts, initial sequence loss, gaps, duplicate or
+regressed sequence, malformed/schema-invalid records, changed reads, incomplete
+tails and retention limits are UNKNOWN. Historical v1 records cannot supply
+missing v2 tuple predicates. Observations never authorize signalling, resource
+adoption, baseline replacement, retries or cleanup. An unavailable dependency
+tuple is not a generation-change observation. The strict same-run baseline and
+independent current process/socket/route ownership gates remain required.
