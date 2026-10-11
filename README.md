@@ -199,6 +199,15 @@ The revised fixture waits in actual pending startup before bind/report and
 records kernel boot/start identities with microseconds and the detached child
 group. Launcher SIGINT and scoped child cleanup are separate proof steps;
 a historic cleared `failed` record alone supplies neither proof.
+The next bounded attempt reached nine fresh ready listeners and matched the
+retained restart/build inputs. It stopped in the main checkout's initial
+live-identity precondition, before probe injection, down or SIGINT: admin had
+changed child generation, PID and address while its supervisor and runtime
+generation stayed unchanged. The generic error wording says “foreign/after
+down”, but the captured timeline establishes this earlier boundary. Cause is
+unknown; no interruption, collision, recovery or cleanup credit follows.
+The three new cleanup down selectors returned zero, but their VM/residue remain
+held because the complete proof failed. Earlier held resources were untouched.
 The restart harness requires the canonical configured API catalog cwd, exact
 private executable command/path/digest, its unique executable mapping, recorded
 start/ancestry/generation and sole kernel socket ownership before signaling.

@@ -632,6 +632,20 @@ Reused PIDs, incomplete precision or surviving group members remain held.
 Existing historic failed packets cannot be upgraded to interruption or cleanup
 proof. The same pretermination requirement applies to the occupied-bind probe.
 
+A subsequent isolated production-selector attempt reached nine fresh ready
+listeners and matched retained source/build acceptance inputs, then refused
+before the pending probe was injected. In the main checkout, the initial admin
+record and the later live record had different child generations, PIDs, precise
+starts and loopback addresses; supervisor identity and runtime generation were
+unchanged. This was the initial live-identity precondition, before any down or
+SIGINT, despite the shared helper's generic “foreign/after scoped down” error
+wording. It establishes an observed identity change, not its cause or a core
+cleanup defect. The strict identity gate remains intact; no baseline replacement
+or second runtime was attempted. Three new scoped cleanup selectors returned
+zero, but complete lifecycle/retirement assurance remains unavailable and the
+private VM/residue stay held. Prior held siblings and uncertain resources were
+not inspected or changed by this attempt.
+
 ## Qualification selectors
 
 Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
