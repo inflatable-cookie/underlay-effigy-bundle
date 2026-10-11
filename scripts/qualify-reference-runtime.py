@@ -1631,11 +1631,8 @@ def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid
             diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase)
         response = connection.getresponse()
         status = response.status
-        framing = {
-            name.lower(): str(response.getheader(name))[:128]
-            for name in ("Content-Length", "Transfer-Encoding", "Connection", "Content-Type")
-            if response.getheader(name) is not None
-        }
+        from storage_correlation import safe_framing, s3_error
+        framing = safe_framing(response)
         phase = "response_headers_received"
         if diagnostics is not None:
             diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase,
@@ -1654,6 +1651,9 @@ def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid
         if len(response_body) > 1_048_576:
             phase = "response_body_limit_validation"
             raise RuntimeError("Silo response exceeded the bounded storage-probe limit")
+        if diagnostics is not None and status >= 400:
+            diagnostics.append("s3_error", operation_id=op_id, status=status,
+                               **s3_error(response_body))
         return status, response_headers, response_body
     except BaseException as error:
         if diagnostics is not None and op_id:

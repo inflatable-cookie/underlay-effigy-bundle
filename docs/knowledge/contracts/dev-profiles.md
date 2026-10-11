@@ -731,3 +731,49 @@ remain UNKNOWN in their original journal. A corrected post-cleanup forensic
 read retains launch/shutdown observations and reserved assignments separately;
 it cannot replace a probe-time observation or establish precleanup ownership.
 The stopped attempt's VM/residue and all older held instances remain preserved.
+
+### Service-only endpoint correlation
+
+The supported container `up` interface starts the selected policy; it has no
+service subset option. The bounded storage-correlation fixture therefore derives
+the actual exported `hybrid_services` typed policy and retains only its original
+Silo server/client catalog declarations, driver/profile/project/host settings.
+It selects Silo as primary, removes app processes and explicit DNS routes, and
+verifies the resulting typed composition before runtime. This is disposable
+diagnostic configuration, not a production export or default change. The
+catalog's TCP alias still requires the reviewed private gateway capability.
+
+Pinned shell source loads policy from the supplied checkout and invokes Compose
+with that policy's files and explicit `-p` project. The retained first-worktree
+manifest has a scoped default network, a loopback Silo mapping at 8540, and no
+client `MC_HOST_local` declaration. Production bootstrap persists alias `local`
+as `http://silo:9000` in the client container. These configuration observations
+do not prove the historical executed alias, DNS result or object namespace.
+
+The pinned [PGSTY MC alias resolver](https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/cmd/config.go)
+checks `MC_HOST_<alias>` first, then the customized configuration map (including
+`MC_CONFIG_ENV_FILE`), then the persisted alias configuration. The diagnostic
+requires those client overrides absent and the expected `/root` home before
+crediting its persisted alias projection. The retained Compose declaration
+alone cannot establish any of those runtime environment preconditions.
+
+The diagnostic collector retains only selected alias URL/config scope,
+container/DNS/server identities, Compose digest/project/scope and loopback map,
+known object digest, exact pipeline exit and post-write MC stat, signed request
+phase/status/framing/count, finite S3 `Error.Code` and digested request ID.
+Unknown XML codes/headers remain unclassified; arbitrary messages, XML bodies,
+MC configuration, credentials and signatures are never persisted. A negative
+write/stat/read or identity comparison stops the path without retries or a
+host-write fallback. Cross-scope reads must not find the other scope's object.
+The private journal and bounded sanitized service logs precede scoped cleanup;
+observations do not authorize adopting or retiring uncertain resources.
+
+The service-only setup reached typed main/worktree composition and pinned-image
+verification but stopped before service startup: its original gateway call
+incorrectly included `--repo`. Exact-source CLI rejects that global argument for
+Gateway before execution, independently of the valid JSON/private-root flags.
+The corrected helper omits `--repo` only for explicit-private-root gateway calls;
+the maintained parser control verifies exit 2 and an unchanged owned directory
+for the rejected form. No corrected runtime replay was performed. The new VM
+and images remain held, no MC/S3 correlation PASS is claimed, and the historical
+404 cause and outstanding lifecycle/disposable-test proofs remain unknown.

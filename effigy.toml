@@ -41,3 +41,11 @@ run_in = "host"
 [tasks."proof:dev-profiles:profile-compile"]
 run = "python3 scripts/compile-profile-scripts.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:storage-correlation-tests"]
+run = "python3 scripts/storage_correlation_test.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:storage-correlation"]
+run = "python3 scripts/qualify-storage-correlation.py"
+run_in = "host"

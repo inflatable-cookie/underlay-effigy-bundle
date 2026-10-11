@@ -272,3 +272,21 @@ and cause remain unknown. Remaining lifecycle and `dev:test` are unqualified.
 Legal phase-less launch records and default-port public URLs are now retained
 by the collector; corrected post-cleanup observations do not grant earlier
 probe-time or cleanup credit.
+
+`proof:dev-profiles:storage-correlation` is a bounded service-only diagnostic,
+not whole-profile acceptance. It derives only the Silo server/client declarations
+from the actual Reference export, retains their catalog pins, and omits app
+listeners and explicit DNS routes in the disposable fixture. The catalog TCP
+alias still requires the reviewed private gateway. It records selected MC
+alias/config scope, client DNS/server addresses, scoped Compose identity,
+MC pipe exit/stat, signed response phases/framing and allowlisted S3 error codes.
+Bodies and credentials stay in memory. Its hermetic controls are selected by
+`proof:dev-profiles:storage-correlation-tests` with the same exact-source binary
+and source environment used by runtime qualification.
+
+The first service-only setup stopped before Silo startup because the helper
+supplied `--repo` to a gateway command. Pinned Effigy rejects that argument before
+execution; gateway ownership instead uses `--private-state-root`. The corrected
+invocation has a side-effect-free parser control, but has not been exercised in
+another runtime. The new private VM/images remain held. The earlier object 404
+and remaining whole-profile assurance remain unresolved.
