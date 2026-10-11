@@ -234,6 +234,22 @@ class ReferenceTaskCwdTests(unittest.TestCase):
             self.assertFalse(matched)
 
 
+class ExclusiveSocketTests(unittest.TestCase):
+    def test_exact_single_kernel_owner_passes(self):
+        matched, rows = reference.exclusive_listener_socket(
+            "p123\ncacme-api\nn127.0.0.1:5000\n", 123, "127.0.0.1:5000")
+        self.assertTrue(matched)
+        self.assertEqual(rows[0]["pid"], 123)
+
+    def test_foreign_duplicate_wildcard_and_missing_owner_refuse(self):
+        exact = "p123\ncacme-api\nn127.0.0.1:5000\n"
+        for output in ("", exact + "p456\ncforeign\nn127.0.0.1:5000\n",
+                       exact + "n127.0.0.1:5000\n", exact.replace("127.0.0.1", "*"),
+                       exact.replace("p123", "p456"), exact.replace("cacme-api", "cforeign")):
+            with self.subTest(output=output):
+                self.assertFalse(reference.exclusive_listener_socket(output, 123, "127.0.0.1:5000")[0])
+
+
 class ProfileOwnerHoldTests(unittest.TestCase):
     def state_path(self, checkout: Path, name: str = "api") -> Path:
         path = optin._profile_probe_state_path(checkout, name)

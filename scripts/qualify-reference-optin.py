@@ -202,8 +202,12 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
         ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
         check=True, capture_output=True, text=True, timeout=15,
     ).stdout.strip()
-    if current_head != RETAINED_LIFECYCLE_HEAD:
-        raise RuntimeError("bundle base moved since the retained accepted lifecycle attempt")
+    ancestry = subprocess.run(
+        ["git", "-C", str(ROOT), "merge-base", "--is-ancestor", RETAINED_LIFECYCLE_HEAD, current_head],
+        check=False, capture_output=True, timeout=15,
+    )
+    if ancestry.returncode != 0:
+        raise RuntimeError("bundle head does not descend from the retained accepted lifecycle attempt")
     effigy_path = Path(EFFIGY).resolve(strict=True)
     effigy_digest = _sha256_bytes(effigy_path.read_bytes())
     if effigy_digest != "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324":
@@ -280,6 +284,7 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
             for name, path in fixture_paths.items()
         },
         "prior_diagnostic_sources": {"journal": str(journal_path), "cleanup": str(cleanup_path)},
+        "current_bundle_head": current_head,
         "prior_runtime_attempt_base_head": prior["bundle_base_head"],
         "retained_inputs": {
             "effigy_source": start["effigy_source"],

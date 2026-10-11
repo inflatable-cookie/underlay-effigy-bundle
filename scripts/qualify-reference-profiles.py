@@ -830,6 +830,33 @@ def process_executable_matches(paths: list[str], expected: Path,
     return observed_sha256 == expected_sha256, observation
 
 
+def exclusive_listener_socket(output: str, listener_pid: int, address: str) -> tuple[bool, list[dict]]:
+    """Require one kernel listener row at the exact loopback address."""
+    rows = []
+    current = None
+    for line in output.splitlines():
+        if line.startswith("p"):
+            if current is not None:
+                rows.append(current)
+            try:
+                current = {"pid": int(line[1:]), "command": None, "names": []}
+            except ValueError:
+                return False, rows
+        elif line.startswith("c"):
+            if current is None:
+                return False, rows
+            current["command"] = line[1:]
+        elif line.startswith("n"):
+            if current is None:
+                return False, rows
+            current["names"].append(line[1:])
+    if current is not None:
+        rows.append(current)
+    return (len(rows) == 1 and rows[0] == {
+        "pid": listener_pid, "command": "acme-api", "names": [address],
+    }), rows
+
+
 def _read_contract_toml_tables(path: Path) -> dict[str, dict[str, str]]:
     """Read only the simple quoted string tables used by Reference's task contract."""
     tables: dict[str, dict[str, str]] = {}
@@ -1011,7 +1038,9 @@ def prove_reference_api_restart(
                 "canonical_path": str(observed_command_binary),
                 "expected_canonical_path": str(expected_command_binary),
             })
-            listener_command_matches_private_binary = observed_command_binary == expected_command_binary
+            listener_command_matches_private_binary = (
+                observed_command_binary == expected_command_binary and len(listener_command_words) == 1
+            )
         except (OSError, RuntimeError) as error:
             listener_command_binary["error"] = type(error).__name__
     adapter_cwd_result = identity_probe(
@@ -1029,22 +1058,9 @@ def prove_reference_api_restart(
     _, port_text = old_address.rsplit(":", 1)
     socket_result = identity_probe(
         ["lsof", "-nP", "-iTCP:" + port_text, "-sTCP:LISTEN", "-Fpcn"], 10)
-    socket_owner = None
-    current_socket_row = None
-    for line in socket_result.stdout.splitlines():
-        if line.startswith("p"):
-            if current_socket_row and listener_pid == current_socket_row.get("pid"):
-                socket_owner = current_socket_row
-            try:
-                current_socket_row = {"pid": int(line[1:]), "command": None, "names": []}
-            except ValueError:
-                current_socket_row = None
-        elif current_socket_row is not None and line.startswith("c"):
-            current_socket_row["command"] = line[1:]
-        elif current_socket_row is not None and line.startswith("n"):
-            current_socket_row["names"].append(line[1:])
-    if current_socket_row and listener_pid == current_socket_row.get("pid"):
-        socket_owner = current_socket_row
+    socket_exclusive, socket_rows = exclusive_listener_socket(
+        socket_result.stdout, listener_pid, old_address)
+    socket_owner = socket_rows[0] if socket_exclusive else None
     identity_checks = {
         "recorded_start_present": bool(recorded_start),
         "start_identity_query_succeeded": start_result.returncode == 0,
@@ -1062,9 +1078,7 @@ def prove_reference_api_restart(
         ),
         "kernel_socket_owned_by_recorded_listener": (
             socket_result.returncode in (0, 1)
-            and socket_owner is not None
-            and socket_owner.get("command") == "acme-api"
-            and f"127.0.0.1:{port_text}" in socket_owner.get("names", [])
+            and socket_exclusive
         ),
         "listener_command_is_reference_api": (
             listener_command_result.returncode == 0
@@ -1105,6 +1119,7 @@ def prove_reference_api_restart(
             "adapter_cwd": adapter_cwd,
             "listener_cwd": listener_cwd,
             "socket_owner": socket_owner,
+            "kernel_socket_rows": socket_rows,
         })
         print(
             "BLOCKED Reference API restart before signal: exact process identity check failed "
@@ -1182,6 +1197,7 @@ def prove_reference_api_restart(
         "adapter_cwd": adapter_cwd,
         "listener_cwd": listener_cwd,
         "socket_owner": socket_owner,
+        "kernel_socket_rows": socket_rows,
         "api_generation": before_api.get("generation"),
         "api_address": old_address,
     }):
