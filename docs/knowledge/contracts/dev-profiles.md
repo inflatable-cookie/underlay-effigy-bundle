@@ -164,7 +164,12 @@ It does not authorize release/tag changes, global binary replacement, shared
 catalog publication or adoption, consumer default migration, or live settings
 changes. Reference remains the disposable pilot and Acowtancy remains excluded.
 
-The qualified Effigy source is `2f7b1819fd0e72afff18a6053be424719ecf71fc`.
+The qualified opt-in Effigy source is
+`8ecd64b37963cd6832a2b6ffa528034c56828504`. Its trusted private macOS arm64
+binary has SHA256
+`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324`.
+This source includes the independently qualified managed-listener checkout
+hostname mapping and passed exact-source milestone assurance.
 Published `v0.14.1` does not contain the private gateway and managed-listener
 primitives used by these profiles. A version string is not capability proof:
 Effigy's minimum-version check accepts any `+local.*` build, including older
@@ -176,6 +181,15 @@ runtime effect. Unknown, older or unsupported binaries must refuse with
 actionable guidance. Child execution must retain that verified binary identity;
 falling back to the executable on `PATH` is not allowed. The qualified macOS
 binary does not establish a Linux consumer-host binary checksum or assurance.
+
+Managed listener `route_domain` in runtime state is already the effective
+checkout hostname. Qualification must use it directly, without applying the
+host map again. The declared name is exposed as `declared_route_domain` by
+`container up`; `container hosts` inventories declared and effective listener
+names. The canonical scoped form is `api.acme-w<hostkey>.test` for
+`api.acme.test`. Effective names govern readiness Host, TLS certificates,
+route publication, public URLs and dependent public URLs across restart.
+Primary and explicitly shared runtime identity preserve declared names.
 
 New managed-listener/private-gateway fragments must stay outside default
 composition. Consumers omitting the opt-in retain their existing container
