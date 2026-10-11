@@ -59,7 +59,7 @@ def _url(value, public=False):
     _require(isinstance(value, str) and len(value) < 256)
     u = urlsplit(value)
     _require(not u.username and not u.password and not u.query and not u.fragment and u.path in ('', '/'))
-    _require(u.scheme == ('https' if public else 'http') and u.port and 0 < u.port < 65536)
+    _require(u.scheme == ('https' if public else 'http') and 0 < (u.port or (443 if public else 80)) < 65536)
     _require(bool(re.fullmatch(r'(?:api\.|admin\.)?acme(?:-w[0-9a-f]{8})?\.test', u.hostname or '')) if public else u.hostname == '127.0.0.1')
 
 
@@ -85,7 +85,9 @@ def _record(r, owner, checkout):
     if r.get('inspection_error') is not None:
         _require(r['inspection_error'] in {'child_completion', 'dependency_state'})
     if r['event'] != 'retention_limit':
-        _require(_gen(r.get('generation')) and r.get('phase') in {'pre_publication', 'published'})
+        _require(_gen(r.get('generation')))
+        if r['event'] != 'successor_launched':
+            _require(r.get('phase') in {'pre_publication', 'published'})
         _require(r.get('child') is not None and r.get('child_group') == r['child']['pid'])
     if r['event'] == 'child_exited':
         _require(r.get('exit') is not None)
@@ -109,11 +111,35 @@ def _record(r, owner, checkout):
             _require('tuple_status' not in d)
             observed = d['status'] == 'observed'
         if observed:
+            _require(d.get('predicate') is None)
             _require(_gen(d.get('runtime_generation')) and _gen(d.get('generation'))
                      and isinstance(d.get('address'), str) and re.fullmatch(r'127\.0\.0\.1:[0-9]{1,5}', d['address'])
                      and 0 < int(d['address'].split(':')[1]) < 65536)
         else:
+            if r['schema'].endswith('.v2'):
+                marker = d.get('tuple_status')
+                required = {'absent': {'state_file_missing'},
+                            'unreadable': {'state_file_unreadable', 'state_file_unsafe', 'state_schema_invalid', 'state_identity_mismatch', 'route_table_unreadable'},
+                            'unavailable': {'state_not_ready', 'route_owner_missing', 'owner_unverified', 'route_not_matching'}}
+                _require(d.get('predicate') in required.get(marker, set()))
             _require(all(d.get(k) is None for k in ('runtime_generation', 'generation', 'address')))
+    if r['schema'].endswith('.v2'):
+        event = r['event']
+        exit_value, inspection = r.get('exit'), r.get('inspection_error')
+        if event == 'child_exited':
+            _require(not deps and inspection is None and ((exit_value['code'] is None) != (exit_value['signal'] is None)))
+        elif event == 'dependency_unavailable':
+            _require(exit_value is None and inspection is None and len(deps) == 1 and deps[0]['status'] == 'unavailable')
+        elif event == 'dependency_tuple_changed':
+            _require(exit_value is None and inspection is None and bool(deps) and all(d['status'] == 'observed' for d in deps))
+        elif event == 'inspection_error':
+            _require(exit_value is None)
+            if inspection == 'child_completion':
+                _require(not deps)
+            else:
+                _require(len(deps) == 1 and deps[0]['status'] == 'unavailable' and deps[0]['tuple_status'] in {'unreadable', 'absent'})
+        else:
+            _require(not deps and exit_value is None and inspection is None)
     assignments = r.get('assignments', {})
     _require(isinstance(assignments, dict) and len(assignments) <= 12)
     for k, v in assignments.items():
@@ -149,7 +175,7 @@ def collect(checkout, name, owner, reason):
     """Snapshot exact receipt bytes before cleanup/rejection; gaps remain UNKNOWN."""
     if _sink is None:
         return None
-    result = {'role': name if name in NAMES else 'unknown', 'reason': reason if reason in {'listener_observation', 'live_identity_mismatch', 'before_cleanup'} else 'unknown',
+    result = {'role': name if name in NAMES else 'unknown', 'reason': reason if reason in {'listener_observation', 'live_identity_mismatch', 'before_cleanup', 'post_cleanup_forensic'} else 'unknown',
               'knowledge': 'unknown', 'issues': [], 'records': [], 'authority': 'observation_only'}
     fds = []
     try:
@@ -164,7 +190,7 @@ def collect(checkout, name, owner, reason):
             fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
             fds.append(fd)
             _require(os.fstat(fd).st_uid == os.getuid())
-        receipt = os.open(name + '.transitions.jsonl', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+        receipt = os.open(name + '.transitions.jsonl', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
         fds.append(receipt)
         info = os.fstat(receipt)
         _require(stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid() and info.st_size <= MAX_BYTES)

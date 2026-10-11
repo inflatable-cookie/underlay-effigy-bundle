@@ -935,8 +935,21 @@ class TransitionCollectorTests(unittest.TestCase):
         self.assertEqual(result["records"][0]["assignments"], self.record["assignments"])
         self.assertEqual(result["records"][0]["child"], self.proc)
         self.assertEqual(result["authority"], "observation_only")
+        actual_launch = {k: v for k, v in self.record.items() if k != 'phase'}
+        actual_launch['assignments'] = {**actual_launch['assignments'], 'EFFIGY_MANAGED_HOST_API_PUBLIC_URL': 'https://api.acme.test'}
+        self.assertEqual(self.collect([actual_launch])["knowledge"], "bounded_complete_observation")
         historic = {**self.record, "schema": "effigy.managed.host-transition-evidence.v1", "sequence": 2}
         self.assertEqual(len(self.collect([self.record, historic])["records"]), 2)
+
+    def test_selected_dependency_predicate_and_tuple_are_retained_without_inference(self):
+        unavailable = {**self.record, 'sequence': 2, 'event': 'dependency_unavailable', 'phase': 'published',
+                       'observed_dependencies': [{'name': 'api', 'status': 'unavailable', 'tuple_status': 'unavailable', 'predicate': 'state_not_ready'}]}
+        changed = {**self.record, 'sequence': 3, 'event': 'dependency_tuple_changed', 'phase': 'published',
+                   'observed_dependencies': [{'name': 'api', 'status': 'observed', 'tuple_status': 'observed', 'runtime_generation': 'd'*32, 'generation': 'e'*32, 'address': '127.0.0.1:12345'}]}
+        result = self.collect([self.record, unavailable, changed])
+        self.assertEqual(result['knowledge'], 'bounded_complete_observation')
+        self.assertEqual(result['records'][1]['observed_dependencies'], unavailable['observed_dependencies'])
+        self.assertEqual(result['records'][2]['observed_dependencies'], changed['observed_dependencies'])
 
     def test_missing_gaps_regression_tail_retention_and_truncation_are_unknown(self):
         self.assertIn("missing", self.collect()["issues"])
@@ -953,7 +966,9 @@ class TransitionCollectorTests(unittest.TestCase):
 
     def test_unknown_schema_owner_fields_and_seeded_sensitive_assignments_are_excluded(self):
         import copy
-        bads = [{**self.record, "schema": "SEEDED_SCHEMA"}, {**self.record, "owner": "SEEDED_OWNER"},
+        bads = [{**self.record, "event": "dependency_tuple_changed"},
+                {**self.record, "event": "dependency_unavailable", "observed_dependencies": [{'name': 'api', 'status': 'unavailable', 'tuple_status': 'absent', 'predicate': 'route_owner_missing'}]},
+                {**self.record, "schema": "SEEDED_SCHEMA"}, {**self.record, "owner": "SEEDED_OWNER"},
                 {**self.record, "error": "SEEDED_ERROR"},
                 {**self.record, "assignments": {"PASSWORD": "SEEDED_PASSWORD"}},
                 {**self.record, "assignments": {"EFFIGY_MANAGED_HOST_API_PUBLIC_URL": "https://api.acme.test:443/?token=SEEDED"}},
@@ -970,6 +985,10 @@ class TransitionCollectorTests(unittest.TestCase):
 
     def test_no_follow_ancestor_escape_and_unreadable_are_unknown(self):
         self.path.symlink_to(self.directory / "api.listener.json")
+        self.assertEqual(self.collect()["knowledge"], "unknown")
+        self.path.unlink()
+        import os
+        os.mkfifo(self.path)
         self.assertEqual(self.collect()["knowledge"], "unknown")
         self.path.unlink()
         self.checkout.rename(self.root / "owned")

@@ -80,8 +80,8 @@ The profile launcher checks the clean Effigy source revision
 `6da2f94bcc1400f9165b954a5343bd0cb14267ac`, binary version `effigy v0.14.1`,
 and qualified macOS arm64 SHA-256
 `5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8` before
-starting services, the gateway, or cleanup. The current opt-in runtime is
-qualified on macOS arm64; unsupported platforms and changed/unknown binaries
+starting services, the gateway, or cleanup. The current exact-source admission supports
+macOS arm64; unsupported platforms and changed/unknown binaries
 are refused with the container profile still available. Child Effigy calls
 use the verified absolute binary, never a `PATH` fallback.
 
@@ -136,7 +136,7 @@ Colima runtime without installing system trust or changing the operator
 checkout. See [development profile ownership](docs/knowledge/contracts/dev-profiles.md)
 for interfaces, prerequisites and selector coverage.
 
-The retained Reference pilot proves three concurrent actual API/front/admin
+The historical Reference pilot proves three concurrent actual API/front/admin
 stacks, owned readiness before routes, public HTTPS origins/HMR,
 Postgres/SMTP connectivity, restart/dependent propagation, collision,
 interruption recovery and isolated teardown. Its former source-built upstream
@@ -265,3 +265,10 @@ identity; they do not qualify the new binary. The harness collects bounded v2
 transition observations before validation failures and cleanup, preserving
 selected causes and reserved launch assignments. Missing, partial or lost
 records remain unknown and never authorize cleanup or baseline replacement.
+
+New-source proof currently stops at first-worktree host-signed S3 GET HTTP 404
+after MC upload; main Reference auth/storage passed. The response framing/body
+and cause remain unknown. Remaining lifecycle and `dev:test` are unqualified.
+Legal phase-less launch records and default-port public URLs are now retained
+by the collector; corrected post-cleanup observations do not grant earlier
+probe-time or cleanup credit.

@@ -22,7 +22,8 @@ profile state, service, gateway or cleanup operation, the launcher checks
 source commit `6da2f94bcc1400f9165b954a5343bd0cb14267ac`, version `effigy
 v0.14.1`, and macOS arm64 binary SHA-256
 `5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`. Current
-runtime qualification is macOS arm64 only. Unknown, changed, wrong-platform or
+exact-source admission is macOS arm64 only; new-source runtime acceptance is
+still incomplete. Unknown, changed, wrong-platform or
 unavailable identities fail before runtime effects, with actionable input
 guidance. Each nested Effigy operation uses that verified absolute path, never
 `PATH`. The effective Effigy floor rises to `0.14.1` only when profiles are
@@ -709,3 +710,24 @@ missing v2 tuple predicates. Observations never authorize signalling, resource
 adoption, baseline replacement, retries or cleanup. An unavailable dependency
 tuple is not a generation-change observation. The strict same-run baseline and
 independent current process/socket/route ownership gates remain required.
+
+The maintained launch shape omits `phase` for `successor_launched`; public URL
+assignments may omit the default HTTPS port. These legal forms must be retained
+without inventing a publication phase or explicit launch port. The collector
+checks v2 event-specific dependency predicates/tuple completeness and opens
+receipt files nonblocking so a FIFO cannot hold validation alive.
+
+New-source runtime evidence currently includes main Reference auth/media
+finalisation and signed object operations, and ready HTTPS/origin/HMR on main
+and the first private worktree. On the first worktree, MC upload completed but
+the subsequent host-signed object GET returned HTTP 404. Response framing/body
+were not retained, so endpoint/bucket disagreement and the underlying cause
+remain unknown. Three-instance, restart, interruption/recovery, collision,
+uncertainty, full teardown and disposable-test readiness on the new source
+remain unqualified. Historic passing receipts do not fill those gaps.
+
+Initial transition projections rejected the two legal launch forms above and
+remain UNKNOWN in their original journal. A corrected post-cleanup forensic
+read retains launch/shutdown observations and reserved assignments separately;
+it cannot replace a probe-time observation or establish precleanup ownership.
+The stopped attempt's VM/residue and all older held instances remain preserved.
