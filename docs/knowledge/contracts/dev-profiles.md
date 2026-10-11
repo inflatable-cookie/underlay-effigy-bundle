@@ -355,32 +355,52 @@ Local assurance is macOS host plus Linux containers. It does not establish a
 local Linux Reference host proof or dedicated grace-to-SIGKILL end-to-end
 coverage. Review/CI and any consumer migration remain separate gates.
 
-### Current-source continuation status (2026-10-11)
+### Current-source proof boundary
 
-The admission source is now the reviewed Effigy source above. The current
-`proof:dev-profiles:reference-runtime` continuation is not a passing
-qualification receipt. One run assembled Reference main and two private
-worktrees with effective scoped listener names and passed their listener,
-HTTPS, origin/HMR and published-Silo checks; its restart check held before
-signaling because the listener process was nested below the recorded adapter.
-The ownership check was updated to verify the complete current process ancestry
-and recheck it before signaling. A subsequent exact-source run reached the
-Reference storage flow but timed out reading an application response. That
-timeout's phase/cause is not established, and no signed Reference upload or
-finalisation pass is claimed for this continuation.
+Current-source production-selector receipts establish three concurrent actual
+Reference API/front/admin stacks with distinct effective routes, verified
+HTTPS origins/HMR and genuine pinned Silo. Reference registration/login and
+media initiation, presigned upload, finalisation (`ready`), signed retrieval
+and deletion passed under unchanged security and eight-second request bounds.
+The earlier auth timeouts remain unexplained; a later pass does not establish
+their cause or a product repair.
 
-The separate exact-source `proof:dev-profiles:reference-container` selector
-passed assembly, published Silo/MC executable checks, and container-only
-build/start with the workspace image unchanged; it then brought the stack down,
-retired the exact private scope, stopped its private gateway and purged its
-Colima profile. The failed runtime attempt was also inspected before cleanup:
-its main listeners were stopped, private gateway had zero routes and was down,
-all three exact-scope retire operations reported no remaining or unverified
-resources, the private runtime inventory was empty, and its Colima profile was
-purged. Earlier runtime/storage receipts remain historical inputs and are not
-current-source acceptance. Actual `dev:test` execution and a complete
-current-source Reference runtime pass remain unverified; profile readiness is
-not certified by these partial results.
+Remaining-lifecycle verification reuses that acceptance only after checking
+the source/binary, Reference commit/auth fixture patch/lock/build identity,
+production recipe files and relevant helper functions against the retained
+receipt. The bundle head must descend from the retained head; changed
+production inputs still refuse reuse. It performs necessary owned setup but
+issues no repeated successful auth/storage requests.
+
+Before a targeted restart signal, the harness requires the exact configured
+API catalog task cwd and canonical checkout cwd for its adapter. It checks the
+private API executable command/path/digest, exactly one matching canonical
+executable mapping among `lsof txt` entries, recorded start identity, current
+supervisor/adapter/listener ancestry, generation/report/current route and sole
+kernel ownership of the exact loopback listener. Other mapped files are not
+executable ownership evidence. Missing, ambiguous, foreign or changed identity
+refuses before signaling; the signal decision and observations are durably
+recorded outside the fixture. No basename or directory-prefix ownership test
+is accepted.
+
+The guarded restart passed all pre-signal checks and changed the API address
+and generation while preserving its current route. Admin restarted, but front
+entered a failed, unpublished listener generation. Its adapter reported
+`qualified profile context lookup failed (status 1)`; the managed diagnostic
+retained `report = absent`, `ownership = child_unavailable`, and
+`route = not_reached`. The context subprocess stderr was not retained, so the
+underlying context failure is unestablished and is not attributed to generic
+Effigy or Reference behavior. The assertion stopped before the pending
+interruption/collision and `dev:test` proofs. No retry or readiness certification
+is inferred from the partial restart.
+
+The separate exact-source container-only selector passed assembly, published
+Silo/MC executable checks and build/start with the workspace image unchanged,
+then verified exact cleanup and private-profile purge. Remaining exported
+restart/dependent handoff, interruption/collision, foreign-preserving teardown
+and `dev:test` acceptance require their own complete receipt. Earlier held
+private runtime residue is preserved; empty routes, missing PIDs or a successful
+down command alone do not prove retirement or authorize broad cleanup.
 
 ## Qualification selectors
 

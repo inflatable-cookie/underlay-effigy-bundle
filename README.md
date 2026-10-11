@@ -153,16 +153,21 @@ The original published default MinIO image pull remains
 unqualified (`insufficient_scope`); Silo does not repair that registry access.
 No consumer default switch or Reference source migration is delivered.
 
-The 2026-10-11 continuation updated the opt-in admission pin to Effigy source
-`8ecd64b3` and corrected listener-state handling for its effective scoped host
-names. Exact-source Reference runtime attempts reached the real routes, HTTPS
-origins/HMR and published-Silo service checks, but the latest
-`proof:dev-profiles:reference-runtime` run timed out while reading a Reference
-storage response. It did not establish the signed Reference upload/finalisation
-path or complete runtime qualification. The separate exact-source
-container-only proof passed and verified cleanup. Prior runtime receipts remain
-historical inputs, not acceptance for this source; the actual `dev:test`
-selector and a complete Reference runtime pass remain unverified.
+The opt-in admission pin is Effigy source `8ecd64b3`; listener state already
+contains the effective scoped hostname. Current-source production-selector
+receipts establish actual Reference registration/login and signed Silo media
+upload/finalisation/download/delete, plus three-instance HTTPS origins/HMR.
+These exact-input receipts are retained without repeating successful storage
+operations during remaining-lifecycle verification. Historical auth response
+timeouts have no established cause. The separate container-only proof passed
+and verified cleanup. The remaining-lifecycle attempt passed the guarded API restart and admin
+handoff, but front failed before listener publication when its qualified
+profile-context lookup exited 1. Interruption/collision and actual `dev:test`
+execution were not reached; complete profile readiness remains unproven.
+The restart harness requires the canonical configured API catalog cwd, exact
+private executable command/path/digest, its unique executable mapping, recorded
+start/ancestry/generation and sole kernel socket ownership before signaling.
+Unrelated `lsof txt` mappings do not substitute for any identity gate.
 
 ## Browser runtime (`browser_runtime`)
 
