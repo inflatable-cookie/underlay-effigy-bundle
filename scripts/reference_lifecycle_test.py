@@ -311,6 +311,155 @@ class ProfileOwnerHoldTests(unittest.TestCase):
             self.assertEqual(manifest.read_text(encoding="utf-8"), "[bundle]\n")
 
 
+class LifecycleIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="underlay-lifecycle-identity-")
+        self.fixture = Path(self.temporary.name)
+        self.checkout = self.fixture / "reference"
+        self.checkout.mkdir()
+        (self.checkout / "effigy.toml").write_text("original")
+        self.env = {"UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT": str(self.fixture)}
+        self.roles = {"api": "api.acme.test", "front": "acme.test", "admin": "admin.acme.test"}
+        self.mapping = {domain: domain.replace("acme.test", "acme-w1234abcd.test")
+                        for domain in (*self.roles.values(), "s3.acme.test", "silo.acme.test", "dbgate.acme.test", "mailpit.acme.test")}
+        self.hosts = {"routes": [{"declared": key, "effective": value} for key, value in self.mapping.items()]}
+        self.states = {}
+        directory = self.checkout / ".effigy/runtime/host-processes/hybrid_services/effigy"
+        directory.mkdir(parents=True)
+        for index, (role, declared) in enumerate(self.roles.items()):
+            state = {"schema": "effigy.managed.host-listener-state.v1", "status": "ready", "generation": "a" * 32,
+                     "address": f"127.0.0.1:{41001 + index}", "route_domain": self.mapping[declared],
+                     "public_url": "https://" + self.mapping[declared], "owner": str(self.checkout) + role}
+            state["route_owner"] = {"address": state["address"]}
+            self.states[role] = state
+            (directory / f"{role}.listener.json").write_text(json.dumps(state))
+            (directory / f"{role}.{'a' * 32}.listener-report.json").write_text(json.dumps({
+                "schema": "effigy.managed.host-listener-report.v1", "generation": "a" * 32,
+                "address": state["address"]}))
+        self.directory = directory
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def stop(self):
+        for role, before in self.states.items():
+            (self.directory / f"{role}.listener.json").write_text(json.dumps({**before, "status": "stopped", "route_owner": None}))
+
+    def test_interruption_captures_live_identity_before_down_and_reuses_exact_cleanup_domain(self):
+        from contextlib import ExitStack
+        from unittest.mock import Mock
+        order = []
+        live = True
+        probe = self.directory / "interrupted_probe.listener.json"
+        def hosts(*args, **kwargs):
+            self.assertTrue(live, "identity queried after down")
+            order.append("hosts")
+            return self.hosts
+        def selector(checkout, name, env, **kwargs):
+            nonlocal live
+            order.append(name)
+            live = name == "dev:hybrid"
+            if not live: self.stop()
+        def append(checkout, name, domain, *args):
+            self.assertFalse(live)
+            self.assertEqual(domain, "interrupted.api.acme-w1234abcd.test")
+            order.append("append")
+            return "original"
+        process = Mock(pid=100, returncode=130)
+        process.poll.side_effect = [None, None, 130, 130]
+        process.communicate.return_value = (None, None)
+        def launch(*args, **kwargs):
+            probe.write_text("{}")
+            order.append("launch")
+            return process
+        def verify_stopped_records(checkout, snapshots, env, **kwargs):
+            self.assertFalse(live)
+            self.assertEqual(kwargs["extra_routes"], ("interrupted.api.acme-w1234abcd.test",))
+            order.append("cleanup")
+        with ExitStack() as stack:
+            for target, name, kwargs in (
+                (optin, "effigy_json", {"side_effect": hosts}),
+                (optin, "_verify_live", {"return_value": None}),
+                (optin, "_verify_stopped", {"side_effect": lambda *args: self.assertFalse(live)}),
+                (optin, "selector", {"side_effect": selector}),
+                (optin, "_append_profile_lifecycle_probe", {"side_effect": append}),
+                (optin.subprocess, "Popen", {"side_effect": launch}),
+                (optin.os, "getpgid", {"return_value": 100}),
+                (optin.os, "killpg", {"return_value": None}),
+                (optin, "_profile_listener_snapshots", {"return_value": {}}),
+                (optin, "_profile_probe_diagnostic", {"return_value": {"http_status": 503, "route": "not_reached", "ownership": "exclusive_owner_observed", "status": "failed", "route_owner_present": False}}),
+                (optin, "_verify_profile_stopped_records", {"side_effect": verify_stopped_records}),
+                (optin, "listener_state", {"wraps": optin.listener_state}),
+            ):
+                stack.enter_context(patch.object(target, name, **kwargs))
+            # Recovery models the supported selector writing ready state again.
+            original_selector = selector
+            def recover_selector(checkout, name, env, **kwargs):
+                original_selector(checkout, name, env, **kwargs)
+                if name == "dev:hybrid":
+                    for role, state in self.states.items():
+                        (self.directory / f"{role}.listener.json").write_text(json.dumps(state))
+            stack.enter_context(patch.object(optin, "selector", side_effect=recover_selector))
+            optin._run_interruptible_profile_start(self.checkout, self.env, Mock(), [], self.fixture, 8443, self.states)
+        self.assertLess(order.index("hosts"), order.index("dev:hybrid:down"))
+        self.assertLess(order.index("append"), order.index("launch"))
+        self.assertIn("cleanup", order)
+
+    def test_missing_conflicting_or_foreign_identity_refuses_before_down(self):
+        for mapping in ({"routes": []}, {"routes": self.hosts["routes"] + [{"declared": "api.acme.test", "effective": "api.foreign.test"}]}):
+            with patch.object(optin, "effigy_json", return_value=mapping), patch.object(optin, "selector") as selector:
+                with self.assertRaises(RuntimeError):
+                    optin._run_interruptible_profile_start(self.checkout, self.env, None, [], self.fixture, 8443, self.states)
+                selector.assert_not_called()
+        with patch.object(optin, "route_domains", return_value={role: self.mapping[domain] for role, domain in self.roles.items()}), \
+             patch.object(optin, "_verify_live", side_effect=RuntimeError("foreign ownership")), \
+             patch.object(optin, "selector") as selector:
+            with self.assertRaisesRegex(RuntimeError, "foreign ownership"):
+                optin._run_interruptible_profile_start(self.checkout, self.env, None, [], self.fixture, 8443, self.states)
+            selector.assert_not_called()
+        with self.assertRaisesRegex(RuntimeError, "owned disposable checkout"):
+            optin._capture_lifecycle_probe_domain(self.fixture, self.env, self.states, "interrupted")
+
+    def test_stopped_ownerless_live_publication_still_rejected(self):
+        self.stop()
+        with patch.object(optin, "effigy_json", return_value=self.hosts):
+            with self.assertRaisesRegex(RuntimeError, "owned and ready"):
+                optin.route_domains(self.checkout, self.env)
+
+    def test_completed_restart_reuse_binds_prior_packet_and_validation_source(self):
+        evidence = self.fixture / "prior"
+        evidence.mkdir(mode=0o700)
+        (evidence / "diagnostics").mkdir(mode=0o700)
+        head = "f744fed7f810ecdea60ced2de8adff4a48533525"
+        rows = [{"event": "attempt_started", "effigy_source": "8ecd64b37963cd6832a2b6ffa528034c56828504",
+                 "effigy_binary_sha256": "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324"},
+                {"event": "retained_acceptance_input_match"}, {"event": "api_restart_signal_sent"},
+                {"event": "reference_auth_build_identity", "reference_source_commit": "source",
+                 "patch_sha256": "patch", "cargo_lock_sha256": "lock", "compile_selector": "acme-api/check"}]
+        journal = evidence / "diagnostics/storage-diagnostics.jsonl"
+        journal.write_text("\n".join(json.dumps(row) for row in rows))
+        (evidence / "result.json").write_text(json.dumps({"head": head, "exit": 1, "run": "fixture"}))
+        (evidence / "diagnostics/interruption-precondition-counterexample.json").write_text(json.dumps({
+            "bundle_head": head, "run": "fixture", "phase": "interruption_fixture_preparation_after_owned_down",
+            "journal_sha256": optin._sha256_file(journal)}))
+        (evidence / "selector.log").write_text("\n".join((
+            "PASS owned API child restart, new endpoint report, route replacement, and dependent restarts",
+            "PASS actual Reference API/front/admin listeners and CA-verified private HTTPS routes",
+            "PASS actual Reference front/admin event.url and request.url use configured HTTPS origins",
+            "PASS front/admin Vite HMR WebSockets upgraded with 101 through gateway port 12345")))
+        for path in evidence.rglob("*"):
+            if path.is_file(): path.chmod(0o600)
+        result = optin.validate_retained_restart_inputs(evidence)
+        self.assertNotIn("generation", result)
+        self.assertNotIn("owner", result)
+        with patch.object(optin, "_source_function_sha256", side_effect=["changed", "original"]):
+            with self.assertRaisesRegex(RuntimeError, "validation code changed"):
+                optin.validate_retained_restart_inputs(evidence)
+        journal.write_text(journal.read_text() + "\n{}")
+        with self.assertRaisesRegex(RuntimeError, "bind the completed"):
+            optin.validate_retained_restart_inputs(evidence)
+
+
 class ListenerSnapshotTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="underlay-listener-snapshot-")

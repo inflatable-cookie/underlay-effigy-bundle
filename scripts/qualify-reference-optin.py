@@ -494,6 +494,64 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def validate_retained_restart_inputs(directory: Path) -> dict:
+    """Retain completed acceptance, never retired runtime ownership."""
+    directory = directory.resolve(strict=True)
+    paths = [directory / "result.json", directory / "selector.log",
+             directory / "diagnostics/storage-diagnostics.jsonl",
+             directory / "diagnostics/interruption-precondition-counterexample.json"]
+    for path in paths:
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 1024 * 1024:
+            raise RuntimeError("retained restart evidence is not a bounded private regular file")
+    result = json.loads(paths[0].read_text())
+    counterexample = json.loads(paths[3].read_text())
+    head = "f744fed7f810ecdea60ced2de8adff4a48533525"
+    if (result.get("head") != head or result.get("exit") != 1
+            or counterexample.get("bundle_head") != head
+            or result.get("run") != counterexample.get("run")
+            or counterexample.get("phase") != "interruption_fixture_preparation_after_owned_down"
+            or counterexample.get("journal_sha256") != _sha256_file(paths[2])):
+        raise RuntimeError("retained restart evidence does not bind the completed interruption-preparation attempt")
+    log = paths[1].read_text()
+    for marker in ("PASS owned API child restart, new endpoint report, route replacement, and dependent restarts",
+                   "PASS actual Reference API/front/admin listeners and CA-verified private HTTPS routes",
+                   "PASS actual Reference front/admin event.url and request.url use configured HTTPS origins",
+                   "PASS front/admin Vite HMR WebSockets upgraded with 101 through gateway port"):
+        if marker not in log:
+            raise RuntimeError("retained restart/origin acceptance marker is missing")
+    rows = [json.loads(line) for line in paths[2].read_text().splitlines()]
+    events = {row.get("event"): row for row in rows}
+    start = events.get("attempt_started") or {}
+    if (start.get("effigy_source") != "8ecd64b37963cd6832a2b6ffa528034c56828504"
+            or start.get("effigy_binary_sha256") != "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324"
+            or not events.get("retained_acceptance_input_match")
+            or not events.get("api_restart_signal_sent")):
+        raise RuntimeError("retained restart capability or input receipt is incomplete")
+    functions = {}
+    for path, names in {
+        "scripts/qualify-reference-profiles.py": ("prove_reference_api_restart", "managed_listener_state", "fixture_public_origin_observations"),
+        "scripts/qualify-reference-runtime.py": ("observe_routes",),
+    }.items():
+        current = (ROOT / path).read_text()
+        baseline = subprocess.run(["git", "-C", str(ROOT), "show", f"{head}:{path}"],
+                                  check=True, capture_output=True, text=True, timeout=15).stdout
+        for name in names:
+            digest = _source_function_sha256(current, name)
+            if digest != _source_function_sha256(baseline, name):
+                raise RuntimeError("retained restart validation code changed")
+            functions[f"{path}:{name}"] = digest
+    build = events.get("reference_auth_build_identity") or {}
+    if any(not build.get(key) for key in ("reference_source_commit", "patch_sha256", "cargo_lock_sha256", "compile_selector")):
+        raise RuntimeError("retained restart build inputs are incomplete")
+    return {"source_head": head, "journal_sha256": _sha256_file(paths[2]),
+            "validated_functions": functions,
+            "build_inputs": {key: build[key] for key in
+                             ("reference_source_commit", "patch_sha256", "cargo_lock_sha256", "compile_selector")},
+            "acceptance": "completed API restart/dependent HTTPS/origin/HMR proof retained",
+            "ownership": "no retired owner, PID, address or generation transferred"}
+
+
 def reference_auth_trace_patch_metadata() -> dict:
     patch = REFERENCE_AUTH_TRACE_PATCH.read_bytes()
     if len(patch) > 24 * 1024:
@@ -1041,15 +1099,33 @@ def _verify_profile_stopped_records(checkout: Path, snapshots: dict[str, dict], 
         raise RuntimeError("production profile down left its private gateway or routes active")
 
 
+def _capture_lifecycle_probe_domain(checkout: Path, env: dict[str, str],
+                                    before_states: dict[str, dict], prefix: str) -> str:
+    """Capture configured effective identity while live, never infer publication after down."""
+    root = checkout.resolve(strict=True)
+    fixture = Path(env["UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT"]).resolve(strict=True)
+    if fixture not in root.parents or prefix not in ("interrupted", "collision"):
+        raise RuntimeError("lifecycle route capture requires the owned disposable checkout")
+    domains = route_domains(root, env)
+    # Prove these are this checkout's current owners, not retired/sibling data.
+    _verify_live(root, before_states, env)
+    if (set(before_states) != {"api", "front", "admin"}
+            or any(before_states[role].get("route_domain") != domains[role]
+                   for role in ("api", "front", "admin"))):
+        raise RuntimeError("lifecycle route capture differs from current checkout identity")
+    return prefix + "." + domains["api"]
+
+
 def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagnostics: StorageDiagnosticJournal,
                                      foreign: list[tuple[Path, dict[str, dict]]], gateway_root: Path,
                                      gateway_port: int, before_states: dict[str, dict]) -> dict[str, dict]:
+    probe_domain = _capture_lifecycle_probe_domain(checkout, env, before_states, "interrupted")
     selector(checkout, "dev:hybrid:down", env)
     _verify_stopped(checkout, before_states, env)
     for sibling, states in foreign:
         _verify_live(sibling, states, env)
     original_manifest = _append_profile_lifecycle_probe(
-        checkout, "interrupted_probe", "interrupted." + route_domains(checkout, env)["api"],
+        checkout, "interrupted_probe", probe_domain,
         "127.0.0.1:0", 503, env,
     )
     probe_path = _profile_probe_state_path(checkout, "interrupted_probe")
@@ -1126,7 +1202,7 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
         claimed = state.get("claimed_address")
         _verify_profile_stopped_records(
             checkout, snapshots, env,
-            extra_routes=("interrupted." + route_domains(checkout, env)["api"],),
+            extra_routes=(probe_domain,),
             owned_failed_addresses=(claimed,) if isinstance(claimed, str) else (),
         )
         scope_reconciled = True
@@ -1167,7 +1243,7 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
             snapshots = _profile_listener_snapshots(
                 checkout, ("api", "front", "admin", "interrupted_probe"), env)
             selector(checkout, "dev:hybrid:down", env)
-            _verify_profile_stopped_records(checkout, snapshots, env)
+            _verify_profile_stopped_records(checkout, snapshots, env, extra_routes=(probe_domain,))
             scope_reconciled = True
             (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
             for sibling, states in foreign:
@@ -1196,7 +1272,7 @@ def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_state
                            env: dict[str, str], diagnostics: StorageDiagnosticJournal,
                            before_states: dict[str, dict]) -> dict[str, dict]:
     foreign_api = foreign_states["api"]
-    collision_domain = "collision." + route_domains(checkout, env)["api"]
+    collision_domain = _capture_lifecycle_probe_domain(checkout, env, before_states, "collision")
     selector(checkout, "dev:hybrid:down", env)
     _verify_stopped(checkout, before_states, env)
     _verify_live(foreign_checkout, foreign_states, env)
@@ -1506,38 +1582,49 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
 
         if not storage_only and len(checkouts) == 3:
             main, before = checkouts[0], app_records[checkouts[0]]
-            restart_before = before["api"]
-            restarted = REFERENCE.prove_reference_api_restart(
-                main, Path(receipts["instances"][0]["gateway_root"]), before,
-                expected_api_binary=api_build_identity,
-                diagnostic_sink=diagnostics.append if diagnostics is not None else None,
-                require_durable_preflight=remaining_lifecycle)
-            if not restarted:
-                raise RuntimeError(f"Reference API restart/dependent endpoint handoff was not proven: {REFERENCE.LAST_API_RESTART_DIAGNOSTIC}")
-            _, after_api = listener_state(main, "api", env)
-            if (after_api["generation"] == restart_before["generation"]
-                    or after_api["address"] == restart_before["address"]):
-                raise RuntimeError("API restart did not change its actual listener generation and address")
-            after_states = {"api": after_api}
-            for dependent in ("front", "admin"):
-                _, after_dependent = listener_state(main, dependent, env)
-                if after_dependent["generation"] == before[dependent]["generation"]:
-                    raise RuntimeError(f"{dependent} did not restart after the API endpoint changed")
-                after_states[dependent] = after_dependent
-            app_records[main] = after_states
-            RUNTIME.observe_routes(main, Path(receipts["instances"][0]["gateway_root"]), env,
-                                  after_states, int(receipts["instances"][0]["gateway_port"]))
-            receipts["api_restart"] = {"old_generation": restart_before["generation"],
-                                       "new_generation": after_api["generation"],
-                                       "old_address": restart_before["address"],
-                                       "new_address": after_api["address"],
-                                       "dependent_generations_changed": {
-                                           name: {"old": before[name]["generation"],
-                                                  "new": after_states[name]["generation"]}
-                                           for name in ("front", "admin")
-                                       },
-                                       "dependent_front_admin_routes_reverified": True}
-
+            retained_restart = (retained_inputs or {}).get("restart")
+            if retained_restart:
+                if api_build_identity is None or any(
+                        api_build_identity.get(key) != value
+                        for key, value in retained_restart["build_inputs"].items()):
+                    raise RuntimeError("fresh API build inputs differ from retained restart proof")
+                receipts["api_restart"] = {"status": "retained_prior_proof", **retained_restart}
+                if diagnostics is not None:
+                    diagnostics.append("retained_restart_input_match", result=retained_restart,
+                                       fresh_binary_sha256=api_build_identity["binary_sha256"],
+                                       fresh_runtime_identity="current ready owners required by lifecycle capture")
+            else:
+                restart_before = before["api"]
+                restarted = REFERENCE.prove_reference_api_restart(
+                    main, Path(receipts["instances"][0]["gateway_root"]), before,
+                    expected_api_binary=api_build_identity,
+                    diagnostic_sink=diagnostics.append if diagnostics is not None else None,
+                    require_durable_preflight=remaining_lifecycle)
+                if not restarted:
+                    raise RuntimeError(f"Reference API restart/dependent endpoint handoff was not proven: {REFERENCE.LAST_API_RESTART_DIAGNOSTIC}")
+                _, after_api = listener_state(main, "api", env)
+                if (after_api["generation"] == restart_before["generation"]
+                        or after_api["address"] == restart_before["address"]):
+                    raise RuntimeError("API restart did not change its actual listener generation and address")
+                after_states = {"api": after_api}
+                for dependent in ("front", "admin"):
+                    _, after_dependent = listener_state(main, dependent, env)
+                    if after_dependent["generation"] == before[dependent]["generation"]:
+                        raise RuntimeError(f"{dependent} did not restart after the API endpoint changed")
+                    after_states[dependent] = after_dependent
+                app_records[main] = after_states
+                RUNTIME.observe_routes(main, Path(receipts["instances"][0]["gateway_root"]), env,
+                                      after_states, int(receipts["instances"][0]["gateway_port"]))
+                receipts["api_restart"] = {"old_generation": restart_before["generation"],
+                                           "new_generation": after_api["generation"],
+                                           "old_address": restart_before["address"],
+                                           "new_address": after_api["address"],
+                                           "dependent_generations_changed": {
+                                               name: {"old": before[name]["generation"],
+                                                      "new": after_states[name]["generation"]}
+                                               for name in ("front", "admin")
+                                           },
+                                           "dependent_front_admin_routes_reverified": True}
             if remaining_lifecycle:
                 foreign = [(checkout, app_records[checkout]) for checkout in checkouts[1:]]
                 try:
@@ -1839,6 +1926,11 @@ def main() -> int:
         raise RuntimeError("remaining-lifecycle proof requires UNDERLAY_PROFILE_PRIOR_DIAGNOSTICS_DIR")
     retained_inputs = (validate_retained_lifecycle_inputs(Path(prior_diagnostic_dir_value), source)
                        if remaining_lifecycle and prior_diagnostic_dir_value else None)
+    restart_directory = os.environ.get("UNDERLAY_PROFILE_PRIOR_RESTART_DIR")
+    if restart_directory:
+        if not remaining_lifecycle or retained_inputs is None:
+            raise RuntimeError("restart receipt reuse requires matched remaining-lifecycle inputs")
+        retained_inputs["restart"] = validate_retained_restart_inputs(Path(restart_directory))
     diagnostic_dir = Path(diagnostic_dir_value).expanduser().resolve(strict=True) if diagnostic_dir_value else None
     if remaining_lifecycle:
         prior_journal = Path(retained_inputs["prior_diagnostic_sources"]["journal"]).resolve(strict=True)
