@@ -117,6 +117,7 @@ export UNDERLAY_REFERENCE_SOURCE=~/Dev/projects/underlay-reference
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:public-origin
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:profile-contract-tests
+"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:profile-compile
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-runtime
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-container
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:silo-contract-tests
@@ -160,14 +161,21 @@ upload/finalisation/download/delete, plus three-instance HTTPS origins/HMR.
 These exact-input receipts are retained without repeating successful storage
 operations during remaining-lifecycle verification. Historical auth response
 timeouts have no established cause. The separate container-only proof passed
-and verified cleanup. The remaining-lifecycle attempt passed the guarded API restart and admin
-handoff, but front failed before listener publication when its qualified
-profile-context lookup exited 1. Interruption/collision and actual `dev:test`
-execution were not reached; complete profile readiness remains unproven.
+and verified cleanup. The earlier remaining-lifecycle attempt passed API/admin handoff but front
+failed its context lookup before publication. With phase diagnostics, API/front
+handoff passed, while admin context failed at `host-inventory / default.hosts`
+with exit 1 and class `ProfileError`. The underlying rejection reason remains
+unestablished. Interruption/collision and actual `dev:test` execution were not
+reached; complete profile readiness remains unproven.
 The restart harness requires the canonical configured API catalog cwd, exact
 private executable command/path/digest, its unique executable mapping, recorded
 start/ancestry/generation and sole kernel socket ownership before signaling.
 Unrelated `lsof txt` mappings do not substitute for any identity gate.
+Context failures now retain fixed phase, container-operation, exit status and
+allowlisted error class/message, without captured stdout or arbitrary stderr.
+The qualification harness copies these records outside the fixture before
+teardown. Diagnostic-only changes must preserve the accepted successful recipes
+before auth/storage receipts can be reused.
 
 ## Browser runtime (`browser_runtime`)
 

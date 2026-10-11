@@ -383,7 +383,7 @@ refuses before signaling; the signal decision and observations are durably
 recorded outside the fixture. No basename or directory-prefix ownership test
 is accepted.
 
-The guarded restart passed all pre-signal checks and changed the API address
+The earlier uninstrumented guarded restart passed all pre-signal checks and changed the API address
 and generation while preserving its current route. Admin restarted, but front
 entered a failed, unpublished listener generation. Its adapter reported
 `qualified profile context lookup failed (status 1)`; the managed diagnostic
@@ -393,6 +393,31 @@ underlying context failure is unestablished and is not attributed to generic
 Effigy or Reference behavior. The assertion stopped before the pending
 interruption/collision and `dev:test` proofs. No retry or readiness certification
 is inferred from the partial restart.
+
+The context diagnostic boundary records only a fixed schema, phase,
+container-operation, exit status and allowlisted error class/message. Phases
+cover admission, configuration, service status, Compose bindings, host inventory,
+gateway status/port, effective route validation and service-port resolution.
+Captured stdout, arbitrary stderr, exception text, commands, environment values,
+credentials, secret paths and response bodies are never included. The Vite
+adapter preserves approved records on nonzero exit, spawn/timeout and decode
+failure; unknown errors retain a fixed failure class rather than raw text.
+The qualification harness collects bounded validated front/admin records into
+its private external journal before scoped teardown. Redaction controls inject
+secret payloads into errors, stdout and stderr, and verify their exclusion.
+Successful recipe equivalence is checked separately from the diagnostic code:
+changed timeouts or production behavior invalidate retained acceptance reuse.
+
+The instrumented remaining-lifecycle attempt passed the guarded API restart
+and front handoff, but admin failed before listener publication. Its retained
+`profile_context_failed` journal entry identifies `phase = host-inventory`,
+`operation = default.hosts`, `error_class = ProfileError`, `exit_status = 1`,
+and the fixed message `operation_failed`. This is the context lookup's supported
+unqualified `container hosts` suboperation. The nested rejection reason is not
+retained by that classification; no generic core or concurrency defect is
+established. The attempt stopped before interruption/collision and `dev:test`,
+with scoped down followed by preserved private runtime residue. No retry or
+complete dependent-handoff acceptance is inferred.
 
 The separate exact-source container-only selector passed assembly, published
 Silo/MC executable checks and build/start with the workspace image unchanged,
@@ -412,6 +437,10 @@ Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
   and actual adapter plans; it does not launch applications.
 - `proof:dev-profiles:public-origin`: helper security, opt-out, hook chaining
   and request/body preservation tests with bounded runner lifetime.
+- `proof:dev-profiles:profile-contract-tests`: admission/cleanup contracts and
+  context phase/error redaction controls with bounded runner lifetime.
+- `proof:dev-profiles:profile-compile`: Python/JavaScript syntax compilation
+  without generating bytecode or build artifacts.
 - `proof:dev-profiles:reference-runtime`: real three-instance applications,
   published Silo, HTTPS/HMR and lifecycle proof with owned teardown.
 - `proof:dev-profiles:lifecycle-contract-tests`: hermetic survivor identity
