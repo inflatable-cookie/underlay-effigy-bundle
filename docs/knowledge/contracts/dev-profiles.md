@@ -481,6 +481,46 @@ processes and sockets were checked separately; the private VM and residue remain
 held, without a retirement or purge claim. Non-following Silo log capture reached
 its five-second budget and was skipped with a classified timeout.
 
+Lifecycle probe setup now captures its canonical effective domain while the
+profile is live. The existing host-map and ready listener checks remain, and
+current live owners must match the caller's current checkout states before any
+down action. Interruption setup and stopped cleanup reuse that exact immutable
+domain. Collision setup uses the same validated capture. Missing/conflicting
+mapping, foreign identity or an unready live listener still refuses before
+launch; stopped records do not serve as publication evidence. No additional
+ready-only route lookup is performed after down.
+
+Remaining-lifecycle execution can consume the completed restart/origin packet
+only after matching its bound source revision, journal digest, success records,
+validation function source and Reference source/patch/lock/build-selector
+inputs. Fresh setup readiness and current owner checks remain mandatory.
+The receipt retains completed acceptance, without transferring any old runtime
+owner, process, endpoint or generation, or reporting a skipped proof as a new
+pass. Auth/storage reuse retains its existing exact-input admission.
+
+The next bounded attempt matched the retained restart/origin receipt against
+fresh build inputs, without repeating the API restart signal or completed
+storage operations. Current setup still established nine ready listeners and
+live owner identities. It passed the corrected pre-stop domain capture, then
+refused during interruption-probe manifest inspection, before launching the
+interrupted selector. The supported `config --inspect` command exited zero,
+but `_profile_manifest_hosts` recognized only `interrupted_probe`, where the
+helper required `api`, `front`, `admin` and that probe. The failure branch
+restored the original fixture manifest. This is an observed bundle fixture
+inspection/declaration mismatch; parser versus composition cause remains
+unestablished, and no generic core defect is certified. A further owning
+correction must establish additive probe configuration and supported effective
+host inspection without replacing production declarations or weakening gates.
+
+Three final down selectors returned zero. Exact status reported empty services
+and private gateway routes, nine stopped listener records, 21 recorded PIDs
+absent and nine recorded sockets without listeners. These observations do not
+prove retirement; the private VM and residue remain held. Silo log capture
+reached its separate five-second budget. Remaining interruption/recovery,
+collision/partial failure, uncertain-owner/foreign-preserving teardown and
+`dev:test` acceptance remain incomplete; no second attempt was performed.
+
+
 The separate exact-source container-only selector passed assembly, published
 Silo/MC executable checks and build/start with the workspace image unchanged,
 then verified exact cleanup and private-profile purge. Remaining exported

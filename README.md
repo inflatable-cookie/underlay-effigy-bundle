@@ -175,7 +175,14 @@ and on rejection. A later attempt passed restart/handoff, then exposed an
 interruption-fixture precondition conflict: after owned profile down, its route
 lookup still required ready listeners and rejected the correctly stopped front.
 This is a bundle qualification-helper counterexample; historical rejection
-causes remain unknown. Pending lifecycle and `dev:test` acceptance are unproven.
+causes remain unknown. Probe setup now validates and captures the effective domain
+before down and reuses it for cleanup, preserving all live ownership gates.
+A subsequent attempt reused the input-matched restart/origin proof and passed
+that setup boundary, then refused before interruption launch: the fixture
+manifest inspector recognized only `interrupted_probe`, rather than the three
+production hosts plus the probe. Configuration inspection exited zero; whether
+composition or the inspection parser caused the mismatch remains unestablished.
+Pending lifecycle and `dev:test` acceptance are unproven.
 The restart harness requires the canonical configured API catalog cwd, exact
 private executable command/path/digest, its unique executable mapping, recorded
 start/ancestry/generation and sole kernel socket ownership before signaling.
