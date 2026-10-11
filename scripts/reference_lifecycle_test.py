@@ -311,5 +311,140 @@ class ProfileOwnerHoldTests(unittest.TestCase):
             self.assertEqual(manifest.read_text(encoding="utf-8"), "[bundle]\n")
 
 
+class ListenerSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="underlay-listener-snapshot-")
+        self.root = Path(self.temporary.name)
+        self.checkout = self.root / "fixture"
+        self.checkout.mkdir()
+        diagnostics = self.root / "diagnostics"
+        diagnostics.mkdir(mode=0o700)
+        self.journal = optin.StorageDiagnosticJournal(diagnostics / "storage-diagnostics.jsonl", self.checkout)
+        self.snapshots = optin.listener_snapshot
+        self.snapshots.configure(self.journal.append)
+        self.directory = self.checkout / ".effigy/runtime/host-processes/hybrid_services/effigy"
+        self.directory.mkdir(parents=True)
+        self.state_path = self.directory / "front.listener.json"
+        self.secret = "seeded_password_token_presigned_SECRET"
+        self.state = {"status": "ready", "generation": "a" * 32, "runtime_generation": "b" * 32,
+                      "address": "127.0.0.1:41001", "route_domain": "acme.test",
+                      "public_url": "https://acme.test:8443",
+                      "route_owner": {"address": "127.0.0.1:41001", "credentials": self.secret},
+                      "diagnostic": {"report": "accepted", "ownership": "exclusive_owner_observed",
+                                     "http_probe": "ready", "http_status": 200, "route": "not_reached"},
+                      "env": self.secret}
+        self.write()
+
+    def tearDown(self):
+        self.snapshots.configure(None)
+        self.journal.close()
+        self.temporary.cleanup()
+
+    def write(self):
+        self.state_path.write_text(json.dumps(self.state))
+        self.report_path = self.directory / f"front.{self.state['generation']}.listener-report.json"
+        self.report_path.write_text(json.dumps({"schema": "effigy.managed.host-listener-report.v1",
+                                              "generation": self.state["generation"],
+                                              "address": self.state["address"], "body": self.secret}))
+
+    def rows(self):
+        text = self.journal.path.read_text()
+        self.assertNotIn(self.secret, text)
+        return [json.loads(line) for line in text.splitlines()]
+
+    def validate(self, helper):
+        if helper == "managed_listener_state":
+            return reference.managed_listener_state(self.checkout, "front")
+        return optin.listener_state(self.checkout, "front", {}, {"acme.test": "acme.test"})
+
+    def test_unready_rejection_is_durable_before_raise_in_both_helpers(self):
+        for helper in ("managed_listener_state", "listener_state"):
+            self.state["status"] = "starting"
+            self.state["route_owner"] = None
+            self.write()
+            with self.assertRaisesRegex(RuntimeError, "owned and ready"):
+                self.validate(helper)
+            rows = self.rows()
+            self.assertEqual(rows[-2]["outcome"], "before_validation")
+            self.assertEqual(rows[-1]["outcome"], "validation_rejected")
+            self.assertEqual(rows[-2]["snapshot"], rows[-1]["snapshot"])
+            self.assertEqual(rows[-1]["snapshot"]["state"]["status"], "starting")
+            self.assertTrue(rows[-1]["snapshot"]["provenance"]["sha256"])
+
+    def test_ready_then_unready_retains_generations_sequence_and_original_bytes(self):
+        self.snapshots.old_states(self.checkout, {"front": self.state.copy()})
+        self.validate("managed_listener_state")
+        self.state.update(status="starting", generation="c" * 32, route_owner=None)
+        self.write()
+        with self.assertRaises(RuntimeError):
+            self.validate("listener_state")
+        self.state_path.unlink()
+        rows = self.rows()
+        states = [row for row in rows if row["snapshot"]["document"] == "state"]
+        self.assertEqual([row["snapshot"]["state"]["generation"] for row in states],
+                         ["a" * 32, "c" * 32, "c" * 32])
+        self.assertEqual(states[-1]["snapshot"]["old"]["generation"], "a" * 32)
+        self.assertEqual([row["observation_sequence"] for row in rows], list(range(1, len(rows) + 1)))
+        self.assertEqual(states[-1]["snapshot"]["provenance"], states[-2]["snapshot"]["provenance"])
+
+    def test_absent_malformed_permission_and_unknown_documents(self):
+        for helper in ("managed_listener_state", "listener_state"):
+            for kind in ("absent", "malformed", "permission_denied", "nonobject"):
+                self.write()
+                if kind == "absent":
+                    self.state_path.unlink()
+                elif kind == "malformed":
+                    self.state_path.write_text(self.secret)
+                elif kind == "nonobject":
+                    self.state_path.write_text(json.dumps([self.secret]))
+                from contextlib import nullcontext
+                context = (patch.object(self.snapshots.os, "open", side_effect=PermissionError(self.secret))
+                           if kind == "permission_denied" else nullcontext())
+                with context, self.assertRaises(Exception):
+                    self.validate(helper)
+                self.assertEqual(self.rows()[-1]["snapshot"]["provenance"]["read"], kind)
+        self.state.update(status=self.secret, diagnostic={"ownership": self.secret}, public_url="https://acme.test/?" + self.secret)
+        self.write()
+        with self.assertRaises(RuntimeError):
+            self.validate("listener_state")
+        self.assertEqual(self.rows()[-1]["snapshot"]["state"]["status"], "unknown")
+
+    def test_report_failure_and_unknown_extras_preserve_gate(self):
+        for helper in ("managed_listener_state", "listener_state"):
+            for kind in ("absent", "malformed", "mismatch"):
+                self.write()
+                if kind == "absent":
+                    self.report_path.unlink()
+                elif kind == "malformed":
+                    self.report_path.write_text(self.secret)
+                else:
+                    self.report_path.write_text(json.dumps({"schema": self.secret, "generation": "c" * 32,
+                                                           "address": "127.0.0.1:41002"}))
+                with self.assertRaises(Exception):
+                    self.validate(helper)
+                self.assertEqual(self.rows()[-1]["outcome"], "validation_rejected")
+
+    def test_only_diagnostic_read_substitutions_match_retained_function(self):
+        import subprocess
+        for filename, name in (("qualify-reference-optin.py", "listener_state"),
+                               ("qualify-reference-profiles.py", "managed_listener_state")):
+            path = "scripts/" + filename
+            baseline = subprocess.run(["git", "show", f"{optin.RETAINED_LIFECYCLE_HEAD}:{path}"],
+                                      check=True, capture_output=True, text=True, timeout=15).stdout
+            current = Path(__file__).with_name(filename).read_text()
+            digest = optin._source_function_sha256(baseline, name)
+            self.assertEqual(digest, optin._source_function_sha256(current, name))
+            weakened = current.replace('state.get("status") != "ready"', 'state.get("status") != "starting"')
+            self.assertNotEqual(digest, optin._source_function_sha256(weakened, name))
+
+    def test_log_capture_budget_is_finite_and_does_not_follow(self):
+        import subprocess
+        with patch.object(optin.RUNTIME, "run", side_effect=subprocess.TimeoutExpired("suppressed", 5)) as run:
+            optin.capture_storage_service_logs(self.checkout, {}, self.journal)
+        self.assertEqual(run.call_args.kwargs["timeout"], 5)
+        self.assertNotIn("--follow", run.call_args.args[0])
+        self.assertEqual(self.rows()[-1]["exception_type"], "TimeoutExpired")
+
+
 if __name__ == "__main__":
     unittest.main()

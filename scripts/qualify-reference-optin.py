@@ -45,6 +45,8 @@ REFERENCE = load_module("reference_profile_helpers", SCRIPTS / "qualify-referenc
 RUNTIME = load_module("reference_runtime_helpers", SCRIPTS / "qualify-reference-runtime.py")
 from silo_fixture import CLIENT_IMAGE, IMAGE, RELEASE, prepare_published_images  # noqa: E402
 from reference_storage_probe import StorageDiagnosticJournal  # noqa: E402
+import listener_snapshot  # noqa: E402
+from listener_snapshot import observed, read_document  # noqa: E402
 
 
 EFFIGY: str | None = None
@@ -72,6 +74,26 @@ def _source_function_sha256(source: str, function_name: str) -> str:
              and node.name == function_name]
     if len(nodes) != 1:
         raise RuntimeError(f"retained input function {function_name} is missing or ambiguous")
+    if function_name in ("listener_state", "managed_listener_state"):
+        # Normalize only the two audited read/decorator substitutions. Every
+        # readiness, ownership, report and route predicate remains in the hash.
+        node = nodes[0]
+        node.decorator_list = [item for item in node.decorator_list
+                               if not (isinstance(item, ast.Name) and item.id == "observed")]
+        class DiagnosticRead(ast.NodeTransformer):
+            def visit_Call(self, call):
+                if (isinstance(call.func, ast.Name) and call.func.id == "read_document"
+                        and not call.keywords and len(call.args) == 5
+                        and isinstance(call.args[0], ast.Name)
+                        and call.args[0].id in ("path", "state_path", "report_path")
+                        and isinstance(call.args[1], ast.Name) and call.args[1].id == "checkout"
+                        and isinstance(call.args[2], ast.Name) and call.args[2].id == "name"
+                        and isinstance(call.args[3], ast.Constant) and call.args[3].value == function_name
+                        and isinstance(call.args[4], ast.Constant) and call.args[4].value in ("state", "report")):
+                    return ast.parse(f'json.loads({call.args[0].id}.read_text(encoding="utf-8"))').body[0].value
+                return self.generic_visit(call)
+        node = DiagnosticRead().visit(node)
+        return _sha256_bytes(ast.dump(node, include_attributes=False).encode())
     segment = ast.get_source_segment(source, nodes[0])
     if not segment:
         raise RuntimeError(f"retained input function {function_name} has no source segment")
@@ -297,6 +319,7 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
         "scripts/reference_storage_probe.py": ("prove_reference_upload",),
     }
     function_hashes = {}
+    diagnostic_function_sources = {}
     for path, names in function_inputs.items():
         current_text = (ROOT / path).read_text(encoding="utf-8")
         baseline_text = subprocess.run(
@@ -309,6 +332,12 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
             if current_digest != baseline_digest:
                 raise RuntimeError(f"retained profile/storage function changed: {path}:{name}")
             function_hashes[f"{path}:{name}"] = current_digest
+            if name in ("listener_state", "managed_listener_state"):
+                diagnostic_function_sources[f"{path}:{name}"] = {
+                    "source_sha256": _sha256_bytes(current_text.encode()),
+                    "retained_validation_ast_sha256": current_digest,
+                    "normalization": "observed_decorator_and_exact_read_document_calls_only",
+                }
 
     identity_function = "record_reference_auth_build_identity"
     current_identity_function = (ROOT / "scripts/qualify-reference-optin.py").read_text(encoding="utf-8")
@@ -356,6 +385,7 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
             "stable_bundle_file_hashes": file_hashes,
             "diagnostic_only_recipe_hashes": diagnostic_recipe_hashes,
             "retained_bundle_function_hashes": function_hashes,
+            "diagnostic_function_sources": diagnostic_function_sources,
             "build_identity_harness_adjustment": {
                 "function": identity_function,
                 "calculation_prefix_matches_accepted_head": identity_logic_match,
@@ -667,6 +697,7 @@ def _effective_checkout_routes(host_map: dict) -> dict[str, str]:
     return routes
 
 
+@observed
 def listener_state(
     checkout: Path,
     name: str,
@@ -674,11 +705,11 @@ def listener_state(
     effective_routes: dict[str, str] | None = None,
 ) -> tuple[Path, dict]:
     path = checkout / ".effigy/runtime/host-processes/hybrid_services/effigy" / f"{name}.listener.json"
-    state = json.loads(path.read_text(encoding="utf-8"))
+    state = read_document(path, checkout, name, "listener_state", "state")
     if state.get("status") != "ready" or not state.get("route_owner"):
         raise RuntimeError(f"production profile listener {name} is not owned and ready")
     report_path = path.parent / f"{name}.{state['generation']}.listener-report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report = read_document(report_path, checkout, name, "listener_state", "report")
     if (report.get("schema") != "effigy.managed.host-listener-report.v1"
             or report.get("generation") != state.get("generation")
             or report.get("address") != state.get("address")
@@ -745,8 +776,12 @@ def capture_storage_service_logs(checkout: Path, env: dict[str, str],
     api_log = checkout / ".effigy/runtime/host-processes/hybrid_services/effigy/api.log"
     try:
         if api_log.is_file():
-            diagnostics.write_log("reference-api.log", api_log.read_text(
-                encoding="utf-8", errors="replace").splitlines())
+            fd = os.open(api_log, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(fd, "rb") as stream:
+                stream.seek(max(0, os.fstat(stream.fileno()).st_size - 65536))
+                tail = stream.read(65536)
+            diagnostics.write_log("reference-api.log", tail.decode(
+                "utf-8", errors="replace").splitlines())
             diagnostics.append("service_log_source", service="reference-api",
                                source_path=str(api_log), state="captured")
         else:
@@ -760,7 +795,9 @@ def capture_storage_service_logs(checkout: Path, env: dict[str, str],
         result = RUNTIME.run(
             [EFFIGY, "--repo", str(checkout), "container", "hybrid_services", "logs",
              "--service", "silo", "--json"],
-            cwd=checkout, env=env, timeout=120, expected=None, print_output=False,
+            # Pinned CLI logs defaults to follow=false. This is a diagnostic
+            # capture budget, independent of all readiness/action deadlines.
+            cwd=checkout, env=env, timeout=5, expected=None, print_output=False,
         )
         if result.returncode:
             diagnostics.append("service_log_capture_failed", service="silo", exit=result.returncode,
@@ -1813,6 +1850,7 @@ def main() -> int:
     print(f"PRIVATE OPT-IN REFERENCE ROOT: {fixture_root}", flush=True)
     diagnostics = (StorageDiagnosticJournal(diagnostic_dir / "storage-diagnostics.jsonl", fixture_root)
                    if diagnostic_dir is not None else None)
+    listener_snapshot.configure(diagnostics.append if diagnostics is not None else None)
     if diagnostics is not None:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),

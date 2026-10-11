@@ -28,6 +28,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 from qualification_runtime import require_effigy_binary
+from listener_snapshot import observed, read_document, old_states
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -606,6 +607,7 @@ def fixture_public_origin_observations(
     print("PASS actual Reference front/admin configured HTTPS origins through verified private gateway", flush=True)
 
 
+@observed
 def managed_listener_state(
     checkout: Path,
     name: str,
@@ -618,13 +620,13 @@ def managed_listener_state(
         checkout / ".effigy/runtime/host-processes/hybrid/effigy" / f"{name}.listener.json",
     )
     state_path = next((path for path in candidates if path.is_file()), candidates[0])
-    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state = read_document(state_path, checkout, name, "managed_listener_state", "state")
     if state.get("status") != "ready" or not state.get("route_owner"):
         if allow_unready:
             return state_path, state
         raise RuntimeError(f"Reference managed listener {name} is not owned and ready")
     report_path = state_path.parent / f"{name}.{state['generation']}.listener-report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report = read_document(report_path, checkout, name, "managed_listener_state", "report")
     assert report["schema"] == "effigy.managed.host-listener-report.v1"
     assert report["generation"] == state["generation"]
     assert report["address"] == state["address"]
@@ -899,6 +901,7 @@ def prove_reference_api_restart(
     require_durable_preflight: bool = False,
 ) -> bool:
     global LAST_API_RESTART_DIAGNOSTIC
+    old_states(main, before_states)
     LAST_API_RESTART_DIAGNOSTIC = {
         "status": "unproven",
         "phase": "preflight",
@@ -1229,7 +1232,7 @@ def prove_reference_api_restart(
     restarted = None
     while time.monotonic() < deadline:
         try:
-            candidate = json.loads(api_path.read_text(encoding="utf-8"))
+            candidate = read_document(api_path, main, "api", "restart_generation_poll", "state")
         except (FileNotFoundError, json.JSONDecodeError):
             time.sleep(0.25)
             continue
@@ -1254,7 +1257,7 @@ def prove_reference_api_restart(
         return False
 
     report_path = api_path.parent / f"api.{restarted['generation']}.listener-report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report = read_document(report_path, main, "api", "restart_generation_poll", "report")
     assert report["generation"] == restarted["generation"]
     assert report["address"] == restarted["address"]
 
