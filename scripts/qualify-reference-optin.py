@@ -42,10 +42,7 @@ RUNTIME = load_module("reference_runtime_helpers", SCRIPTS / "qualify-reference-
 from silo_fixture import CLIENT_IMAGE, IMAGE, RELEASE, prepare_published_images  # noqa: E402
 
 
-EFFIGY = require_effigy_binary()
-REFERENCE.EFFIGY = EFFIGY
-RUNTIME.EFFIGY = EFFIGY
-RUNTIME.REFERENCE.EFFIGY = EFFIGY
+EFFIGY: str | None = None
 
 
 def selector(checkout: Path, name: str, env: dict[str, str], timeout: int = 5400) -> subprocess.CompletedProcess[str]:
@@ -129,9 +126,9 @@ def route_domains(checkout: Path, env: dict[str, str]) -> dict[str, str]:
                     if previous is not None and previous != effective:
                         raise RuntimeError(f"profile route {role} has conflicting effective names")
                     result[role] = effective
-    # The checkout host map is authoritative for scoped public route names.
-    # Listener owner state retains the declared route, so pair it with this
-    # independently reported declared-to-effective mapping.
+    # The host inventory pairs declared and effective names. Runtime listener
+    # state already stores the effective route, so validate it without rewriting
+    # the name through this map a second time.
     checkout_hosts = effigy_json(checkout, env, "container", "hosts", "--json")
     checkout_routes = _effective_checkout_routes(checkout_hosts)
     for role in ("front", "admin", "api"):
@@ -215,11 +212,11 @@ def listener_state(
             or report.get("address") != state.get("address")
             or state["route_owner"].get("address") != state.get("address")):
         raise RuntimeError(f"profile listener {name} report and owner do not match")
-    declared_domain = state.get("route_domain")
+    route_domain = state.get("route_domain")
     public_url = state.get("public_url")
     parsed_public_url = urlsplit(public_url) if isinstance(public_url, str) else None
     if (
-        not isinstance(declared_domain, str)
+        not isinstance(route_domain, str)
         or parsed_public_url is None
         or parsed_public_url.scheme != "https"
         or not parsed_public_url.hostname
@@ -230,14 +227,23 @@ def listener_state(
         or parsed_public_url.fragment
     ):
         raise RuntimeError(f"production profile listener {name} omitted its canonical current HTTPS public URL")
+    if parsed_public_url.hostname != route_domain:
+        raise RuntimeError(f"production profile listener {name} public URL does not use its effective route")
     routes = effective_routes or _effective_checkout_routes(
         effigy_json(checkout, env, "container", "hosts", "--json")
     )
-    effective_domain = routes.get(declared_domain)
-    if not isinstance(effective_domain, str) or not effective_domain:
-        raise RuntimeError(f"Effigy checkout host map omitted the current route for {name}")
+    declared_domains = [declared for declared, effective in routes.items() if effective == route_domain]
+    declared_domain = state.get("declared_route_domain")
+    if declared_domain is not None:
+        if not isinstance(declared_domain, str) or routes.get(declared_domain) != route_domain:
+            raise RuntimeError(f"production profile listener {name} declared/effective route inventory disagrees")
+    elif len(declared_domains) == 1:
+        declared_domain = declared_domains[0]
+    else:
+        raise RuntimeError(f"Effigy host inventory did not uniquely identify the declared route for {name}")
+    if len(declared_domains) != 1 or declared_domains[0] != declared_domain:
+        raise RuntimeError(f"Effigy host inventory has an ambiguous declared route for {name}")
     state["declared_route_domain"] = declared_domain
-    state["route_domain"] = effective_domain
     return path, state
 
 
@@ -532,6 +538,11 @@ def _verify_stopped(checkout: Path, states: dict[str, dict], env: dict[str, str]
 
 
 def main() -> int:
+    global EFFIGY
+    EFFIGY = require_effigy_binary()
+    REFERENCE.EFFIGY = EFFIGY
+    RUNTIME.EFFIGY = EFFIGY
+    RUNTIME.REFERENCE.EFFIGY = EFFIGY
     source = REFERENCE.reference_source()
     fixture_root = RUNTIME.mktemp_root()
     print(f"PRIVATE OPT-IN REFERENCE ROOT: {fixture_root}", flush=True)
@@ -630,9 +641,9 @@ def main() -> int:
             raise RuntimeError(f"private Colima profile purge was not verified: {profile_status}")
         receipts["private_profile_purge"] = profile_status
         safe_to_purge_colima = True
-        receipts["effigy_source"] = "2f7b1819fd0e72afff18a6053be424719ecf71fc"
+        receipts["effigy_source"] = "8ecd64b37963cd6832a2b6ffa528034c56828504"
         receipts["effigy_binary"] = str(Path(EFFIGY).resolve())
-        receipts["effigy_binary_sha256"] = "2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc"
+        receipts["effigy_binary_sha256"] = "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324"
         receipts["silo_images"] = image_receipt
         receipts["reference_source"] = str(source)
         receipt_path = fixture_root / "profile-selector-receipts.json"

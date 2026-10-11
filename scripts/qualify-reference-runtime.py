@@ -609,7 +609,7 @@ def verify_scope_down(checkout: Path, states: dict[str, dict], gateway_root: Pat
         one = {"checkout": str(sibling), "listeners": []}
         for name, before in sibling_states.items():
             _, after = REFERENCE.managed_listener_state(
-                sibling, name, effective_domain=before["route_domain"]
+                sibling, name, expected_route_domain=before["route_domain"]
             )
             if after["generation"] != before["generation"] or after["address"] != before["address"]:
                 raise RuntimeError(f"foreign {name} listener changed while main checkout was retired")
@@ -1023,7 +1023,7 @@ def recover_reference_apps(checkout: Path, original_manifest: str, env: dict[str
         raise RuntimeError("Reference host-process recovery task failed after exact-scope reconciliation")
     recovered_states = {
         name: REFERENCE.managed_listener_state(
-            checkout, name, effective_domain=names[name]
+            checkout, name, expected_route_domain=names[name]
         )[1]
         for name in ("api", "front", "admin")
     }
@@ -1114,7 +1114,7 @@ def assert_foreign_instances_live(instances: list[tuple[Path, dict[str, dict]]],
                   REFERENCE.private_gateway_status(checkout, gateway_root).get("routes", [])}
         for name, before in states.items():
             _, after = REFERENCE.managed_listener_state(
-                checkout, name, effective_domain=before["route_domain"]
+                checkout, name, expected_route_domain=before["route_domain"]
             )
             if any(after.get(key) != before.get(key) for key in
                    ("owner", "runtime_generation", "generation", "address",
@@ -1489,7 +1489,7 @@ def prove_failed_collision_is_scoped(main_checkout: Path, main_states: dict[str,
 
     for name, before in foreign_states.items():
         _, after = REFERENCE.managed_listener_state(
-            foreign_checkout, name, effective_domain=before["route_domain"]
+            foreign_checkout, name, expected_route_domain=before["route_domain"]
         )
         if after["generation"] != before["generation"] or after["address"] != before["address"]:
             raise RuntimeError(f"partial failure changed foreign worktree listener {name}")
@@ -1879,9 +1879,9 @@ def main() -> int:
     # second cache manager, and remains separate from the container image.
     runtime_env["CARGO_TARGET_DIR"] = str(private_cargo_target)
     receipts: dict[str, object] = {
-        "effigy_source": "2f7b1819fd0e72afff18a6053be424719ecf71fc",
+        "effigy_source": "8ecd64b37963cd6832a2b6ffa528034c56828504",
         "effigy_binary": EFFIGY,
-        "effigy_binary_sha256": "2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc",
+        "effigy_binary_sha256": "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324",
         "reference_source": subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"],
                                            capture_output=True, text=True, check=True).stdout.strip(),
         "fixture_root": str(fixture_root),
@@ -2029,7 +2029,7 @@ def main() -> int:
             states: dict[str, dict] = {}
             for name in ("api", "front", "admin"):
                 _, state = REFERENCE.managed_listener_state(
-                    checkout, name, effective_domain=domains_by_checkout[checkout][name]
+                    checkout, name, expected_route_domain=domains_by_checkout[checkout][name]
                 )
                 states[name] = state
                 all_addresses.append(state["address"])
@@ -2121,7 +2121,7 @@ def main() -> int:
         if api_ready_after_probe:
             refreshed_states = {
                 name: REFERENCE.managed_listener_state(
-                    main_checkout, name, effective_domain=domains_by_checkout[main_checkout][name]
+                    main_checkout, name, expected_route_domain=domains_by_checkout[main_checkout][name]
                 )[1]
                 for name in ("api", "front", "admin")
             }

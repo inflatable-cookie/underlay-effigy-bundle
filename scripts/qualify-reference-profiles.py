@@ -25,6 +25,7 @@ import termios
 import tempfile
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 from qualification_runtime import require_effigy_binary
 
 
@@ -609,7 +610,7 @@ def managed_listener_state(
     name: str,
     *,
     allow_unready: bool = False,
-    effective_domain: str | None = None,
+    expected_route_domain: str | None = None,
 ) -> tuple[Path, dict]:
     candidates = (
         checkout / ".effigy/runtime/host-processes/hybrid_services/effigy" / f"{name}.listener.json",
@@ -627,12 +628,18 @@ def managed_listener_state(
     assert report["generation"] == state["generation"]
     assert report["address"] == state["address"]
     assert state["route_owner"]["address"] == state["address"]
-    if effective_domain is not None:
-        declared_domain = state.get("route_domain")
-        if not isinstance(declared_domain, str) or not effective_domain:
-            raise RuntimeError(f"Reference managed listener {name} has no verified declared/effective route")
-        state["declared_route_domain"] = declared_domain
-        state["route_domain"] = effective_domain
+    route_domain = state.get("route_domain")
+    if not isinstance(route_domain, str) or not route_domain:
+        raise RuntimeError(f"Reference managed listener {name} has no effective route domain")
+    if expected_route_domain is not None and route_domain != expected_route_domain:
+        raise RuntimeError(
+            f"Reference managed listener {name} route differs from the current effective route: "
+            f"expected {expected_route_domain}, got {route_domain}"
+        )
+    public_url = state.get("public_url")
+    parsed_public_url = urlsplit(public_url) if isinstance(public_url, str) else None
+    if parsed_public_url is None or parsed_public_url.hostname != route_domain:
+        raise RuntimeError(f"Reference managed listener {name} public URL does not use its effective route")
     return state_path, state
 
 
@@ -652,6 +659,42 @@ def service_host_port(status: dict, target: int) -> int | None:
             if match:
                 return int(match.group(1))
     return None
+
+
+def process_ancestry_chain(process_pid: int, ancestor_pid: int, parents: dict[int, int]) -> list[int] | None:
+    """Return the current PID chain to a known owner, failing closed on gaps or cycles."""
+    chain = [process_pid]
+    visited = {process_pid}
+    current = process_pid
+    while current != ancestor_pid:
+        parent = parents.get(current)
+        if parent is None or parent in visited:
+            return None
+        chain.append(parent)
+        visited.add(parent)
+        current = parent
+    return chain
+
+
+def process_parent_map() -> dict[int, int]:
+    result = subprocess.run(
+        ["ps", "-axo", "pid=,ppid="],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    parents: dict[int, int] = {}
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            continue
+        try:
+            process_pid, parent_pid = map(int, fields)
+        except ValueError:
+            continue
+        parents[process_pid] = parent_pid
+    return parents
 
 
 def private_gateway_status(main: Path, gateway_root: Path) -> dict:
@@ -684,21 +727,11 @@ def prove_reference_api_restart(
     child_pid = int(before_api["child_pid"])
     supervisor_pid = int(before_api["supervisor_pid"])
     listener_pid = int(before_api["listener_pid"])
-    child_parent = subprocess.run(
-        ["ps", "-p", str(child_pid), "-o", "ppid="],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=5,
-    ).stdout.strip()
-    listener_parent = subprocess.run(
-        ["ps", "-p", str(listener_pid), "-o", "ppid="],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=5,
-    ).stdout.strip()
-    if child_parent != str(supervisor_pid) or listener_parent != str(child_pid):
+    ancestry_snapshot = process_parent_map()
+    child_parent = ancestry_snapshot.get(child_pid)
+    listener_parent = ancestry_snapshot.get(listener_pid)
+    listener_ancestry = process_ancestry_chain(listener_pid, child_pid, ancestry_snapshot)
+    if child_parent != supervisor_pid or listener_ancestry is None:
         LAST_API_RESTART_DIAGNOSTIC.update({
             "reason": "recorded supervisor/adapter/listener ancestry did not match",
             "child_pid": child_pid,
@@ -706,11 +739,13 @@ def prove_reference_api_restart(
             "recorded_supervisor_pid": supervisor_pid,
             "observed_child_parent_pid": child_parent,
             "observed_listener_parent_pid": listener_parent,
+            "observed_listener_ancestry": listener_ancestry,
         })
         print(
             "BLOCKED Reference API restart before signal: recorded supervisor/adapter/listener "
             f"ancestry did not match (supervisor={supervisor_pid}, adapter={child_pid}, "
-            f"listener={listener_pid}, observed_parents={child_parent}/{listener_parent})",
+            f"listener={listener_pid}, observed_parents={child_parent}/{listener_parent}, "
+            f"listener_chain={listener_ancestry})",
             flush=True,
         )
         return False
@@ -829,6 +864,20 @@ def prove_reference_api_restart(
             f"socket_owner={socket_owner!r})",
             flush=True,
         )
+        return False
+
+    latest_ancestry = process_parent_map()
+    latest_listener_ancestry = process_ancestry_chain(listener_pid, child_pid, latest_ancestry)
+    if latest_ancestry.get(child_pid) != supervisor_pid or latest_listener_ancestry != listener_ancestry:
+        LAST_API_RESTART_DIAGNOSTIC.update({
+            "reason": "recorded listener ancestry changed during restart preflight",
+            "child_pid": child_pid,
+            "listener_pid": listener_pid,
+            "recorded_supervisor_pid": supervisor_pid,
+            "observed_child_parent_pid": latest_ancestry.get(child_pid),
+            "observed_listener_ancestry": latest_listener_ancestry,
+        })
+        print("BLOCKED Reference API restart before signal: recorded ancestry changed during preflight", flush=True)
         return False
 
     try:

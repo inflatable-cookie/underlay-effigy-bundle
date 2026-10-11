@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import os
+import platform
+import stat
 import subprocess
 from pathlib import Path
 
 
-SUPPORTED_EFFIGY_SOURCE = "2f7b1819fd0e72afff18a6053be424719ecf71fc"
-SUPPORTED_EFFIGY_SHA256 = "2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc"
+SUPPORTED_EFFIGY_SOURCE = "8ecd64b37963cd6832a2b6ffa528034c56828504"
+SUPPORTED_EFFIGY_SHA256 = "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324"
 
 
 def require_effigy_binary() -> str:
@@ -23,6 +25,15 @@ def require_effigy_binary() -> str:
 
     binary = Path(binary_value).expanduser().resolve(strict=True)
     source = Path(source_value).expanduser().resolve(strict=True)
+    if (platform.system(), platform.machine().lower()) != ("Darwin", "arm64"):
+        raise RuntimeError("profile qualification binary is qualified only for macOS arm64")
+    source_root = subprocess.run(
+        ["git", "-C", str(source), "rev-parse", "--show-toplevel"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    ).stdout.strip()
     revision = subprocess.run(
         ["git", "-C", str(source), "rev-parse", "HEAD"],
         check=True,
@@ -30,11 +41,25 @@ def require_effigy_binary() -> str:
         text=True,
         timeout=10,
     ).stdout.strip()
+    if source_root != str(source):
+        raise RuntimeError("Effigy source path must name the qualified checkout root")
     if revision != SUPPORTED_EFFIGY_SOURCE:
         raise RuntimeError(
             f"Effigy source must be {SUPPORTED_EFFIGY_SOURCE}, got {revision}"
         )
 
+    cleanliness = subprocess.run(
+        ["git", "-C", str(source), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    ).stdout.strip()
+    if cleanliness:
+        raise RuntimeError("qualified Effigy source checkout has changes")
+    before = binary.stat()
+    if not stat.S_ISREG(before.st_mode) or not os.access(binary, os.X_OK):
+        raise RuntimeError("qualified Effigy binary must be an executable regular file")
     digest = hashlib.sha256(binary.read_bytes()).hexdigest()
     if digest != SUPPORTED_EFFIGY_SHA256:
         raise RuntimeError(
@@ -49,6 +74,12 @@ def require_effigy_binary() -> str:
     ).stdout.strip()
     if version != "effigy v0.14.1":
         raise RuntimeError(f"unexpected private Effigy binary version: {version}")
+    after = binary.stat()
+    final_digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+        after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns
+    ) or digest != final_digest:
+        raise RuntimeError("private Effigy binary changed while its identity was being validated")
 
     print(f"EFFIGY SOURCE: {revision}", flush=True)
     print(f"EFFIGY BINARY: {binary}", flush=True)

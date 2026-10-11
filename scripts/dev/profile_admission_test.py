@@ -548,6 +548,47 @@ class ProfileAdmissionTests(unittest.TestCase):
         plan.assert_called_once()
         start.assert_not_called()
 
+    def test_dev_test_runs_one_bounded_selector_then_stops_owned_profile(self) -> None:
+        identity = profiles.BinaryIdentity("/qualified/source", "/qualified/effigy", "hash", 1, 2, 3, 4)
+        repo = Path("/fixture")
+        env = {"UNDERLAY_PROFILE_TEST_TASK": "app-api/test", "UNDERLAY_PROFILE_TEST_TIMEOUT_SECS": "30"}
+        context = {"routes": {"api": "test.api.fixture.test"}, "https_port": 44321}
+        with patch.object(profiles, "_run_process") as invoke, \
+             patch.object(profiles, "_start_profile", return_value=context) as start, \
+             patch.object(profiles, "_profile_root", return_value=repo / ".effigy/runtime/dev-profiles/test/gateway"), \
+             patch.object(profiles, "_profile_env", return_value={"profile": "base"}), \
+             patch.object(profiles, "profile_environment", return_value={"profile": "ready"}) as ready_env, \
+             patch.object(profiles, "_stop_profile") as stop:
+            self.assertEqual(profiles._test_profile(identity, repo, env, "disposable_test"), 0)
+
+        self.assertEqual(invoke.call_count, 2)
+        plan_args = invoke.call_args_list[0].args[1]
+        action_args = invoke.call_args_list[1].args[1]
+        self.assertEqual(plan_args, [identity.binary, "--repo", str(repo), "app-api/test", "--plan"])
+        self.assertEqual(invoke.call_args_list[0].kwargs["timeout"], 30)
+        self.assertEqual(action_args, [identity.binary, "--repo", str(repo), "app-api/test"])
+        self.assertEqual(invoke.call_args_list[1].kwargs["timeout"], 30)
+        self.assertIs(invoke.call_args_list[1].kwargs["capture"], False)
+        self.assertEqual(invoke.call_args_list[1].kwargs["env"], {"profile": "ready"})
+        start.assert_called_once_with(identity, repo, env, "disposable_test")
+        ready_env.assert_called_once()
+        stop.assert_called_once_with(identity, repo, env, "disposable_test")
+
+    def test_dev_test_stops_owned_profile_after_test_selector_failure(self) -> None:
+        identity = profiles.BinaryIdentity("/qualified/source", "/qualified/effigy", "hash", 1, 2, 3, 4)
+        repo = Path("/fixture")
+        env = {"UNDERLAY_PROFILE_TEST_TASK": "app-api/test", "UNDERLAY_PROFILE_TEST_TIMEOUT_SECS": "30"}
+        context = {"routes": {"api": "test.api.fixture.test"}, "https_port": 44321}
+        with patch.object(profiles, "_run_process", side_effect=[None, profiles.ProfileError("bounded test failed")]), \
+             patch.object(profiles, "_start_profile", return_value=context), \
+             patch.object(profiles, "_profile_root", return_value=repo / ".effigy/runtime/dev-profiles/test/gateway"), \
+             patch.object(profiles, "_profile_env", return_value={"profile": "base"}), \
+             patch.object(profiles, "profile_environment", return_value={"profile": "ready"}), \
+             patch.object(profiles, "_stop_profile") as stop:
+            with self.assertRaisesRegex(profiles.ProfileError, "bounded test failed"):
+                profiles._test_profile(identity, repo, env, "disposable_test")
+        stop.assert_called_once_with(identity, repo, env, "disposable_test")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

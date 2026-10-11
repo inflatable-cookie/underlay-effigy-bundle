@@ -19,9 +19,9 @@ does not change the container-only path.
 The bundle inputs `profiles.effigy_source` and `profiles.effigy_binary` must
 name the clean qualified source checkout and absolute executable. Before any
 profile state, service, gateway or cleanup operation, the launcher checks
-source commit `2f7b1819fd0e72afff18a6053be424719ecf71fc`, version `effigy
+source commit `8ecd64b37963cd6832a2b6ffa528034c56828504`, version `effigy
 v0.14.1`, and macOS arm64 binary SHA-256
-`2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc`. Current
+`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324`. Current
 runtime qualification is macOS arm64 only. Unknown, changed, wrong-platform or
 unavailable identities fail before runtime effects, with actionable input
 guidance. Each nested Effigy operation uses that verified absolute path, never
@@ -104,12 +104,14 @@ blocked capability must not become an invented CLI or private protocol.
 ## Supported mechanism
 
 Qualification uses Effigy source
-`2f7b1819fd0e72afff18a6053be424719ecf71fc` and its private `effigy v0.14.1`
+`8ecd64b37963cd6832a2b6ffa528034c56828504` and its private `effigy v0.14.1`
 binary, SHA-256
-`2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc`.
+`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324`.
 The scripts require explicit source and binary paths and verify both identities.
 The owning interfaces are Effigy's contract 005 managed host listener routes
-and guide 063 managed host listeners/private gateway at that source.
+and guide 063 managed host listeners/private gateway at that source. The
+earlier `2f7b1819` build remains historical evidence and is not admitted by the
+current opt-in gate.
 
 Effigy supports `containers.<name>.host_processes` with `listener.bind`, HTTP
 readiness, a TLS route, and `depends_on`. An adapter strictly binds
@@ -352,6 +354,33 @@ unestablished.
 Local assurance is macOS host plus Linux containers. It does not establish a
 local Linux Reference host proof or dedicated grace-to-SIGKILL end-to-end
 coverage. Review/CI and any consumer migration remain separate gates.
+
+### Current-source continuation status (2026-10-11)
+
+The admission source is now the reviewed Effigy source above. The current
+`proof:dev-profiles:reference-runtime` continuation is not a passing
+qualification receipt. One run assembled Reference main and two private
+worktrees with effective scoped listener names and passed their listener,
+HTTPS, origin/HMR and published-Silo checks; its restart check held before
+signaling because the listener process was nested below the recorded adapter.
+The ownership check was updated to verify the complete current process ancestry
+and recheck it before signaling. A subsequent exact-source run reached the
+Reference storage flow but timed out reading an application response. That
+timeout's phase/cause is not established, and no signed Reference upload or
+finalisation pass is claimed for this continuation.
+
+The separate exact-source `proof:dev-profiles:reference-container` selector
+passed assembly, published Silo/MC executable checks, and container-only
+build/start with the workspace image unchanged; it then brought the stack down,
+retired the exact private scope, stopped its private gateway and purged its
+Colima profile. The failed runtime attempt was also inspected before cleanup:
+its main listeners were stopped, private gateway had zero routes and was down,
+all three exact-scope retire operations reported no remaining or unverified
+resources, the private runtime inventory was empty, and its Colima profile was
+purged. Earlier runtime/storage receipts remain historical inputs and are not
+current-source acceptance. Actual `dev:test` execution and a complete
+current-source Reference runtime pass remain unverified; profile readiness is
+not certified by these partial results.
 
 ## Qualification selectors
 

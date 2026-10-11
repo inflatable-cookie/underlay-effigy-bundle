@@ -56,8 +56,8 @@ managed-listener and private-gateway contracts.
 ```toml
 [bundle.profiles]
 enabled = true
-effigy_source = "/path/to/effigy-at-2f7b1819"
-effigy_binary = "/path/to/effigy-at-2f7b1819/target/release/effigy"
+effigy_source = "/path/to/effigy-at-8ecd64b3"
+effigy_binary = "/path/to/qualified/effigy-8ecd64b3-macos-arm64"
 test_task = "app-api/test" # one bounded Effigy selector for dev:test
 test_timeout_secs = 900
 # silo_bucket = "acme-media" # defaults to <first database>-media
@@ -77,9 +77,9 @@ cleanup. It never invokes full QA. Use `dev:test:down` to reconcile a run
 interrupted before its normal cleanup.
 
 The profile launcher checks the clean Effigy source revision
-`2f7b1819fd0e72afff18a6053be424719ecf71fc`, binary version `effigy v0.14.1`,
+`8ecd64b37963cd6832a2b6ffa528034c56828504`, binary version `effigy v0.14.1`,
 and qualified macOS arm64 SHA-256
-`2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc` before
+`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324` before
 starting services, the gateway, or cleanup. The current opt-in runtime is
 qualified on macOS arm64; unsupported platforms and changed/unknown binaries
 are refused with the container profile still available. Child Effigy calls
@@ -125,9 +125,9 @@ export UNDERLAY_REFERENCE_SOURCE=~/Dev/projects/underlay-reference
 ```
 
 The scripts verify Effigy source
-`2f7b1819fd0e72afff18a6053be424719ecf71fc` and private `effigy v0.14.1`
+`8ecd64b37963cd6832a2b6ffa528034c56828504` and private `effigy v0.14.1`
 binary SHA-256
-`2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc`.
+`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324`.
 The runtime selectors pull approved digest-pinned PGSTY Silo and MC images,
 create fresh private Reference main/worktree instances and retain redacted
 receipts outside the repository. They use a private gateway/CA and isolated
@@ -152,6 +152,17 @@ contract above for the qualification boundary.
 The original published default MinIO image pull remains
 unqualified (`insufficient_scope`); Silo does not repair that registry access.
 No consumer default switch or Reference source migration is delivered.
+
+The 2026-10-11 continuation updated the opt-in admission pin to Effigy source
+`8ecd64b3` and corrected listener-state handling for its effective scoped host
+names. Exact-source Reference runtime attempts reached the real routes, HTTPS
+origins/HMR and published-Silo service checks, but the latest
+`proof:dev-profiles:reference-runtime` run timed out while reading a Reference
+storage response. It did not establish the signed Reference upload/finalisation
+path or complete runtime qualification. The separate exact-source
+container-only proof passed and verified cleanup. Prior runtime receipts remain
+historical inputs, not acceptance for this source; the actual `dev:test`
+selector and a complete Reference runtime pass remain unverified.
 
 ## Browser runtime (`browser_runtime`)
 
