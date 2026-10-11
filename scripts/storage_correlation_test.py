@@ -166,6 +166,50 @@ class CorrelationTests(unittest.TestCase):
                 self.assertEqual(list(root.rglob('*.listener.json')), [])
                 self.assertEqual(list(root.rglob('*.pid')), [])
 
+    def test_native_primary_worktree_identity_and_compose_refusals(self):
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        from qualification_runtime import require_effigy_binary
+        binary = require_effigy_binary()
+        with tempfile.TemporaryDirectory(prefix='underlay-storage-identity-') as directory:
+            fixture = Path(directory).resolve()
+            main = fixture / 'main'
+            main.mkdir()
+            def git(root, *args):
+                return subprocess.run(['git','-C',str(root),*args], check=True, capture_output=True, text=True, timeout=10).stdout.strip()
+            git(main, 'init')
+            (main / 'owned.txt').write_text('fixture')
+            git(main, 'add', 'owned.txt')
+            git(main, '-c','user.name=Fixture','-c','user.email=fixture@example.test','commit','-m','fixture')
+            revision = git(main, 'rev-parse','HEAD')
+            first = fixture / 'first'
+            git(main, 'worktree','add','--detach',str(first),'HEAD')
+            policy = probe.minimal_policy(dict(driver='colima', profile='effigy', startup='detached', project_name='owned', working_dir='/', host={'publish_address':'127.0.0.1'}, services={'silo':{'catalog':'silo'}, 'silo_client':{'catalog':'silo-mc'}}))
+            for checkout, kind in ((main,'none'),(first,'worktree')):
+                (checkout / 'effigy.toml').write_text(probe.minimal_manifest(policy))
+                process = subprocess.run(probe.invocation(binary, checkout, ['container','scope','--json']), capture_output=True, text=True, timeout=10)
+                self.assertEqual(process.returncode,0)
+                report = json.loads(process.stdout)['result']
+                identity = probe.scope_identity(report, checkout, fixture, kind, revision, policy)
+                self.assertEqual(identity['kind'], kind)
+                labels = '  com.effigy.project: ' + identity['project'] + '\n'
+                if kind == 'worktree': labels += '  com.effigy.scope: ' + identity['token'] + '\n'
+                status = {'project_name':identity['project']}
+                self.assertEqual(probe.compose_identity(labels.encode(),status,identity)['scope_kind'], kind)
+                for bad in (b'', b'\xffseeded-secret', labels.encode()+b'  com.effigy.project: foreign\n', labels.encode()+b'  com.effigy.scope: malformed\n', labels.encode()+b'  com.effigy.scope: ffffffffffffffffffffffffffffffff\n'):
+                    with self.assertRaises(ValueError): probe.compose_identity(bad,status,identity)
+                if kind == 'worktree':
+                    with self.assertRaises(ValueError): probe.compose_identity(('  com.effigy.project: '+identity['project']+'\n').encode(),status,identity)
+                with self.assertRaises(ValueError): probe.compose_identity(labels.encode(),{'project_name':'foreign'},identity)
+                for bad in ({**report,'checkout':str(fixture/'foreign')}, {**report,'scope':{'kind':'unknown','token':None}}, {**report,'scope':{'kind':kind}}, {**report,'scope':{'kind':kind,'token':None if kind=='worktree' else 'a'*32}}):
+                    with self.assertRaises(ValueError): probe.scope_identity(bad,checkout,fixture,kind,revision,policy)
+                with self.assertRaises(ValueError): probe.scope_identity(report,checkout,fixture,kind,'0'*40,policy)
+                with self.assertRaises(ValueError): probe.scope_identity(report,checkout,fixture,kind,revision,{**policy,'share_runtime_identity':True})
+                hosts = {'schema':'effigy.container.hosts.v1','ok':True,'checkout':str(checkout),'scope':{'kind':'primary' if kind=='none' else kind,'token':identity['token'],'shared_runtime_identity':kind=='none'},'routes':[]}
+                probe.hosts_projection(hosts,checkout,identity)
+                with self.assertRaises(ValueError): probe.hosts_projection({**hosts,'scope':{'kind':'primary','token':'foreign'}},checkout,identity)
+
     def test_actual_signed_request_retains_safe_framing_and_error(self):
         import importlib.util
         from pathlib import Path

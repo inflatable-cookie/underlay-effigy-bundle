@@ -10,7 +10,7 @@ import sys
 
 from qualification_runtime import require_effigy_binary, SUPPORTED_EFFIGY_SOURCE, SUPPORTED_EFFIGY_SHA256
 from reference_storage_probe import StorageDiagnosticJournal
-from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection
+from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity
 from silo_fixture import prepare_published_images
 import importlib.util
 
@@ -44,6 +44,7 @@ def main():
     journal = StorageDiagnosticJournal(packet / 'storage-diagnostics.jsonl', fixture)
     started = []
     results = []
+    identities = {}
     print(f'STORAGE CORRELATION PACKET: {packet}', flush=True)
 
     def call(label, checkout, args, timeout=180):
@@ -110,12 +111,29 @@ def main():
             verified = result('minimal-policy-inspection', checkout, ['config', '--inspect', '--path', 'containers.hybrid_services', '--json'])['selected_value']['value']
             if verified != policy:
                 raise RuntimeError('minimal service policy changed during composition')
+            native_scope = result('checkout-scope', checkout, ['container', 'scope', '--json'])
+            identity = scope_identity(native_scope, checkout, fixture, 'none' if checkout == main_checkout else 'worktree', revision, policy)
+            identities[checkout] = identity
+            journal.append('checkout_identity_gate', **identity, runtime_effects=False)
             # Native hosts loads the effective catalog capabilities without
             # starting a gateway or service; its scope marker stays fixture-owned.
             hosts = result('minimal-effective-hosts', checkout, ['container', 'hybrid_services', 'hosts', '--json'])
+            # Pinned load_container_policy, used by native hosts, renders this
+            # maintained generated path without starting a backend. Inspect only
+            # the freshly owned file; post-up status/labels are checked again.
+            generated = checkout / '.effigy/runtime/compose/.effigy-compose.generated.yml'
+            if generated.exists():
+                if generated.is_symlink() or not generated.is_file():
+                    raise ValueError('unsafe_generated_compose')
+                generated.resolve(strict=True).relative_to(checkout)
+                raw_preflight = generated.read_bytes()
+                compose_identity(raw_preflight, {'project_name':identity['project']}, identity)
+                journal.append('no_backend_compose_identity_gate', **identity,
+                               compose_sha256=hashlib.sha256(raw_preflight).hexdigest(),
+                               provenance='native_hosts_generated_configuration', runtime_effects=False)
             journal.append('minimal_policy_gate', checkout=str(checkout), policy_preserved=True,
                            catalog_files_sha256={alias: hashlib.sha256((checkout / 'infra/dev/catalog' / alias / 'service.toml').read_bytes()).hexdigest() for alias in ('silo', 'silo-mc')},
-                           effective_hosts=hosts_projection(hosts, checkout), runtime_effects=False)
+                           effective_hosts=hosts_projection(hosts, checkout, identity), runtime_effects=False)
 
         # No service starts until both typed production/minimal compositions agree.
         process = subprocess.run(['colima', 'start', '--profile', 'effigy', '--runtime', 'containerd', '--cpu', '2', '--memory', '4', '--disk', '32'], env=env, capture_output=True, timeout=1200)
@@ -142,10 +160,21 @@ def main():
             if len(matches) != 1: raise RuntimeError('ambiguous Silo loopback map')
             port = matches[0]
             raw = compose.read_bytes()
-            projects = set(re.findall(r'com\.effigy\.project:\s*([a-z0-9-]+)', raw.decode()))
-            scopes = set(re.findall(r'com\.effigy\.scope:\s*([a-f0-9]{32})', raw.decode()))
-            if len(projects) != 1 or len(scopes) != 1: raise RuntimeError('ambiguous executed Compose ownership')
-            journal.append('executed_scope', checkout=str(checkout), project=next(iter(projects)), scope=next(iter(scopes)), compose_sha256=hashlib.sha256(raw).hexdigest(), loopback_port=port, service_names=['silo','silo_client'])
+            identity = identities[checkout]
+            journal.append('compose_identity_observation', checkout=str(checkout),
+                           compose_sha256=hashlib.sha256(raw).hexdigest(),
+                           project_label_count=raw.count(b'com.effigy.project'),
+                           scope_label_count=raw.count(b'com.effigy.scope'),
+                           expected_project=identity['project'], expected_kind=identity['kind'],
+                           expected_token=identity['token'], loopback_port=port)
+            try:
+                observed = compose_identity(raw, status, identity)
+            except ValueError as error:
+                journal.append('compose_identity_rejected', reason=str(error))
+                raise
+            journal.append('executed_scope', checkout=str(checkout), **observed,
+                           compose_sha256=hashlib.sha256(raw).hexdigest(), loopback_port=port,
+                           service_names=['silo','silo_client'])
 
             def shell(label, command, service='silo_client'):
                 return call(label, checkout, ['container', 'hybrid_services', 'shell', '--service', service, '--command', shell_command(command)])

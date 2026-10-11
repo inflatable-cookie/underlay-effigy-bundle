@@ -292,12 +292,19 @@ root schema; `sources.siblings=false` stays in the production bundle assembly
 context. Both actual main/worktree policies pass native configuration and host
 inventory gates before runtime, preserving only Silo/client services.
 
-The latest service-only attempt reached private TLS/gateway and main Silo/client
-startup/status, then stopped before MC/S3 operations: the helper requires a
-32-hex Compose scope label, while the main fixture's generated configuration
-has one project and no scope label. The unique Silo loopback map is present.
-No endpoint correlation or historical 404 explanation is established. Recorded
-new service/gateway down calls exited successfully; VM/images/volumes remain
-held and retirement is unproven. Old held resources remain untouched. Supported
-primary-versus-worktree ownership evidence needs a bounded helper preflight
-before further runtime; whole-profile acceptance remains incomplete.
+The helper queries native checkout scope once before effects and binds it to
+the caller-owned canonical Git fixture/source. Primary `none/null` requires the
+exact declared project and no scope labels; a worktree requires its exact full
+token and documented effective project. Shared overrides and foreign/conflicting
+identity refuse. Native generated Compose is checked before startup and again
+against actual status afterward; these observations grant no cleanup authority.
+
+The latest service-only attempt passed those scope checks, private gateway and
+main services, alias bootstrap and client override checks. It stopped on the
+Silo server `hostname` probe (inner exit 127, Effigy outer exit 1), before MC
+object operations or S3 requests. The stderr message was not retained, so no
+underlying cause or historical 404 explanation is established. A supported
+container identity probe with demonstrated executable preconditions is the next
+bounded prerequisite. Recorded new service/gateway down calls exited zero;
+VM/images/volumes remain held and retirement is unproven. Old held resources
+remain untouched; whole-profile acceptance remains incomplete.

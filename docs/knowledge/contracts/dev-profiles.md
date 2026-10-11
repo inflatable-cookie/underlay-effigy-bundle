@@ -787,20 +787,41 @@ reject unknown root/fixture fields, wrong types, malformed TOML, foreign checkou
 identity and unexpected application/service host inventory. Catalog pins and
 service declarations remain unchanged; production exports/defaults are unaffected.
 
-The latest bounded service-only attempt passed these gates, image/provenance
-verification, private TLS/gateway setup and main Silo/client up/status. It stopped
-before alias bootstrap or any MC/S3 request: the ownership helper requires one
-project label and one 32-hex scope label. The retained generated main Compose file
-has one project, no scope label and a unique Silo loopback mapping (8140 to 9000).
-A post-failure pure projection confirms the existing binding helper finds that
-mapping. This is post-failure configuration evidence, not retroactive runtime
-ownership/cleanup credit or a demonstrated product/core defect. The next bounded
-prerequisite is supported primary-versus-worktree identity correlation and a
-no-service ownership-preflight control, preserving strict foreign-scope refusal.
-No scope guard was relaxed and no second attempt occurred.
+An earlier service-only attempt rejected primary Compose because the helper
+required a worktree scope label for every checkout. Pinned `container scope`
+provides the policy-independent distinction: `none/null` for an unmarked primary
+checkout; `worktree` with its full 32-hex token for a linked worktree. The helper
+now queries this contract once per owned fixture before effects, validates
+canonical Git top-level/source and private Git-directory confinement, then binds
+the intended project/service policy. Primary requires exact declared project
+and no scope label. Worktree requires exact token and the documented effective
+project suffix. Missing/unknown kinds or tokens, foreign checkout/project,
+shared overrides and extra/conflicting labels refuse. No fabricated token or
+cleanup exemption is introduced.
 
-Recorded new main service down and private gateway down exited zero; subsequent
-service status projected no services. Private VM/images/volumes remain held and
+Native `hosts` loads generated Compose without backend startup. When present,
+that freshly owned generated file is checked against the independent scope
+identity before effects; actual post-up status and Compose labels are checked
+again. Typed hosts scope must agree with the native identity and scoped
+shared-identity overrides refuse. Strict mapping, finite label observations and
+error classifications are retained before rejection. Identity observations grant
+no resource-adoption, signal or cleanup authority.
+
+The latest attempt passed both actual main/worktree native composition/scope/
+pre-backend Compose gates, pinned image/executable verification, private TLS/
+gateway and main service up/status. Runtime primary scope correlation passed.
+Alias bootstrap and client environment override checks returned inner/outer zero.
+The next Silo server identity probe (`hostname`) returned inner 127 while Effigy
+returned outer 1. It stopped before MC alias projection/object write/stat or any
+host S3 request; worktree services were not launched. The original stderr text
+was not retained, so the underlying message remains unobserved. The smallest
+next prerequisite is a bounded qualification-helper identity probe using the
+supported selected-container contract with executable preconditions established
+before services, preserving server/client/project/namespace correspondence.
+No utility fallback, product/core repair or second runtime was attempted.
+
+New main service down and private gateway down exited zero; subsequent service
+status projected no services. Private VM/images/volumes remain held and
 retirement remains unproven. Prior held resources and packets remain untouched.
 Empty sanitized service logs are a limitation. No MC/S3 correlation PASS or
 historical 404 cause is established; lifecycle/disposable-test and independent

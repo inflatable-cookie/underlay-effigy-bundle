@@ -97,6 +97,8 @@ def address_projection(output):
 def minimal_policy(policy):
     if not isinstance(policy, dict) or policy.get("driver") != "colima" or policy.get("profile") != "effigy":
         raise ValueError("unsupported production service policy")
+    if policy.get('share_runtime_identity', False) is not False:
+        raise ValueError('shared runtime identity is forbidden')
     services = policy.get("services")
     if not isinstance(services, dict) or services.get("silo") != {"catalog": "silo"} or services.get("silo_client") != {"catalog": "silo-mc"}:
         raise ValueError("production Silo declarations changed")
@@ -109,11 +111,90 @@ def minimal_policy(policy):
     return result
 
 
-def hosts_projection(hosts, checkout):
+def scope_identity(report, checkout, fixture, expected_kind, revision, policy):
+    """Bind one native query to a caller-created Git checkout before effects."""
+    import os
+    import subprocess
+    from pathlib import Path
+    checkout, fixture = Path(checkout), Path(fixture)
+    if checkout.resolve(strict=True) != checkout or fixture.resolve(strict=True) != fixture:
+        raise ValueError('noncanonical_fixture')
+    checkout.relative_to(fixture)
+    for path in (checkout, *checkout.parents):
+        if path.stat().st_uid != os.getuid() or path.is_symlink():
+            raise ValueError('foreign_fixture_owner')
+        if path == fixture: break
+    def git(*args):
+        process = subprocess.run(['git', '-C', str(checkout), *args], capture_output=True, text=True, timeout=10)
+        if process.returncode: raise ValueError('git_identity_unavailable')
+        return process.stdout.strip()
+    if git('rev-parse', '--show-toplevel') != str(checkout) or git('rev-parse', 'HEAD') != revision:
+        raise ValueError('git_source_mismatch')
+    git_dir = Path(git('rev-parse', '--absolute-git-dir')).resolve(strict=True)
+    git_dir.relative_to(fixture)
+    if expected_kind == 'none':
+        if git_dir != checkout / '.git' or not (checkout / '.git').is_dir():
+            raise ValueError('primary_git_identity_mismatch')
+    elif expected_kind == 'worktree':
+        if not (checkout / '.git').is_file() or git_dir.parent.name != 'worktrees':
+            raise ValueError('worktree_git_identity_mismatch')
+    else:
+        raise ValueError('unsupported_fixture_kind')
+    if (not isinstance(report, dict) or report.get('schema') != 'effigy.container.scope.v1'
+            or report.get('schema_version') != 1 or report.get('ok') is not True
+            or report.get('checkout') != str(checkout)):
+        raise ValueError('scope_contract_mismatch')
+    scope = report.get('scope')
+    if not isinstance(scope, dict) or scope.get('kind') != expected_kind or 'token' not in scope:
+        raise ValueError('scope_kind_mismatch')
+    token = scope['token']
+    if expected_kind == 'none':
+        if token is not None: raise ValueError('primary_token_mismatch')
+        project = policy['project_name']
+    else:
+        if not isinstance(token, str) or not re.fullmatch(r'[a-f0-9]{32}', token):
+            raise ValueError('scoped_token_missing')
+        project = policy['project_name'] + '-wt-' + token[:12]
+    if policy.get('share_runtime_identity', False) is not False:
+        raise ValueError('shared_identity_forbidden')
+    return {'checkout':str(checkout), 'kind':expected_kind, 'token':token,
+            'project':project, 'reference_source':revision}
+
+
+def compose_identity(raw, status, identity):
+    """Strict branch-specific labels; observations confer no cleanup authority."""
+    try:
+        text = raw.decode('utf-8')
+    except UnicodeDecodeError:
+        raise ValueError('malformed_compose_encoding') from None
+    projects = re.findall(r'(?m)^\s*com\.effigy\.project:\s*([a-z0-9-]+)\s*$', text)
+    scopes = re.findall(r'(?m)^\s*com\.effigy\.scope:\s*([a-f0-9]{32})\s*$', text)
+    if (len(projects) != text.count('com.effigy.project') or not projects
+            or set(projects) != {identity['project']} or status.get('project_name') != identity['project']):
+        raise ValueError('project_label_mismatch')
+    if identity['kind'] == 'none':
+        if identity['token'] is not None or text.count('com.effigy.scope'):
+            raise ValueError('primary_foreign_scope_label')
+    elif identity['kind'] == 'worktree':
+        if (not scopes or len(scopes) != text.count('com.effigy.scope')
+                or set(scopes) != {identity['token']}):
+            raise ValueError('scoped_label_mismatch')
+    else:
+        raise ValueError('unknown_identity_kind')
+    return {'project':identity['project'], 'scope_kind':identity['kind'], 'scope':identity['token']}
+
+
+def hosts_projection(hosts, checkout, identity=None):
     from pathlib import Path
     if (not isinstance(hosts, dict) or hosts.get('schema') != 'effigy.container.hosts.v1'
             or hosts.get('ok') is not True or hosts.get('checkout') != str(Path(checkout).resolve())):
         raise ValueError('foreign or unsupported hosts contract')
+    if identity is not None:
+        scope = hosts.get('scope', {})
+        expected_host_kind = 'primary' if identity['kind'] == 'none' else identity['kind']
+        if (scope.get('kind') != expected_host_kind or scope.get('token') != identity['token']
+                or (identity['kind'] != 'none' and scope.get('shared_runtime_identity') is not False)):
+            raise ValueError('hosts_scope_mismatch')
     routes = hosts.get('routes')
     if not isinstance(routes, list):
         raise ValueError('malformed hosts inventory')
