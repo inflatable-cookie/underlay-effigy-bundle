@@ -10,7 +10,7 @@ import sys
 
 from qualification_runtime import require_effigy_binary, SUPPORTED_EFFIGY_SOURCE, SUPPORTED_EFFIGY_SHA256
 from reference_storage_probe import StorageDiagnosticJournal
-from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit
+from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection
 from silo_fixture import prepare_published_images
 import importlib.util
 
@@ -97,6 +97,8 @@ def main():
             selected = inspection.get('selected_value', {})
             if inspection.get('schema') != 'effigy.config.v1' or inspection.get('ok') is not True or selected.get('path') != 'containers.hybrid_services':
                 raise RuntimeError('unsupported selected configuration contract')
+            if '[bundle.sources]\nsiblings = false' not in inspection.get('effective_manifest', ''):
+                raise RuntimeError('production assembly lost bundle source isolation')
             policy = minimal_policy(selected.get('value'))
             original = (checkout / 'effigy.toml').read_bytes()
             journal.append('service_only_composition', checkout=str(checkout), original_manifest_sha256=hashlib.sha256(original).hexdigest(), service_names=list(policy['services']), host_process_count=0, dns_route_count=0, declared_project=policy['project_name'])
@@ -108,6 +110,13 @@ def main():
             verified = result('minimal-policy-inspection', checkout, ['config', '--inspect', '--path', 'containers.hybrid_services', '--json'])['selected_value']['value']
             if verified != policy:
                 raise RuntimeError('minimal service policy changed during composition')
+            # Native hosts loads the effective catalog capabilities without
+            # starting a gateway or service; its scope marker stays fixture-owned.
+            hosts = result('minimal-effective-hosts', checkout, ['container', 'hybrid_services', 'hosts', '--json'])
+            journal.append('minimal_policy_gate', checkout=str(checkout), policy_preserved=True,
+                           catalog_files_sha256={alias: hashlib.sha256((checkout / 'infra/dev/catalog' / alias / 'service.toml').read_bytes()).hexdigest() for alias in ('silo', 'silo-mc')},
+                           effective_hosts=hosts_projection(hosts, checkout), runtime_effects=False)
+
         # No service starts until both typed production/minimal compositions agree.
         process = subprocess.run(['colima', 'start', '--profile', 'effigy', '--runtime', 'containerd', '--cpu', '2', '--memory', '4', '--disk', '32'], env=env, capture_output=True, timeout=1200)
         journal.append('private_vm_start', exit=process.returncode)

@@ -287,10 +287,17 @@ and source environment used by runtime qualification.
 The first service-only setup stopped before Silo startup because the helper
 supplied `--repo` to a gateway command. Pinned Effigy rejects that argument before
 execution; gateway ownership instead uses `--private-state-root`. All four actual setup/up/status/down gateway argument lists pass the pinned
-side-effect-free parser control. The renewed service-only attempt stopped even
-earlier: pinned Effigy rejected the disposable minimal manifest's root field
-`sources`. No new VM, gateway or service started, and no MC/S3 request ran.
-The prior private VM/images remain held. Correcting the fixture through the
-supported composition contract and proving both minimal policies without
-services is the next prerequisite; the earlier object 404 and whole-profile
-assurance remain unresolved.
+side-effect-free parser control. The minimal fixture now uses the native runtime
+root schema; `sources.siblings=false` stays in the production bundle assembly
+context. Both actual main/worktree policies pass native configuration and host
+inventory gates before runtime, preserving only Silo/client services.
+
+The latest service-only attempt reached private TLS/gateway and main Silo/client
+startup/status, then stopped before MC/S3 operations: the helper requires a
+32-hex Compose scope label, while the main fixture's generated configuration
+has one project and no scope label. The unique Silo loopback map is present.
+No endpoint correlation or historical 404 explanation is established. Recorded
+new service/gateway down calls exited successfully; VM/images/volumes remain
+held and retirement is unproven. Old held resources remain untouched. Supported
+primary-versus-worktree ownership evidence needs a bounded helper preflight
+before further runtime; whole-profile acceptance remains incomplete.

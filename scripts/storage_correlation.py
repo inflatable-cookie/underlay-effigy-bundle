@@ -109,6 +109,25 @@ def minimal_policy(policy):
     return result
 
 
+def hosts_projection(hosts, checkout):
+    from pathlib import Path
+    if (not isinstance(hosts, dict) or hosts.get('schema') != 'effigy.container.hosts.v1'
+            or hosts.get('ok') is not True or hosts.get('checkout') != str(Path(checkout).resolve())):
+        raise ValueError('foreign or unsupported hosts contract')
+    routes = hosts.get('routes')
+    if not isinstance(routes, list):
+        raise ValueError('malformed hosts inventory')
+    safe = []
+    for route in routes:
+        if not isinstance(route, dict) or route.get('kind') != 'tcp' or route.get('service') != 'silo':
+            raise ValueError('unexpected service or application route')
+        names = {key: route.get(key) for key in ('declared', 'effective')}
+        if any(not isinstance(value, str) or not re.fullmatch(r'[a-z0-9][a-z0-9.-]{0,200}', value) for value in names.values()):
+            raise ValueError('unsafe effective hostname')
+        safe.append({'kind':'tcp', 'service':'silo', **names})
+    return safe
+
+
 def toml_value(value):
     if isinstance(value, str):
         return json.dumps(value)
@@ -140,7 +159,7 @@ def invocation(binary, checkout, args):
 
 
 def minimal_manifest(policy):
-    return ('[sources]\nsiblings = false\n\n[containers.hybrid_services]\n'
+    return ('[containers.hybrid_services]\n'
             + '\n'.join(json.dumps(key) + ' = ' + toml_value(value) for key, value in policy.items()) + '\n')
 
 

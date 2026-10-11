@@ -777,14 +777,31 @@ the maintained parser control verifies exit 2 and an unchanged owned directory
 for the rejected form. A focused control now audits every actual setup/up/status/
 down argument list against the pinned parser before effects.
 
-The one renewed service-only attempt stopped at minimal-policy inspection before
-VM startup: the disposable manifest was rejected with `RunnerError` for unknown
-root field `sources`. A read-only post-failure reproduction retained only the
-finite error classification, message digest and fixture path association; it
-grants no runtime or cleanup credit. No new gateway, service, MC or S3 operation
-ran. Prior held VMs/images and all uncertain resources remain untouched. The
-next prerequisite is a bounded fixture-schema correction using the supported
-composition contract, with exact-source no-service main/worktree composition
-controls before any separately authorized attempt. No product/core defect or
-MC/S3 correlation PASS is established; the historical 404 cause and outstanding
-lifecycle/disposable-test proofs remain unknown.
+The earlier minimal-policy rejection identified an invalid root `sources` field.
+The disposable minimal fixture now emits only native runtime container settings;
+`sources.siblings=false` remains checked in the original production bundle
+assembly context. Both actual main/worktree manifests pass exact-binary typed
+configuration load, policy equality and effective-host inventory before VM
+startup. Hermetic native-load controls replace the former text assertion and
+reject unknown root/fixture fields, wrong types, malformed TOML, foreign checkout
+identity and unexpected application/service host inventory. Catalog pins and
+service declarations remain unchanged; production exports/defaults are unaffected.
+
+The latest bounded service-only attempt passed these gates, image/provenance
+verification, private TLS/gateway setup and main Silo/client up/status. It stopped
+before alias bootstrap or any MC/S3 request: the ownership helper requires one
+project label and one 32-hex scope label. The retained generated main Compose file
+has one project, no scope label and a unique Silo loopback mapping (8140 to 9000).
+A post-failure pure projection confirms the existing binding helper finds that
+mapping. This is post-failure configuration evidence, not retroactive runtime
+ownership/cleanup credit or a demonstrated product/core defect. The next bounded
+prerequisite is supported primary-versus-worktree identity correlation and a
+no-service ownership-preflight control, preserving strict foreign-scope refusal.
+No scope guard was relaxed and no second attempt occurred.
+
+Recorded new main service down and private gateway down exited zero; subsequent
+service status projected no services. Private VM/images/volumes remain held and
+retirement remains unproven. Prior held resources and packets remain untouched.
+Empty sanitized service logs are a limitation. No MC/S3 correlation PASS or
+historical 404 cause is established; lifecycle/disposable-test and independent
+review/hosted assurance remain incomplete.

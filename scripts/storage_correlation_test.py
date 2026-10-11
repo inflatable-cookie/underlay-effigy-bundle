@@ -120,10 +120,51 @@ class CorrelationTests(unittest.TestCase):
         self.assertEqual(list(result['services']), ['silo', 'silo_client'])
         self.assertEqual(result['host_processes'], [])
         self.assertNotIn('dns', result)
-        self.assertTrue(probe.minimal_manifest(result).startswith('[sources]\nsiblings = false\n'))
         with self.assertRaises(ValueError): probe.minimal_policy({**policy, 'driver':'foreign'})
         for changed in ({'host':{'publish_address':'0.0.0.0'}}, {'project_name':'seeded-secret?'}, {'working_dir':'/foreign'}, {'startup':'attached'}):
             with self.assertRaises(ValueError): probe.minimal_policy({**policy, **changed})
+
+    def test_native_minimal_manifest_load_and_refusals(self):
+        import subprocess
+        import tempfile
+        import shutil
+        from pathlib import Path
+        from qualification_runtime import require_effigy_binary
+        binary = require_effigy_binary()
+        policy = probe.minimal_policy(dict(driver='colima', profile='effigy', startup='detached', project_name='owned', working_dir='/', host={'publish_address':'127.0.0.1'}, services={'silo':{'catalog':'silo'}, 'silo_client':{'catalog':'silo-mc'}}))
+        with tempfile.TemporaryDirectory(prefix='underlay-storage-schema-') as directory:
+            for scope in ('main', 'worktree'):
+                root = Path(directory) / scope
+                root.mkdir()
+                for alias in ('silo', 'silo-mc'):
+                    shutil.copytree(Path(__file__).parent / 'dev/catalog' / alias, root / 'infra/dev/catalog' / alias)
+                manifest = root / 'effigy.toml'
+                valid = probe.minimal_manifest(policy)
+                def inspect(text):
+                    manifest.write_text(text)
+                    process = subprocess.run(probe.invocation(binary, root, ['config','--inspect','--path','containers.hybrid_services','--json']), capture_output=True, text=True, timeout=10)
+                    return process.returncode, json.loads(process.stdout)
+                code, envelope = inspect(valid)
+                self.assertEqual(code, 0)
+                selected = envelope['result']['selected_value']
+                self.assertEqual(selected['path'], 'containers.hybrid_services')
+                self.assertEqual(selected['value'], policy)
+                # Native schema refusal, not a text assertion that mirrors output.
+                for invalid in ('[sources]\nsiblings=false\n' + valid,
+                                valid.replace('"driver" = "colima"', '"driver" = 17'),
+                                valid + '"unknown_fixture_field" = true\n', 'not valid toml ['):
+                    code, envelope = inspect(invalid)
+                    self.assertNotEqual(code, 0)
+                    self.assertFalse(envelope['ok'])
+                inspect(valid)
+                hosts = subprocess.run(probe.invocation(binary, root, ['container','hybrid_services','hosts','--json']), capture_output=True, text=True, timeout=10)
+                self.assertEqual(hosts.returncode, 0)
+                actual_hosts = json.loads(hosts.stdout)['result']
+                probe.hosts_projection(actual_hosts, root)
+                for changed in ({'checkout':'/foreign'}, {'routes':[{'kind':'http','service':'front'}]}, {'routes':'malformed'}):
+                    with self.assertRaises(ValueError): probe.hosts_projection({**actual_hosts, **changed}, root)
+                self.assertEqual(list(root.rglob('*.listener.json')), [])
+                self.assertEqual(list(root.rglob('*.pid')), [])
 
     def test_actual_signed_request_retains_safe_framing_and_error(self):
         import importlib.util
