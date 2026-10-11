@@ -914,19 +914,85 @@ def _profile_manifest_hosts(checkout: Path, env: dict[str, str]) -> list[dict]:
     return processes
 
 
+PROFILE_HOST_PATH = "containers.hybrid_services.host_processes"
+
+
+def _profile_semantic_hosts(checkout: Path, env: dict[str, str]) -> list[dict]:
+    """Inspect the supported typed value in memory; never expose its secret fields."""
+    try:
+        result = effigy_json(checkout, env, "config", "--inspect", "--path", PROFILE_HOST_PATH,
+                             "--json", timeout=120)
+    except Exception:
+        raise RuntimeError("fixture typed configuration inspection failed") from None
+    selected = result.get("selected_value")
+    if (result.get("schema") != "effigy.config.v1" or result.get("ok") is not True
+            or result.get("selected_path") != PROFILE_HOST_PATH
+            or not isinstance(selected, dict) or selected.get("path") != PROFILE_HOST_PATH
+            or not isinstance(selected.get("value"), list)):
+        raise RuntimeError("fixture host-process inspection has an invalid typed contract")
+    hosts = selected["value"]
+    if any(not isinstance(host, dict) or not isinstance(host.get("name"), str) for host in hosts):
+        raise RuntimeError("fixture host-process inspection has an invalid entry type")
+    return hosts
+
+
+def _fixture_array_extension(original: str) -> str:
+    """Edit only the owned incoming layer's bounded path-list declaration."""
+    headers = list(re.finditer(r"(?m)^\[manifest\][ \t\r]*(?:#.*)?$", original))
+    if len(headers) != 1:
+        raise RuntimeError("fixture requires exactly one manifest section")
+    start = headers[0].end()
+    following = re.search(r"(?m)^\[", original[start:])
+    end = start + following.start() if following else len(original)
+    section = original[start:end]
+    entries = list(re.finditer(r"(?m)^\s*extend\s*=", section))
+    if len(entries) > 1 or re.search(r"(?m)^\s*override\s*=", section):
+        raise RuntimeError("fixture extension settings are duplicated or conflicting")
+    if not entries:
+        return original[:start] + "\nextend = " + json.dumps([PROFILE_HOST_PATH]) + original[start:]
+    entry = entries[0]
+    array = re.match(r"\s*\[([^\]]*)\]", section[entry.end():], re.DOTALL)
+    if array is None:
+        raise RuntimeError("fixture extend must be a literal path array")
+    # Paths use plain quoted identifiers; unsupported expressions fail closed.
+    content = re.sub(r"#[^\n]*", "", array.group(1))
+    tokens = [token.strip() for token in content.split(",")]
+    if tokens and not tokens[-1]:
+        tokens.pop()
+    paths = []
+    for token in tokens:
+        match = re.fullmatch(r"(['\"])([A-Za-z0-9_.:-]+)\1", token)
+        if match is None:
+            raise RuntimeError("fixture extend contains an unsupported path literal")
+        paths.append(match.group(2))
+    if len(paths) != len(set(paths)):
+        raise RuntimeError("fixture extend contains duplicate paths")
+    if PROFILE_HOST_PATH not in paths:
+        paths.append(PROFILE_HOST_PATH)
+    a = start + entry.end()
+    b = a + array.end()
+    return original[:a] + " " + json.dumps(paths) + original[b:]
+
+
 def _append_profile_lifecycle_probe(checkout: Path, name: str, route: str, bind: str,
-                                    http_status: int, env: dict[str, str]) -> str:
+                                    http_status: int, env: dict[str, str]) -> bytes:
     fixture_root = Path(env["UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT"]).resolve(strict=True)
     root = checkout.resolve(strict=True)
     if fixture_root not in root.parents:
         raise RuntimeError("lifecycle probe manifest edits are restricted to a disposable Reference checkout")
-    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name):
+    if name not in ("interrupted_probe", "collision_probe"):
         raise RuntimeError("lifecycle probe name is invalid")
     host, separator, port = bind.rpartition(":")
     if not separator or host != "127.0.0.1" or not port.isdigit() or not 0 <= int(port) <= 65535:
         raise RuntimeError("lifecycle probe requires an exact IPv4 loopback bind")
     manifest_path = checkout / "effigy.toml"
-    original = manifest_path.read_text(encoding="utf-8")
+    if manifest_path.is_symlink() or manifest_path.resolve(strict=True).parent != root:
+        raise RuntimeError("fixture manifest must be owned without a symlink escape")
+    original_bytes = manifest_path.read_bytes()
+    original = original_bytes.decode("utf-8")
+    before = _profile_semantic_hosts(checkout, env)
+    if [host["name"] for host in before] != ["api", "front", "admin"]:
+        raise RuntimeError("fixture requires exactly the original production host-process list")
     if f'name = "{name}"' in original:
         raise RuntimeError("disposable Reference manifest already contains this lifecycle probe")
     command = f'python3 {json.dumps(str(SCRIPTS / "qualification/managed-listener-probe.py"))}'
@@ -945,13 +1011,17 @@ def _append_profile_lifecycle_probe(checkout: Path, name: str, route: str, bind:
         "[containers.hybrid_services.host_processes.listener.route]\n"
         f"domain = {json.dumps(route)}\ntls = true\n"
     )
-    manifest_path.write_text(original + block, encoding="utf-8")
-    processes = _profile_manifest_hosts(checkout, env)
-    names = [item.get("name") for item in processes]
-    if names != ["api", "front", "admin", name]:
-        manifest_path.write_text(original, encoding="utf-8")
-        raise RuntimeError(f"fixture lifecycle probe did not extend the assembled production host-process list: {names}")
-    return original
+    incoming = _fixture_array_extension(original)
+    try:
+        manifest_path.write_bytes((incoming + block).encode("utf-8"))
+        after = _profile_semantic_hosts(checkout, env)
+        if ([host["name"] for host in after] != ["api", "front", "admin", name]
+                or after[:3] != before):
+            raise RuntimeError("fixture probe extension changed the production host-process values")
+    except BaseException:
+        manifest_path.write_bytes(original_bytes)
+        raise
+    return original_bytes
 
 
 def _profile_probe_diagnostic(state_path: Path) -> dict:
@@ -1206,7 +1276,7 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
             owned_failed_addresses=(claimed,) if isinstance(claimed, str) else (),
         )
         scope_reconciled = True
-        (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+        (checkout / "effigy.toml").write_bytes(original_manifest)
         for sibling, states in foreign:
             _verify_live(sibling, states, env)
         selector(checkout, "dev:hybrid", env, timeout=1800)
@@ -1235,7 +1305,7 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
                 process.communicate(timeout=10)
         if not launch_attempted:
             scope_reconciled = True
-            (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+            (checkout / "effigy.toml").write_bytes(original_manifest)
             raise RuntimeError("interrupted production selector was not launched") from error
         if not probe_path.is_file():
             raise UncertainProfileOwnership("interrupted startup lacks a retained managed probe owner record") from error
@@ -1245,7 +1315,7 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
             selector(checkout, "dev:hybrid:down", env)
             _verify_profile_stopped_records(checkout, snapshots, env, extra_routes=(probe_domain,))
             scope_reconciled = True
-            (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+            (checkout / "effigy.toml").write_bytes(original_manifest)
             for sibling, states in foreign:
                 _verify_live(sibling, states, env)
         except BaseException as cleanup_error:
@@ -1254,6 +1324,7 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
             ) from cleanup_error
         raise RuntimeError("interrupted production profile did not meet the required startup proof") from error
     finally:
+        (checkout / "effigy.toml").write_bytes(original_manifest)
         if process is not None and process.poll() is None:
             # The caller owns this exact session; only this process group is signaled.
             pgid = os.getpgid(process.pid)
@@ -1265,7 +1336,7 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
                     os.killpg(pgid, signal.SIGKILL)
                     process.wait(timeout=10)
         if scope_reconciled:
-            (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+            (checkout / "effigy.toml").write_bytes(original_manifest)
 
 
 def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_states: dict[str, dict],
@@ -1365,8 +1436,7 @@ def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_state
             ) from cleanup_error
         raise RuntimeError("occupied-port failure was safely reconciled but did not meet its proof gate") from error
     finally:
-        if scope_reconciled:
-            (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+        (checkout / "effigy.toml").write_bytes(original_manifest)
     if not safe_failure:
         raise RuntimeError("occupied-port profile lifecycle attempt did not reach a safe reconciled failure")
     selector(checkout, "dev:hybrid", env, timeout=1800)

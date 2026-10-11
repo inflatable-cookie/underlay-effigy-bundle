@@ -311,6 +311,166 @@ class ProfileOwnerHoldTests(unittest.TestCase):
             self.assertEqual(manifest.read_text(encoding="utf-8"), "[bundle]\n")
 
 
+class FixtureExtensionTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="underlay-probe-extension-")
+        self.fixture = Path(self.temporary.name)
+        self.checkout = self.fixture / "reference"
+        self.checkout.mkdir()
+        self.manifest = self.checkout / "effigy.toml"
+        self.original = b'[manifest]\r\nminimum_effigy_version = "0.13.1"\r\n[bundle]\r\n'
+        self.manifest.write_bytes(self.original)
+        self.env = {"UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT": str(self.fixture)}
+        self.secret = "seeded-secret-no-output"
+        self.before = [{"name": role, "env": {"secret": self.secret}, "run": "original"}
+                       for role in ("api", "front", "admin")]
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def append(self, name="interrupted_probe"):
+        return optin._append_profile_lifecycle_probe(
+            self.checkout, name, "probe.api.test", "127.0.0.1:0", 503, self.env)
+
+    def test_both_injection_paths_preserve_values_order_and_original_bytes(self):
+        for name in ("interrupted_probe", "collision_probe"):
+            after = self.before + [{"name": name}]
+            with patch.object(optin, "_profile_semantic_hosts", side_effect=[self.before, after]):
+                original = self.append(name)
+            self.assertEqual(original, self.original)
+            self.assertIn(optin.PROFILE_HOST_PATH.encode(), self.manifest.read_bytes())
+            self.manifest.write_bytes(original)
+            self.assertEqual(self.manifest.read_bytes(), self.original)
+
+    def test_existing_extension_paths_are_preserved_without_duplicate_target(self):
+        for source in ('[manifest]\nextend = ["tasks.example.run"]\n',
+                       "[manifest]\nextend = [\n 'tasks.example.run',\n]\n",
+                       '[manifest]\nextend = ["containers.hybrid_services.host_processes"]\n'):
+            updated = optin._fixture_array_extension(source)
+            self.assertEqual(updated.count(optin.PROFILE_HOST_PATH), 1)
+            if "tasks.example.run" in source:
+                self.assertIn("tasks.example.run", updated)
+
+    def test_invalid_extension_settings_refuse_without_manifest_change(self):
+        for section in ('extend = "wrong"', 'extend = [1]',
+                        'extend = ["x", "x"]', 'extend = []\noverride = ["x"]',
+                        'extend = []\nextend = []'):
+            original = ('[manifest]\n' + section + '\n[bundle]\n').encode()
+            self.manifest.write_bytes(original)
+            with patch.object(optin, "_profile_semantic_hosts", return_value=self.before), self.assertRaises(RuntimeError):
+                self.append()
+            self.assertEqual(self.manifest.read_bytes(), original)
+
+    def test_unknown_duplicate_missing_and_changed_production_entries_restore(self):
+        variants = (self.before[:2], self.before + [{"name": "interrupted_probe"}, {"name": "interrupted_probe"}],
+                    self.before + [{"name": "unknown"}],
+                    [{**self.before[0], "run": "changed"}] + self.before[1:] + [{"name": "interrupted_probe"}])
+        for after in variants:
+            with patch.object(optin, "_profile_semantic_hosts", side_effect=[self.before, after]), self.assertRaises(RuntimeError) as error:
+                self.append()
+            self.assertNotIn(self.secret, str(error.exception))
+            self.assertEqual(self.manifest.read_bytes(), self.original)
+        with patch.object(optin, "_profile_semantic_hosts", return_value=[]), self.assertRaises(RuntimeError):
+            self.append()
+
+    def test_inspection_exception_and_interruption_restore_original(self):
+        for error in (RuntimeError(self.secret), KeyboardInterrupt()):
+            with patch.object(optin, "_profile_semantic_hosts", side_effect=[self.before, error]), self.assertRaises(type(error)):
+                self.append()
+            self.assertEqual(self.manifest.read_bytes(), self.original)
+
+    def test_typed_contract_refusal_never_emits_seeded_values(self):
+        valid = {"schema": "effigy.config.v1", "ok": True, "selected_path": optin.PROFILE_HOST_PATH,
+                 "selected_value": {"path": optin.PROFILE_HOST_PATH, "value": self.before}}
+        variants = ({}, {**valid, "ok": False}, {**valid, "schema": self.secret},
+                    {**valid, "selected_value": {"path": optin.PROFILE_HOST_PATH, "value": {"name": self.secret}}},
+                    {**valid, "selected_value": {"path": optin.PROFILE_HOST_PATH, "value": [self.secret]}})
+        for value in variants:
+            with patch.object(optin, "effigy_json", return_value=value), self.assertRaises(RuntimeError) as caught:
+                optin._profile_semantic_hosts(self.checkout, self.env)
+            self.assertNotIn(self.secret, str(caught.exception))
+        with patch.object(optin, "effigy_json", side_effect=ValueError(self.secret)), self.assertRaises(RuntimeError) as caught:
+            optin._profile_semantic_hosts(self.checkout, self.env)
+        self.assertNotIn(self.secret, str(caught.exception))
+
+    def test_manifest_symlink_and_foreign_checkout_escape_refuse(self):
+        other = self.fixture / "other.toml"
+        other.write_bytes(self.original)
+        self.manifest.unlink()
+        self.manifest.symlink_to(other)
+        with self.assertRaisesRegex(RuntimeError, "symlink"):
+            self.append()
+        self.assertEqual(other.read_bytes(), self.original)
+
+    def test_both_callers_restore_bytes_even_when_owner_state_is_uncertain(self):
+        from contextlib import ExitStack
+        from unittest.mock import Mock
+        def append(*args):
+            self.manifest.write_bytes(b"extended")
+            return self.original
+        for kind in ("interruption", "collision"):
+            process = Mock(pid=100, returncode=1)
+            process.poll.return_value = 1
+            process.communicate.return_value = (None, None)
+            with ExitStack() as stack:
+                for target, name, kwargs in (
+                    (optin, "_capture_lifecycle_probe_domain", {"return_value": "probe.api.test"}),
+                    (optin, "selector", {}), (optin, "_verify_stopped", {}),
+                    (optin, "_verify_live", {}),
+                    (optin, "_append_profile_lifecycle_probe", {"side_effect": append}),
+                    (optin.subprocess, "Popen", {"return_value": process}),
+                    (optin.RUNTIME, "run", {"return_value": Mock(returncode=1, stdout="", stderr="")}),
+                ):
+                    stack.enter_context(patch.object(target, name, **kwargs))
+                with self.assertRaises(optin.UncertainProfileOwnership):
+                    if kind == "interruption":
+                        optin._run_interruptible_profile_start(
+                            self.checkout, self.env, Mock(), [], self.fixture, 8443, {})
+                    else:
+                        optin._run_profile_collision(
+                            self.checkout, self.checkout, {"api": {"address": "127.0.0.1:41001"}},
+                            self.env, Mock(), {})
+                self.assertEqual(self.manifest.read_bytes(), self.original)
+
+    def test_actual_private_export_array_extension_and_restoration(self):
+        import os, subprocess, hashlib, tarfile, io
+        binary = os.environ.get("UNDERLAY_PROFILE_EFFIGY_BIN")
+        reference_source = os.environ.get("UNDERLAY_REFERENCE_SOURCE")
+        if not binary or not reference_source:
+            self.skipTest("actual assembly requires explicit qualified binary and Reference source")
+        self.assertEqual(hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
+                         "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324")
+        bundle = self.fixture / "bundle"
+        bundle.mkdir()
+        for source, destination, revision in ((optin.ROOT, bundle, "HEAD"),
+                                              (Path(reference_source), self.checkout, "fa6a5e89ad83db460a5506b7fa3f915fa767d72a")):
+            archive_bytes = subprocess.run(["git", "-C", str(source), "archive", revision],
+                                           capture_output=True, check=True, timeout=30).stdout
+            with tarfile.open(fileobj=io.BytesIO(archive_bytes)) as archive:
+                for member in archive.getmembers():
+                    self.assertFalse(member.issym() or member.islnk() or member.name.startswith("/") or ".." in Path(member.name).parts)
+                archive.extractall(destination)
+        # Apply the existing bundle fixture inputs, never copy production listeners.
+        original_text = self.manifest.read_text()
+        import re
+        original_text = re.sub(r'(?m)^base\s*=.*$', 'base = ' + json.dumps({"type": "path", "dir": str(bundle)}).replace(':', ' ='), original_text, count=1)
+        original_text = original_text.replace('[bundle]\n', '[bundle]\nprofiles = { enabled = true, effigy_source = ' + json.dumps(os.environ["UNDERLAY_PROFILE_EFFIGY_SOURCE"]) + ', effigy_binary = ' + json.dumps(binary) + ', test_task = "acme-api/test", test_timeout_secs = 900, silo_bucket = "acme-media" }\n')
+        self.manifest.write_bytes(original_text.encode())
+        home = self.fixture / "home"
+        home.mkdir()
+        self.env.update(os.environ, HOME=str(home), UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT=str(self.fixture))
+        with patch.object(optin, "EFFIGY", binary):
+            before = optin._profile_semantic_hosts(self.checkout, self.env)
+            self.assertEqual([x["name"] for x in before], ["api", "front", "admin"])
+            original = self.append()
+            after = optin._profile_semantic_hosts(self.checkout, self.env)
+            self.assertEqual(after[:3], before)
+            self.assertEqual([x["name"] for x in after], ["api", "front", "admin", "interrupted_probe"])
+            self.manifest.write_bytes(original)
+            self.assertEqual(optin._profile_semantic_hosts(self.checkout, self.env), before)
+        self.assertEqual(self.manifest.read_bytes(), original_text.encode())
+
+
 class LifecycleIdentityTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="underlay-lifecycle-identity-")
@@ -364,7 +524,7 @@ class LifecycleIdentityTests(unittest.TestCase):
             self.assertFalse(live)
             self.assertEqual(domain, "interrupted.api.acme-w1234abcd.test")
             order.append("append")
-            return "original"
+            return b"original"
         process = Mock(pid=100, returncode=130)
         process.poll.side_effect = [None, None, 130, 130]
         process.communicate.return_value = (None, None)
