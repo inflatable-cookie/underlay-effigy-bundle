@@ -1564,7 +1564,9 @@ def service_shell(binary: str, checkout: Path, env: dict[str, str], command: str
     return result.stdout
 
 
-def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid_credentials: bool = False) -> tuple[int, dict[str, str], bytes]:
+def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid_credentials: bool = False,
+                diagnostics=None, diagnostic_operation: str | None = None,
+                diagnostic_path_template: str | None = None) -> tuple[int, dict[str, str], bytes]:
     now = datetime.now(timezone.utc)
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     short_date = now.strftime("%Y%m%d")
@@ -1610,10 +1612,54 @@ def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid
         ),
     }
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    op_id = None
+    phase = "before_request"
+    response = None
+    status = None
+    if diagnostics is not None:
+        if not diagnostic_operation or not diagnostic_path_template:
+            raise ValueError("S3 storage diagnostics require an operation label and redacted path template")
+        op_id = diagnostics.begin(diagnostic_operation, method, diagnostic_path_template,
+                                  public_name=None, connect_address=f"127.0.0.1:{port}")
     try:
         connection.request(method, path, body=body, headers=headers)
+        phase = "request_sent"
+        if diagnostics is not None:
+            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase)
+        phase = "before_response_headers"
+        if diagnostics is not None:
+            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase)
         response = connection.getresponse()
-        return response.status, {key.lower(): value for key, value in response.getheaders()}, response.read()
+        status = response.status
+        framing = {
+            name.lower(): str(response.getheader(name))[:128]
+            for name in ("Content-Length", "Transfer-Encoding", "Connection", "Content-Type")
+            if response.getheader(name) is not None
+        }
+        phase = "response_headers_received"
+        if diagnostics is not None:
+            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase,
+                              status=status, framing=framing)
+        response_headers = {key.lower(): value for key, value in response.getheaders()}
+        phase = "before_response_body"
+        if diagnostics is not None:
+            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase,
+                              status=status)
+        response_body = response.read(1_048_577)
+        phase = "response_body_received"
+        if diagnostics is not None:
+            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase,
+                              status=status, body_bytes=len(response_body),
+                              body_bytes_over_limit=len(response_body) > 1_048_576)
+        if len(response_body) > 1_048_576:
+            phase = "response_body_limit_validation"
+            raise RuntimeError("Silo response exceeded the bounded storage-probe limit")
+        return status, response_headers, response_body
+    except BaseException as error:
+        if diagnostics is not None and op_id:
+            diagnostics.exception(op_id, diagnostic_operation, method, diagnostic_path_template,
+                                  phase, error, status=status)
+        raise
     finally:
         connection.close()
 

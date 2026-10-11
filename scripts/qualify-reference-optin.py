@@ -40,6 +40,7 @@ def load_module(name: str, path: Path):
 REFERENCE = load_module("reference_profile_helpers", SCRIPTS / "qualify-reference-profiles.py")
 RUNTIME = load_module("reference_runtime_helpers", SCRIPTS / "qualify-reference-runtime.py")
 from silo_fixture import CLIENT_IMAGE, IMAGE, RELEASE, prepare_published_images  # noqa: E402
+from reference_storage_probe import StorageDiagnosticJournal  # noqa: E402
 
 
 EFFIGY: str | None = None
@@ -268,7 +269,57 @@ def prove_owned_bind_exclusion(states: dict[str, dict]) -> list[dict]:
     return observations
 
 
-def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storage_only: bool) -> dict:
+def capture_storage_service_logs(checkout: Path, env: dict[str, str],
+                                 diagnostics: StorageDiagnosticJournal) -> None:
+    api_log = checkout / ".effigy/runtime/host-processes/hybrid_services/effigy/api.log"
+    try:
+        if api_log.is_file():
+            diagnostics.write_log("reference-api.log", api_log.read_text(
+                encoding="utf-8", errors="replace").splitlines())
+            diagnostics.append("service_log_source", service="reference-api",
+                               source_path=str(api_log), state="captured")
+        else:
+            diagnostics.append("service_log_source", service="reference-api",
+                               source_path=str(api_log), state="missing")
+    except BaseException as error:
+        diagnostics.append("service_log_capture_failed", service="reference-api",
+                           source_path=str(api_log), exception_type=type(error).__name__)
+
+    try:
+        result = RUNTIME.run(
+            [EFFIGY, "--repo", str(checkout), "container", "hybrid_services", "logs",
+             "--service", "silo", "--json"],
+            cwd=checkout, env=env, timeout=120, expected=None, print_output=False,
+        )
+        if result.returncode:
+            diagnostics.append("service_log_capture_failed", service="silo", exit=result.returncode,
+                               exception_type="EffigyLogsCommandFailed")
+            return
+        envelope = json.loads(result.stdout)
+        logs = (envelope.get("result") or {}).get("logs") if envelope.get("ok") is True else None
+        if not isinstance(logs, str):
+            diagnostics.append("service_log_capture_failed", service="silo",
+                               exception_type="EffigyLogsPayloadMissing")
+            return
+        diagnostics.write_log("silo-service.log", logs.splitlines())
+    except BaseException as error:
+        diagnostics.append("service_log_capture_failed", service="silo",
+                           exception_type=type(error).__name__)
+
+
+def append_diagnostic_best_effort(diagnostics: StorageDiagnosticJournal | None,
+                                  event: str, **fields) -> None:
+    if diagnostics is None:
+        return
+    try:
+        diagnostics.append(event, **fields)
+    except BaseException:
+        # Diagnostics must not prevent the runner from retiring its owned resources.
+        pass
+
+
+def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storage_only: bool,
+                            diagnostics: StorageDiagnosticJournal | None = None) -> dict:
     service_records: dict[Path, dict] = {}
     app_records: dict[Path, dict[str, dict]] = {}
     started: set[Path] = set()
@@ -380,9 +431,51 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                     raise RuntimeError(f"profile service HTTPS route {role} returned HTTP {code}")
             if checkout == checkouts[0]:
                 upload_port = int(record["ports"]["silo"])
-                receipts["reference_storage"] = RUNTIME.prove_reference_upload(
+                diagnostic_context = None
+                if diagnostics is not None:
+                    reference_commit = subprocess.run(
+                        ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+                        check=True, capture_output=True, text=True, timeout=15,
+                    ).stdout.strip()
+                    diagnostic_context = {
+                        "fixture_root": env["UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT"],
+                        "reference_checkout": str(checkout),
+                        "reference_commit": reference_commit,
+                        "effigy_source": "8ecd64b37963cd6832a2b6ffa528034c56828504",
+                        "effigy_binary": str(Path(EFFIGY).resolve()),
+                        "effigy_binary_sha256": "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324",
+                        "checkout_generation": states["api"].get("runtime_generation"),
+                        "listeners": {
+                            name: {key: state.get(key) for key in
+                                   ("address", "route_domain", "generation", "runtime_generation")}
+                            for name, state in states.items()
+                        },
+                        "public_names": record["domains"],
+                        "host_to_service_loopback": {
+                            "gateway_connect_address": f"127.0.0.1:{gateway_port}",
+                            "api_listener_address": states["api"].get("address"),
+                            "silo_service_endpoint": f"http://127.0.0.1:{upload_port}",
+                            "silo_service": "hybrid_services/silo",
+                            "silo_image": IMAGE,
+                            "silo_release": RELEASE,
+                            "silo_client_image": CLIENT_IMAGE,
+                        },
+                    }
+                storage_receipt = RUNTIME.prove_reference_upload(
                     RUNTIME, checkout, env, states, gateway_root, gateway_port, upload_port,
-                    service_container="hybrid_services")
+                    service_container="hybrid_services", diagnostics=diagnostics,
+                    diagnostic_context=diagnostic_context)
+                receipts["reference_storage"] = storage_receipt
+                if diagnostics is not None:
+                    diagnostics.append(
+                        "storage_gate_passed",
+                        api_operations=storage_receipt["api_operations"],
+                        presigned_upload_status=storage_receipt["presigned_upload_status"],
+                        finalised_state=storage_receipt["finalised_state"],
+                        signed_get_status=storage_receipt["signed_get_status"],
+                        signed_delete_status=storage_receipt["signed_delete_status"],
+                        bytes_equal=storage_receipt["bytes_equal"],
+                    )
 
         addresses = [state["address"] for states in app_records.values() for state in states.values()]
         routes = [state["route_domain"] for states in app_records.values() for state in states.values()]
@@ -484,17 +577,34 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
 
         return receipts
     finally:
+        if diagnostics is not None:
+            try:
+                diagnostics.append("service_log_capture_started", checkout=str(checkouts[0]))
+                capture_storage_service_logs(checkouts[0], env, diagnostics)
+            except BaseException as error:
+                append_diagnostic_best_effort(
+                    diagnostics, "service_log_capture_failed", service="capture",
+                    exception_type=type(error).__name__)
         # Every profile start is recorded before invocation because a failed or
         # interrupted selector may have created owned resources before returning.
         for checkout in reversed(checkouts):
             if checkout not in started:
                 continue
             try:
+                append_diagnostic_best_effort(
+                    diagnostics, "cleanup_started", checkout=str(checkout),
+                    selector="dev:hybrid:down")
                 selector(checkout, "dev:hybrid:down", env, timeout=900)
                 receipts["cleanup"].append({"checkout": str(checkout), "selector": "dev:hybrid:down", "exit": 0})
+                append_diagnostic_best_effort(
+                    diagnostics, "cleanup_completed", checkout=str(checkout),
+                    selector="dev:hybrid:down", exit=0)
             except BaseException as error:
                 receipts["cleanup"].append({"checkout": str(checkout), "selector": "dev:hybrid:down",
                                             "held": True, "error": str(error)[:600]})
+                append_diagnostic_best_effort(
+                    diagnostics, "cleanup_failed", checkout=str(checkout),
+                    selector="dev:hybrid:down", exception_type=type(error).__name__)
                 raise RuntimeError(f"production profile cleanup is held for {checkout}: {error}") from error
 
 
@@ -544,8 +654,23 @@ def main() -> int:
     RUNTIME.EFFIGY = EFFIGY
     RUNTIME.REFERENCE.EFFIGY = EFFIGY
     source = REFERENCE.reference_source()
+    storage_only = os.environ.get("UNDERLAY_PROFILE_STORAGE_ONLY") == "1"
+    diagnostic_dir_value = os.environ.get("UNDERLAY_PROFILE_STORAGE_DIAGNOSTICS_DIR")
+    if storage_only and not diagnostic_dir_value:
+        raise RuntimeError("storage-only Reference proof requires UNDERLAY_PROFILE_STORAGE_DIAGNOSTICS_DIR")
+    diagnostic_dir = Path(diagnostic_dir_value).expanduser().resolve(strict=True) if diagnostic_dir_value else None
     fixture_root = RUNTIME.mktemp_root()
     print(f"PRIVATE OPT-IN REFERENCE ROOT: {fixture_root}", flush=True)
+    diagnostics = (StorageDiagnosticJournal(diagnostic_dir / "storage-diagnostics.jsonl", fixture_root)
+                   if diagnostic_dir is not None else None)
+    if diagnostics is not None:
+        diagnostics.append("attempt_started", fixture_root=str(fixture_root),
+                           reference_source=str(source),
+                           effigy_source="8ecd64b37963cd6832a2b6ffa528034c56828504",
+                           effigy_binary=str(Path(EFFIGY).resolve()),
+                           effigy_binary_sha256="03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324",
+                           selector=("proof:dev-profiles:reference-storage" if storage_only
+                                     else "proof:dev-profiles:reference-runtime"))
     private_home = fixture_root / "home"
     private_home.mkdir(mode=0o700)
     colima_home = fixture_root / "colima-home"
@@ -568,7 +693,6 @@ def main() -> int:
     reference_root = private_home / "reference"
     reference_root.mkdir(mode=0o700)
     checkouts = REFERENCE.make_reference_instances(source, reference_root)
-    storage_only = os.environ.get("UNDERLAY_PROFILE_STORAGE_ONLY") == "1"
     if storage_only:
         checkouts = checkouts[:1]
     for checkout in checkouts:
@@ -597,6 +721,7 @@ def main() -> int:
     colima_start_attempted = False
     started_colima = False
     safe_to_purge_colima = False
+    attempt_succeeded = False
     try:
         colima_start_attempted = True
         RUNTIME.run(["colima", "start", "--profile", "effigy", "--runtime", "containerd",
@@ -604,10 +729,22 @@ def main() -> int:
                     env=runtime_env, timeout=1200)
         started_colima = True
         image_receipt = prepare_published_images(fixture_root, runtime_env)
-        receipts = verify_profile_runtime(checkouts, runtime_env, storage_only=storage_only)
+        if diagnostics is not None:
+            diagnostics.append("pinned_images_prepared", silo_image=IMAGE,
+                               silo_release=RELEASE, silo_client_image=CLIENT_IMAGE)
+        receipts = verify_profile_runtime(checkouts, runtime_env, storage_only=storage_only,
+                                          diagnostics=diagnostics)
         receipts["checkout_retire"] = []
         for checkout in checkouts:
-            retired = effigy_json(checkout, runtime_env, "container", "retire", "--yes", "--json", timeout=900)
+            append_diagnostic_best_effort(diagnostics, "checkout_retirement_started",
+                                          checkout=str(checkout))
+            try:
+                retired = effigy_json(checkout, runtime_env, "container", "retire", "--yes", "--json", timeout=900)
+            except BaseException as error:
+                append_diagnostic_best_effort(
+                    diagnostics, "checkout_retirement_failed", checkout=str(checkout),
+                    exception_type=type(error).__name__)
+                raise
             empty_retirement = (
                 retired.get("idempotent") is True
                 and retired.get("scope") is None
@@ -618,8 +755,18 @@ def main() -> int:
                     or retired.get("remaining") or retired.get("unverified_profiles")):
                 raise RuntimeError(f"Reference checkout scope retirement is uncertain: {checkout}")
             receipts["checkout_retire"].append({"checkout": str(checkout), "result": retired})
+            append_diagnostic_best_effort(
+                diagnostics, "checkout_retired", checkout=str(checkout),
+                record_removed=retired.get("record_removed") is True,
+                idempotent=retired.get("idempotent") is True,
+                remaining_count=len(retired.get("remaining") or []),
+                unverified_profiles_count=len(retired.get("unverified_profiles") or []))
             gateway = RUNTIME.gateway_json(EFFIGY, runtime_env, profile_root(checkout), "status")
             test_gateway = RUNTIME.gateway_json(EFFIGY, runtime_env, profile_root(checkout, "test"), "status")
+            append_diagnostic_best_effort(
+                diagnostics, "checkout_gateway_status", checkout=str(checkout),
+                hybrid_running=bool(gateway.get("running")), hybrid_route_count=len(gateway.get("routes") or []),
+                test_running=bool(test_gateway.get("running")), test_route_count=len(test_gateway.get("routes") or []))
             if (gateway.get("running") or gateway.get("routes")
                     or test_gateway.get("running") or test_gateway.get("routes")):
                 raise RuntimeError(f"Reference checkout retirement left a private gateway route active: {checkout}")
@@ -628,11 +775,20 @@ def main() -> int:
             env=runtime_env, timeout=120, print_output=False,
         ).stdout)
         inventory = inventory_envelope.get("result") or {}
+        append_diagnostic_best_effort(
+            diagnostics, "private_runtime_inventory", environment_count=inventory.get("environment_count"),
+            envelope_ok=inventory_envelope.get("ok") is True)
         if inventory_envelope.get("ok") is not True or inventory.get("environment_count") != 0:
             raise RuntimeError(f"private Colima profile still has active Effigy scopes: {inventory}")
         receipts["global_runtime_after_retirement"] = inventory
-        RUNTIME.run([EFFIGY, "container", "profile", "purge", "--profile", "effigy", "--yes", "--json"],
-                    env=runtime_env, timeout=600, print_output=False)
+        append_diagnostic_best_effort(diagnostics, "private_profile_purge_started")
+        try:
+            RUNTIME.run([EFFIGY, "container", "profile", "purge", "--profile", "effigy", "--yes", "--json"],
+                        env=runtime_env, timeout=600, print_output=False)
+        except BaseException as error:
+            append_diagnostic_best_effort(diagnostics, "private_profile_purge_failed",
+                                          exception_type=type(error).__name__)
+            raise
         profile_status = json.loads(RUNTIME.run(
             [EFFIGY, "container", "profile", "status", "--profile", "effigy", "--json"],
             env=runtime_env, timeout=120, print_output=False,
@@ -641,6 +797,7 @@ def main() -> int:
             raise RuntimeError(f"private Colima profile purge was not verified: {profile_status}")
         receipts["private_profile_purge"] = profile_status
         safe_to_purge_colima = True
+        append_diagnostic_best_effort(diagnostics, "private_profile_purged", exists=False)
         receipts["effigy_source"] = "8ecd64b37963cd6832a2b6ffa528034c56828504"
         receipts["effigy_binary"] = str(Path(EFFIGY).resolve())
         receipts["effigy_binary_sha256"] = "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324"
@@ -649,9 +806,27 @@ def main() -> int:
         receipt_path = fixture_root / "profile-selector-receipts.json"
         receipt_path.write_text(json.dumps(receipts, indent=2) + "\n", encoding="utf-8")
         receipt_path.chmod(0o600)
+        attempt_succeeded = True
         print(f"PASS production opt-in Reference profile selectors; receipt: {receipt_path}", flush=True)
         return 0
+    except BaseException as error:
+        append_diagnostic_best_effort(
+            diagnostics, "attempt_failed", phase="production_profile_runtime_or_cleanup",
+            exception_type=type(error).__name__)
+        raise
     finally:
+        if diagnostics is not None:
+            try:
+                diagnostics.append("attempt_finished", colima_start_attempted=colima_start_attempted,
+                                   colima_started=started_colima,
+                                   selector_succeeded=attempt_succeeded,
+                                   private_profile_purged=safe_to_purge_colima,
+                                   disposition=("purged" if safe_to_purge_colima else
+                                                "held_after_failed_selector" if started_colima else "not_started"))
+            except BaseException:
+                pass
+            finally:
+                diagnostics.close()
         if colima_start_attempted and not safe_to_purge_colima:
             print("PRIVATE COLIMA PROFILE HELD: profile resources could not be fully reconciled; inspect the retained fixture root before cleanup",
                   file=sys.stderr, flush=True)
