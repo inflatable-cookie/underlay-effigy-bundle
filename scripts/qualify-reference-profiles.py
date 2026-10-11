@@ -15,6 +15,7 @@ import pty
 import re
 import secrets as py_secrets
 import select
+import shlex
 import shutil
 import signal
 import smtplib
@@ -697,6 +698,160 @@ def process_parent_map() -> dict[int, int]:
     return parents
 
 
+def configured_reference_api_task_cwd(checkout: Path) -> dict[str, str]:
+    """Resolve the exact Reference API task's configured catalog working directory."""
+    root = checkout.resolve(strict=True)
+    root_manifest_path = root / "effigy.toml"
+    if not root_manifest_path.is_file():
+        raise RuntimeError("Reference checkout has no root Effigy manifest")
+    try:
+        root_manifest = _read_contract_toml_tables(root_manifest_path)
+    except (OSError, ValueError) as error:
+        raise RuntimeError("Reference root Effigy manifest could not establish API catalog mapping") from error
+    directories = root_manifest.get("bundle.dirs")
+    catalogs = root_manifest.get("bundle.catalogs")
+    relative = directories.get("api") if isinstance(directories, dict) else None
+    alias = catalogs.get("api") if isinstance(catalogs, dict) else None
+    if relative != "apps/acme-api" or alias != "acme-api":
+        raise RuntimeError("Reference API bundle directory/catalog mapping is missing or ambiguous")
+
+    catalog_root = (root / relative).resolve(strict=True)
+    if catalog_root == root or not catalog_root.is_relative_to(root):
+        raise RuntimeError("Reference API catalog resolves outside its canonical checkout")
+    catalog_manifest_path = catalog_root / "effigy.toml"
+    if not catalog_manifest_path.is_file():
+        raise RuntimeError("Reference API catalog manifest is missing")
+    try:
+        catalog_manifest = _read_contract_toml_tables(catalog_manifest_path)
+    except (OSError, ValueError) as error:
+        raise RuntimeError("Reference API catalog manifest could not establish its task cwd") from error
+
+    catalog = catalog_manifest.get("catalog")
+    tasks = catalog_manifest.get("tasks")
+    task_run = tasks.get("api") if isinstance(tasks, dict) else None
+    if not isinstance(catalog, dict) or catalog.get("alias") != alias:
+        raise RuntimeError("Reference API catalog alias does not match the assembled project mapping")
+    if task_run != "cd {repo} && cargo run -p acme-api {args}":
+        raise RuntimeError("Reference API task command no longer establishes its exact catalog cwd")
+    return {
+        "selector": f"{alias}/api",
+        "checkout_root": str(root),
+        "root_manifest": str(root_manifest_path),
+        "catalog_relative": relative,
+        "catalog_alias": alias,
+        "catalog_manifest": str(catalog_manifest_path),
+        "task": "api",
+        "task_run": task_run,
+        "expected_cwd": str(catalog_root),
+    }
+
+
+def canonical_process_cwd(paths: list[str]) -> dict[str, object]:
+    """Require exactly one live, resolvable directory from a process cwd query."""
+    result: dict[str, object] = {"observed_paths": list(paths), "canonical_path": None, "error": None}
+    if len(paths) != 1:
+        result["error"] = "cwd query returned no path or an ambiguous path set"
+        return result
+    try:
+        candidate = Path(paths[0]).resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        result["error"] = f"cwd path could not be canonicalized: {type(error).__name__}"
+        return result
+    if not candidate.is_dir():
+        result["error"] = "cwd path is not a directory"
+        return result
+    result["canonical_path"] = str(candidate)
+    return result
+
+
+def process_cwd_matches(paths: list[str], expected: Path) -> tuple[bool, dict[str, object]]:
+    observation = canonical_process_cwd(paths)
+    try:
+        canonical_expected = expected.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return False, observation
+    observation["expected_canonical_path"] = str(canonical_expected)
+    return observation["canonical_path"] == str(canonical_expected), observation
+
+
+def canonical_process_executable(paths: list[str]) -> dict[str, object]:
+    """Require one live executable file path from the OS process inventory."""
+    result: dict[str, object] = {"observed_paths": list(paths), "canonical_path": None,
+                                 "sha256": None, "error": None}
+    if len(paths) != 1:
+        result["error"] = "executable query returned no path or an ambiguous path set"
+        return result
+    try:
+        candidate = Path(paths[0]).resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        result["error"] = f"executable path could not be canonicalized: {type(error).__name__}"
+        return result
+    if not candidate.is_file():
+        result["error"] = "executable path is not a file"
+        return result
+    result["canonical_path"] = str(candidate)
+    result["sha256"] = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    return result
+
+
+def process_executable_matches(paths: list[str], expected: Path,
+                               expected_sha256: str) -> tuple[bool, dict[str, object]]:
+    observation: dict[str, object] = {
+        "observed_paths": list(paths), "canonical_path": None, "sha256": None,
+        "matching_path_count": 0, "error": None,
+    }
+    try:
+        canonical_expected = expected.resolve(strict=True)
+    except (OSError, RuntimeError):
+        observation["error"] = "expected executable path could not be canonicalized"
+        return False, observation
+    if not canonical_expected.is_file():
+        observation["error"] = "expected executable path is not a file"
+        return False, observation
+    matching_paths = []
+    for raw_path in paths:
+        try:
+            candidate = Path(raw_path).resolve(strict=True)
+        except (OSError, RuntimeError):
+            continue
+        if candidate == canonical_expected and candidate.is_file():
+            matching_paths.append(candidate)
+    observation["matching_path_count"] = len(matching_paths)
+    if len(matching_paths) != 1:
+        observation["error"] = "process executable mapping omitted or ambiguously repeated the expected binary"
+        observation["expected_canonical_path"] = str(canonical_expected)
+        observation["expected_sha256"] = expected_sha256
+        return False, observation
+    observed_sha256 = hashlib.sha256(canonical_expected.read_bytes()).hexdigest()
+    observation["canonical_path"] = str(canonical_expected)
+    observation["sha256"] = observed_sha256
+    observation["expected_canonical_path"] = str(canonical_expected)
+    observation["expected_sha256"] = expected_sha256
+    return observed_sha256 == expected_sha256, observation
+
+
+def _read_contract_toml_tables(path: Path) -> dict[str, dict[str, str]]:
+    """Read only the simple quoted string tables used by Reference's task contract."""
+    tables: dict[str, dict[str, str]] = {}
+    current = None
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        table = re.fullmatch(r"\[([A-Za-z0-9_.-]+)\]", line)
+        if table:
+            current = table.group(1)
+            tables.setdefault(current, {})
+            continue
+        if line.startswith("[["):
+            current = None
+            continue
+        if current is None or not line or line.startswith("#"):
+            continue
+        entry = re.fullmatch(r"([A-Za-z0-9_-]+)\s*=\s*(\"(?:[^\"\\]|\\.)*\")", line)
+        if entry:
+            tables[current][entry.group(1)] = json.loads(entry.group(2))
+    return tables
+
+
 def private_gateway_status(main: Path, gateway_root: Path) -> dict:
     return json.loads(
         run(
@@ -711,6 +866,10 @@ def prove_reference_api_restart(
     main: Path,
     gateway_root: Path,
     before_states: dict[str, dict],
+    *,
+    expected_api_binary: dict[str, str] | None = None,
+    diagnostic_sink=None,
+    require_durable_preflight: bool = False,
 ) -> bool:
     global LAST_API_RESTART_DIAGNOSTIC
     LAST_API_RESTART_DIAGNOSTIC = {
@@ -718,11 +877,44 @@ def prove_reference_api_restart(
         "phase": "preflight",
         "termination_signal": "SIGKILL",
     }
+
+    def record_preflight(fields: dict) -> bool:
+        global LAST_API_RESTART_DIAGNOSTIC
+        receipt = {
+            "status": "unproven",
+            "phase": "preflight",
+            "signal_sent": False,
+            "termination_signal": "SIGKILL",
+            **fields,
+        }
+        LAST_API_RESTART_DIAGNOSTIC = receipt
+        if diagnostic_sink is None:
+            if require_durable_preflight:
+                receipt["reason"] = "durable restart preflight receipt is required but unavailable"
+                return False
+            return True
+        try:
+            diagnostic_sink("api_restart_preflight", **receipt)
+        except BaseException as error:
+            receipt["reason"] = "durable restart preflight receipt could not be written"
+            receipt["receipt_error_type"] = type(error).__name__
+            return False
+        receipt["durable_pre_signal_receipt"] = "written"
+        return True
+
     if "api" not in before_states:
-        LAST_API_RESTART_DIAGNOSTIC["reason"] = "prior API state is unavailable"
+        record_preflight({"reason": "prior API state is unavailable"})
         print("BLOCKED Reference API restart: prior API state is unavailable; no process was signaled", flush=True)
         return False
-    api_path, before_api = managed_listener_state(main, "api")
+    try:
+        api_path, before_api = managed_listener_state(main, "api")
+    except BaseException as error:
+        record_preflight({
+            "reason": "current API owner state could not be established",
+            "exception_type": type(error).__name__,
+        })
+        print("BLOCKED Reference API restart: current owner state is uncertain; no process was signaled", flush=True)
+        return False
     old_address = before_api["address"]
     child_pid = int(before_api["child_pid"])
     supervisor_pid = int(before_api["supervisor_pid"])
@@ -732,7 +924,7 @@ def prove_reference_api_restart(
     listener_parent = ancestry_snapshot.get(listener_pid)
     listener_ancestry = process_ancestry_chain(listener_pid, child_pid, ancestry_snapshot)
     if child_parent != supervisor_pid or listener_ancestry is None:
-        LAST_API_RESTART_DIAGNOSTIC.update({
+        record_preflight({
             "reason": "recorded supervisor/adapter/listener ancestry did not match",
             "child_pid": child_pid,
             "listener_pid": listener_pid,
@@ -750,55 +942,93 @@ def prove_reference_api_restart(
         )
         return False
 
+    try:
+        cwd_contract = configured_reference_api_task_cwd(main)
+    except BaseException as error:
+        record_preflight({
+            "reason": "configured Reference API task cwd could not be established",
+            "exception_type": type(error).__name__,
+            "configuration_error": str(error)[:500],
+            "checkout_root": str(main.resolve(strict=False)),
+            "selector_provenance": "root bundle mapping -> acme-api catalog -> api task",
+        })
+        print("BLOCKED Reference API restart before signal: configured API task cwd is unknown or ambiguous", flush=True)
+        return False
+
     recorded_start = before_api.get("listener_start_identity") or {}
-    expected_start = datetime.fromtimestamp(int(recorded_start.get("start_seconds", 0))).strftime(
-        "%a %b %d %H:%M:%S %Y"
-    )
-    actual_start = subprocess.run(
-        ["ps", "-p", str(listener_pid), "-o", "lstart="],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=5,
-    ).stdout.strip()
-    adapter_command = subprocess.run(
-        ["ps", "-p", str(child_pid), "-o", "command="],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=5,
-    ).stdout.strip()
-    listener_command = subprocess.run(
-        ["ps", "-p", str(listener_pid), "-o", "command="],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=5,
-    ).stdout.strip()
-    adapter_cwd_result = subprocess.run(
-        ["lsof", "-a", "-p", str(child_pid), "-d", "cwd", "-Fn"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    listener_cwd_result = subprocess.run(
-        ["lsof", "-a", "-p", str(listener_pid), "-d", "cwd", "-Fn"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        expected_start = datetime.fromtimestamp(int(recorded_start.get("start_seconds", 0))).strftime(
+            "%a %b %d %H:%M:%S %Y"
+        )
+    except (TypeError, ValueError, OSError, OverflowError) as error:
+        record_preflight({"reason": "recorded listener start identity could not be parsed",
+                          "exception_type": type(error).__name__, "recorded_start": recorded_start,
+                          "api_task_cwd_contract": cwd_contract})
+        return False
+
+    def identity_probe(args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(args, check=False, capture_output=True, text=True, timeout=timeout)
+        except BaseException as error:
+            return subprocess.CompletedProcess(args, -1, "", type(error).__name__)
+
+    start_result = identity_probe(["ps", "-p", str(listener_pid), "-o", "lstart="], 5)
+    adapter_command_result = identity_probe(["ps", "-p", str(child_pid), "-o", "command="], 5)
+    listener_command_result = identity_probe(["ps", "-p", str(listener_pid), "-o", "command="], 5)
+    listener_executable_result = identity_probe(
+        ["lsof", "-a", "-p", str(listener_pid), "-d", "txt", "-Fn"], 10)
+    actual_start = start_result.stdout.strip()
+    adapter_command = adapter_command_result.stdout.strip()
+    listener_command = listener_command_result.stdout.strip()
+    listener_executable_paths = [line[1:] for line in listener_executable_result.stdout.splitlines()
+                                 if line.startswith("n")]
+    api_binary_matches = False
+    listener_executable: dict[str, object] = {
+        "observed_paths": listener_executable_paths,
+        "error": "expected private API binary identity was not supplied",
+    }
+    if isinstance(expected_api_binary, dict):
+        api_binary_matches, listener_executable = process_executable_matches(
+            listener_executable_paths,
+            Path(expected_api_binary.get("binary_path", "")),
+            str(expected_api_binary.get("binary_sha256", "")),
+        )
+    try:
+        listener_command_words = shlex.split(listener_command)
+        listener_command_parse_error = None
+    except ValueError as error:
+        listener_command_words = []
+        listener_command_parse_error = type(error).__name__
+    listener_command_binary = {"observed": listener_command_words[0] if listener_command_words else None,
+                               "canonical_path": None, "expected_canonical_path": None,
+                               "error": listener_command_parse_error}
+    listener_command_matches_private_binary = False
+    if isinstance(expected_api_binary, dict) and listener_command_words:
+        try:
+            observed_command_binary = Path(listener_command_words[0]).resolve(strict=True)
+            expected_command_binary = Path(expected_api_binary.get("binary_path", "")).resolve(strict=True)
+            listener_command_binary.update({
+                "canonical_path": str(observed_command_binary),
+                "expected_canonical_path": str(expected_command_binary),
+            })
+            listener_command_matches_private_binary = observed_command_binary == expected_command_binary
+        except (OSError, RuntimeError) as error:
+            listener_command_binary["error"] = type(error).__name__
+    adapter_cwd_result = identity_probe(
+        ["lsof", "-a", "-p", str(child_pid), "-d", "cwd", "-Fn"], 10)
+    listener_cwd_result = identity_probe(
+        ["lsof", "-a", "-p", str(listener_pid), "-d", "cwd", "-Fn"], 10)
     adapter_cwd_paths = [line[1:] for line in adapter_cwd_result.stdout.splitlines() if line.startswith("n")]
     listener_cwd_paths = [line[1:] for line in listener_cwd_result.stdout.splitlines() if line.startswith("n")]
-    _, port_text = old_address.rsplit(":", 1)
-    socket_result = subprocess.run(
-        ["lsof", "-nP", "-iTCP:" + port_text, "-sTCP:LISTEN", "-Fpcn"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=10,
+    adapter_cwd_matches, adapter_cwd = process_cwd_matches(
+        adapter_cwd_paths, Path(cwd_contract["checkout_root"]),
     )
+    listener_cwd_matches, listener_cwd = process_cwd_matches(
+        listener_cwd_paths, Path(cwd_contract["expected_cwd"]),
+    )
+    _, port_text = old_address.rsplit(":", 1)
+    socket_result = identity_probe(
+        ["lsof", "-nP", "-iTCP:" + port_text, "-sTCP:LISTEN", "-Fpcn"], 10)
     socket_owner = None
     current_socket_row = None
     for line in socket_result.stdout.splitlines():
@@ -817,13 +1047,18 @@ def prove_reference_api_restart(
         socket_owner = current_socket_row
     identity_checks = {
         "recorded_start_present": bool(recorded_start),
-        "start_second_matches": expected_start == actual_start,
-        "adapter_command_matches": str(REPO) in adapter_command and "managed-rust-listener" in adapter_command,
+        "start_identity_query_succeeded": start_result.returncode == 0,
+        "start_second_matches": start_result.returncode == 0 and expected_start == actual_start,
+        "adapter_command_query_succeeded": adapter_command_result.returncode == 0,
+        "adapter_command_matches": (adapter_command_result.returncode == 0
+                                     and str(REPO) in adapter_command
+                                     and "managed-rust-listener" in adapter_command),
+        "listener_command_query_succeeded": listener_command_result.returncode == 0,
         "adapter_working_directory_matches": (
-            adapter_cwd_result.returncode == 0 and str(main) in adapter_cwd_paths
+            adapter_cwd_result.returncode == 0 and adapter_cwd_matches
         ),
         "listener_working_directory_matches": (
-            listener_cwd_result.returncode == 0 and str(main) in listener_cwd_paths
+            listener_cwd_result.returncode == 0 and listener_cwd_matches
         ),
         "kernel_socket_owned_by_recorded_listener": (
             socket_result.returncode in (0, 1)
@@ -832,11 +1067,15 @@ def prove_reference_api_restart(
             and f"127.0.0.1:{port_text}" in socket_owner.get("names", [])
         ),
         "listener_command_is_reference_api": (
-            Path(listener_command.split(" ", 1)[0]).name in {"api", "acme-api"}
+            listener_command_result.returncode == 0
+            and listener_command_matches_private_binary
+        ),
+        "listener_executable_matches_private_build": (
+            listener_executable_result.returncode == 0 and api_binary_matches
         ),
     }
     if not all(identity_checks.values()):
-        LAST_API_RESTART_DIAGNOSTIC.update({
+        record_preflight({
             "reason": "exact process identity check failed before signal",
             "child_pid": child_pid,
             "listener_pid": listener_pid,
@@ -847,10 +1086,24 @@ def prove_reference_api_restart(
             "recorded_start": recorded_start,
             "expected_ps_start": expected_start,
             "actual_ps_start": actual_start,
+            "identity_probe_exit_codes": {
+                "listener_start": start_result.returncode,
+                "adapter_command": adapter_command_result.returncode,
+                "listener_command": listener_command_result.returncode,
+                "listener_executable": listener_executable_result.returncode,
+                "adapter_cwd": adapter_cwd_result.returncode,
+                "listener_cwd": listener_cwd_result.returncode,
+                "kernel_socket": socket_result.returncode,
+            },
             "adapter_command": adapter_command[:500],
             "listener_command": listener_command[:500],
-            "adapter_cwd_paths": adapter_cwd_paths,
-            "listener_cwd_paths": listener_cwd_paths,
+            "listener_command_parse_error": listener_command_parse_error,
+            "listener_command_binary": listener_command_binary,
+            "expected_api_binary": expected_api_binary,
+            "listener_executable": listener_executable,
+            "api_task_cwd_contract": cwd_contract,
+            "adapter_cwd": adapter_cwd,
+            "listener_cwd": listener_cwd,
             "socket_owner": socket_owner,
         })
         print(
@@ -860,7 +1113,8 @@ def prove_reference_api_restart(
             f"recorded_start={recorded_start}, expected_ps_start={expected_start!r}, "
             f"actual_ps_start={actual_start!r}, adapter_command={adapter_command[:500]!r}, "
             f"listener_command={listener_command[:500]!r}, "
-            f"adapter_cwd_paths={adapter_cwd_paths!r}, listener_cwd_paths={listener_cwd_paths!r}, "
+            f"expected_listener_cwd={cwd_contract['expected_cwd']!r}, "
+            f"adapter_cwd={adapter_cwd!r}, listener_cwd={listener_cwd!r}, "
             f"socket_owner={socket_owner!r})",
             flush=True,
         )
@@ -869,15 +1123,69 @@ def prove_reference_api_restart(
     latest_ancestry = process_parent_map()
     latest_listener_ancestry = process_ancestry_chain(listener_pid, child_pid, latest_ancestry)
     if latest_ancestry.get(child_pid) != supervisor_pid or latest_listener_ancestry != listener_ancestry:
-        LAST_API_RESTART_DIAGNOSTIC.update({
+        record_preflight({
             "reason": "recorded listener ancestry changed during restart preflight",
             "child_pid": child_pid,
             "listener_pid": listener_pid,
             "recorded_supervisor_pid": supervisor_pid,
             "observed_child_parent_pid": latest_ancestry.get(child_pid),
             "observed_listener_ancestry": latest_listener_ancestry,
+            "identity_checks": identity_checks,
+            "identity_probe_exit_codes": {
+                "listener_start": start_result.returncode,
+                "adapter_command": adapter_command_result.returncode,
+                "listener_command": listener_command_result.returncode,
+                "listener_executable": listener_executable_result.returncode,
+                "adapter_cwd": adapter_cwd_result.returncode,
+                "listener_cwd": listener_cwd_result.returncode,
+                "kernel_socket": socket_result.returncode,
+            },
+            "expected_api_binary": expected_api_binary,
+            "listener_command_binary": listener_command_binary,
+            "listener_executable": listener_executable,
+            "api_task_cwd_contract": cwd_contract,
+            "adapter_cwd": adapter_cwd,
+            "listener_cwd": listener_cwd,
         })
         print("BLOCKED Reference API restart before signal: recorded ancestry changed during preflight", flush=True)
+        return False
+
+    if not record_preflight({
+        "status": "preflight_passed",
+        "decision": "signal_authorized",
+        "child_pid": child_pid,
+        "listener_pid": listener_pid,
+        "recorded_supervisor_pid": supervisor_pid,
+        "observed_child_parent_pid": child_parent,
+        "observed_listener_parent_pid": listener_parent,
+        "observed_listener_ancestry": latest_listener_ancestry,
+        "identity_checks": identity_checks,
+        "recorded_start": recorded_start,
+        "expected_ps_start": expected_start,
+        "actual_ps_start": actual_start,
+        "identity_probe_exit_codes": {
+            "listener_start": start_result.returncode,
+            "adapter_command": adapter_command_result.returncode,
+            "listener_command": listener_command_result.returncode,
+            "listener_executable": listener_executable_result.returncode,
+            "adapter_cwd": adapter_cwd_result.returncode,
+            "listener_cwd": listener_cwd_result.returncode,
+            "kernel_socket": socket_result.returncode,
+        },
+        "adapter_command": adapter_command[:500],
+        "listener_command": listener_command[:500],
+        "listener_command_parse_error": listener_command_parse_error,
+        "listener_command_binary": listener_command_binary,
+        "expected_api_binary": expected_api_binary,
+        "listener_executable": listener_executable,
+        "api_task_cwd_contract": cwd_contract,
+        "adapter_cwd": adapter_cwd,
+        "listener_cwd": listener_cwd,
+        "socket_owner": socket_owner,
+        "api_generation": before_api.get("generation"),
+        "api_address": old_address,
+    }):
+        print("BLOCKED Reference API restart before signal: durable identity receipt failed", flush=True)
         return False
 
     try:
@@ -887,6 +1195,15 @@ def prove_reference_api_restart(
         # ancestry, command, cwd, and socket ownership above, SIGKILL the
         # disposable API listener so the adapter reports a non-zero child exit.
         os.kill(listener_pid, signal.SIGKILL)
+        LAST_API_RESTART_DIAGNOSTIC["signal_sent"] = True
+        if diagnostic_sink is not None:
+            diagnostic_sink(
+                "api_restart_signal_sent",
+                listener_pid=listener_pid,
+                signal="SIGKILL",
+                api_generation=before_api.get("generation"),
+                api_address=old_address,
+            )
     except ProcessLookupError:
         LAST_API_RESTART_DIAGNOSTIC["reason"] = "recorded socket-owning listener exited before the targeted signal"
         LAST_API_RESTART_DIAGNOSTIC["listener_pid"] = listener_pid

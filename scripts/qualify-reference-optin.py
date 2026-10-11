@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import errno
+import ast
 import hashlib
 import json
 import os
@@ -15,10 +16,12 @@ import signal
 import smtplib
 import socket
 import ssl
+import stat
 import subprocess
 import sys
 import time
 from urllib.parse import urlsplit
+from datetime import datetime
 
 from qualification_runtime import require_effigy_binary
 
@@ -45,6 +48,9 @@ from reference_storage_probe import StorageDiagnosticJournal  # noqa: E402
 
 
 EFFIGY: str | None = None
+RETAINED_LIFECYCLE_RUN = "af3efac4-706f-4cd5-858e-e6d73c61e9fd"
+RETAINED_LIFECYCLE_HEAD = "7a31fb0f0c1c93d281f541e2de02ed92e70c86a4"
+RETAINED_LIFECYCLE_TASK = "b3ae8bae-190d-42f4-8132-430253bb02fe"
 
 
 def selector(checkout: Path, name: str, env: dict[str, str], timeout: int = 5400) -> subprocess.CompletedProcess[str]:
@@ -54,6 +60,258 @@ def selector(checkout: Path, name: str, env: dict[str, str], timeout: int = 5400
 
 def effigy_json(checkout: Path, env: dict[str, str], *args: str, timeout: int = 180) -> dict:
     return RUNTIME.effigy_json(EFFIGY, checkout, env, *args, timeout=timeout)
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _source_function_sha256(source: str, function_name: str) -> str:
+    tree = ast.parse(source)
+    nodes = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and node.name == function_name]
+    if len(nodes) != 1:
+        raise RuntimeError(f"retained input function {function_name} is missing or ambiguous")
+    segment = ast.get_source_segment(source, nodes[0])
+    if not segment:
+        raise RuntimeError(f"retained input function {function_name} has no source segment")
+    return _sha256_bytes(segment.encode())
+
+
+def _source_function_output_prefix_sha256(source: str, function_name: str,
+                                          output_name: str) -> str:
+    """Hash the function logic through construction of one retained output value."""
+    tree = ast.parse(source)
+    nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+             and node.name == function_name]
+    if len(nodes) != 1:
+        raise RuntimeError(f"retained input function {function_name} is missing or ambiguous")
+    function = nodes[0]
+    for index, statement in enumerate(function.body):
+        if (isinstance(statement, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id == output_name
+                        for target in statement.targets)):
+            prefix = ast.Module(body=function.body[:index + 1], type_ignores=[])
+            return _sha256_bytes(ast.dump(prefix, include_attributes=False).encode())
+    raise RuntimeError(f"retained input function {function_name} does not construct {output_name}")
+
+
+def _retained_file_sha256(path: str, reference: str) -> tuple[str, str]:
+    current_path = ROOT / path
+    current = current_path.read_bytes()
+    baseline = subprocess.run(
+        ["git", "-C", str(ROOT), "show", f"{reference}:{path}"],
+        check=True, capture_output=True, timeout=15,
+    ).stdout
+    current_digest = _sha256_bytes(current)
+    baseline_digest = _sha256_bytes(baseline)
+    if current_digest != baseline_digest:
+        raise RuntimeError(f"retained runtime input changed since accepted head: {path}")
+    return current_digest, baseline_digest
+
+
+def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) -> dict:
+    """Match accepted auth/storage/assembly inputs without replaying their proofs."""
+    prior_diagnostics = prior_diagnostics.resolve(strict=True)
+    journal_path = prior_diagnostics / "storage-diagnostics.jsonl"
+    cleanup_path = prior_diagnostics / "cleanup-reconciliation.json"
+    for path in (journal_path, cleanup_path):
+        metadata = path.stat()
+        if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
+            raise RuntimeError(f"retained diagnostic input is not a private regular file: {path.name}")
+    rows = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
+    events = {row.get("event"): row for row in rows}
+    prior = json.loads(cleanup_path.read_text(encoding="utf-8"))
+    start = events.get("attempt_started") or {}
+    auth_patch = events.get("reference_auth_fixture_patched") or {}
+    build = events.get("reference_auth_build_identity") or {}
+    storage = events.get("storage_gate_passed") or {}
+    images = events.get("pinned_images_prepared") or {}
+    if (prior.get("task") != RETAINED_LIFECYCLE_TASK
+            or prior.get("worker_run") != RETAINED_LIFECYCLE_RUN
+            or prior.get("reference_fixture_root") != start.get("fixture_root")
+            or prior.get("runtime", {}).get("signal_sent") is not False
+            or prior.get("runtime", {}).get("selector") != "proof:dev-profiles:reference-runtime"):
+        raise RuntimeError("retained Queue run or its restart-stop receipt does not match the expected attempt")
+    if (start.get("effigy_source") != "8ecd64b37963cd6832a2b6ffa528034c56828504"
+            or start.get("effigy_binary_sha256") != "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324"
+            or prior.get("effigy_source") != start.get("effigy_source")
+            or prior.get("effigy_binary_sha256") != start.get("effigy_binary_sha256")):
+        raise RuntimeError("retained proof used a different Effigy source or private binary")
+    if prior.get("bundle_base_head") != "948656bcb02e1fa03bec59eb52aae9c010f43389":
+        raise RuntimeError("retained diagnostic packet base does not match the reported runtime attempt")
+
+    reference_source_commit = subprocess.run(
+        ["git", "-C", str(source), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True, timeout=15,
+    ).stdout.strip()
+    if (reference_source_commit != "fa6a5e89ad83db460a5506b7fa3f915fa767d72a"
+            or prior.get("reference_source_commit") != reference_source_commit
+            or Path(start.get("reference_source", "")).resolve(strict=True) != source.resolve(strict=True)):
+        raise RuntimeError("retained Reference application source identity changed")
+    if (storage.get("finalised_state") != "ready" or storage.get("bytes_equal") is not True
+            or storage.get("presigned_upload_status") != 200 or storage.get("signed_get_status") != 200
+            or storage.get("signed_delete_status") != 204 or prior.get("storage", {}).get("gate") != "passed"):
+        raise RuntimeError("retained Reference auth/storage acceptance receipt is incomplete")
+    successful_phases = [item for item in prior.get("auth_phase_log", [])
+                         if item.get("phase") == "auth_verify_worker" and item.get("outcome") == "valid"]
+    if not successful_phases or not prior.get("auth_fixture_patch_sha256"):
+        raise RuntimeError("retained login phase receipt is incomplete")
+
+    patch_path = SCRIPTS / "fixtures/reference-auth-diagnostic.patch"
+    patch_digest = _sha256_bytes(patch_path.read_bytes())
+    if (patch_digest != auth_patch.get("patch_sha256")
+            or patch_digest != prior.get("auth_fixture_patch_sha256")
+            or _sha256_bytes((prior_diagnostics / "reference-auth-diagnostic.patch").read_bytes()) != patch_digest):
+        raise RuntimeError("retained fixture-only auth patch differs from the accepted diagnostic proof")
+    fixture_main = Path(prior.get("reference_fixture_root", "")) / "home/reference/main"
+    fixture_paths = {
+        "main": fixture_main,
+        "first": fixture_main.parent / "worktrees/first",
+        "second": fixture_main.parent / "worktrees/second",
+    }
+    fixture_commits = {}
+    for name, fixture_path in fixture_paths.items():
+        fixture_commits[name] = subprocess.run(
+            ["git", "-C", str(fixture_path), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True, timeout=15,
+        ).stdout.strip()
+        if fixture_commits[name] != reference_source_commit:
+            raise RuntimeError(f"retained disposable Reference {name} checkout source identity changed")
+    fixture_commit = fixture_commits["main"]
+    if fixture_commit != reference_source_commit or fixture_commit != build.get("reference_source_commit"):
+        raise RuntimeError("retained disposable Reference source checkout identity changed")
+    for item in auth_patch.get("files", []):
+        file_path = fixture_main / item["path"]
+        if _sha256_bytes(file_path.read_bytes()) != item.get("sha256_after"):
+            raise RuntimeError(f"retained disposable auth fixture file changed: {item.get('path')}")
+    lock_path = fixture_main / "apps/acme-api/Cargo.lock"
+    lock_digest = _sha256_bytes(lock_path.read_bytes())
+    if (lock_digest != build.get("cargo_lock_sha256")
+            or lock_digest != auth_patch.get("cargo_lock_sha256")):
+        raise RuntimeError("retained API dependency lock identity changed")
+    binary_path = Path(build.get("binary_path", ""))
+    if (not binary_path.is_file() or _sha256_bytes(binary_path.read_bytes()) != build.get("binary_sha256")
+            or build.get("binary_sha256") != prior.get("reference_api_binary_sha256")):
+        raise RuntimeError("retained instrumented Reference API build identity changed")
+    if (images.get("silo_image") != IMAGE or images.get("silo_release") != RELEASE
+            or images.get("silo_client_image") != CLIENT_IMAGE):
+        raise RuntimeError("retained published Silo server/client pin differs from current inputs")
+
+    current_head = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True, timeout=15,
+    ).stdout.strip()
+    if current_head != RETAINED_LIFECYCLE_HEAD:
+        raise RuntimeError("bundle base moved since the retained accepted lifecycle attempt")
+    effigy_path = Path(EFFIGY).resolve(strict=True)
+    effigy_digest = _sha256_bytes(effigy_path.read_bytes())
+    if effigy_digest != "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324":
+        raise RuntimeError("retained lifecycle inputs require the reviewed private Effigy binary")
+    stable_files = (
+        "bundle.toml", "export.toml", "scripts/qualify-reference-runtime.py",
+        "scripts/reference_storage_probe.py", "scripts/silo_fixture.py",
+        "scripts/qualification_runtime.py", "scripts/dev/managed-rust-listener.py",
+        "scripts/dev/managed-vite-listener.mjs", "scripts/dev/profile_launcher.py",
+        "scripts/dev/sveltekit-public-origin.mjs", "scripts/dev/ui-setup.rhai",
+        "scripts/dev/catalog/silo/service.toml", "scripts/dev/catalog/silo/compose.fragment.yml",
+        "scripts/dev/catalog/silo-mc/service.toml", "scripts/dev/catalog/silo-mc/compose.fragment.yml",
+    )
+    file_hashes = {}
+    for path in stable_files:
+        current_digest, _ = _retained_file_sha256(path, RETAINED_LIFECYCLE_HEAD)
+        file_hashes[path] = current_digest
+    function_inputs = {
+        "scripts/qualify-reference-optin.py": (
+            "enable_profiles", "install_reference_silo_fixture", "install_reference_auth_trace_fixture",
+            "listener_state",
+        ),
+        "scripts/qualify-reference-profiles.py": (
+            "managed_listener_state", "process_ancestry_chain", "install_public_origin_hooks",
+            "install_origin_probe",
+        ),
+        "scripts/qualify-reference-runtime.py": (
+            "configure_app_urls", "append_reference_host_processes", "install_public_origin_fixture",
+        ),
+        "scripts/reference_storage_probe.py": ("prove_reference_upload",),
+    }
+    function_hashes = {}
+    for path, names in function_inputs.items():
+        current_text = (ROOT / path).read_text(encoding="utf-8")
+        baseline_text = subprocess.run(
+            ["git", "-C", str(ROOT), "show", f"{RETAINED_LIFECYCLE_HEAD}:{path}"],
+            check=True, capture_output=True, text=True, timeout=15,
+        ).stdout
+        for name in names:
+            current_digest = _source_function_sha256(current_text, name)
+            baseline_digest = _source_function_sha256(baseline_text, name)
+            if current_digest != baseline_digest:
+                raise RuntimeError(f"retained profile/storage function changed: {path}:{name}")
+            function_hashes[f"{path}:{name}"] = current_digest
+
+    identity_function = "record_reference_auth_build_identity"
+    current_identity_function = (ROOT / "scripts/qualify-reference-optin.py").read_text(encoding="utf-8")
+    baseline_identity_function = subprocess.run(
+        ["git", "-C", str(ROOT), "show",
+         f"{RETAINED_LIFECYCLE_HEAD}:scripts/qualify-reference-optin.py"],
+        check=True, capture_output=True, text=True, timeout=15,
+    ).stdout
+    identity_logic_match = (
+        _source_function_output_prefix_sha256(
+            current_identity_function, identity_function, "result")
+        == _source_function_output_prefix_sha256(
+            baseline_identity_function, identity_function, "result")
+    )
+    if not identity_logic_match:
+        raise RuntimeError("retained API build-identity calculation changed since accepted proof")
+
+    return {
+        "schema": "underlay.reference-retained-lifecycle-input-match.v1",
+        "prior_queue_result": {
+            "task": RETAINED_LIFECYCLE_TASK,
+            "run": RETAINED_LIFECYCLE_RUN,
+            "head": RETAINED_LIFECYCLE_HEAD,
+            "status": "blocked_after_three_instance_and_storage_acceptance",
+            "three_instance_acceptance": "accepted callback: production listeners/routes, HTTPS origins, HMR passed",
+            "storage_acceptance": "accepted callback and private operation journal matched",
+        },
+        "retained_fixture_identities": {
+            name: {"checkout": str(path.resolve(strict=True)), "reference_source_commit": fixture_commits[name]}
+            for name, path in fixture_paths.items()
+        },
+        "prior_diagnostic_sources": {"journal": str(journal_path), "cleanup": str(cleanup_path)},
+        "prior_runtime_attempt_base_head": prior["bundle_base_head"],
+        "retained_inputs": {
+            "effigy_source": start["effigy_source"],
+            "effigy_binary_sha256": start["effigy_binary_sha256"],
+            "reference_source_commit": reference_source_commit,
+            "reference_auth_patch_sha256": patch_digest,
+            "cargo_lock_sha256": lock_digest,
+            "reference_api_binary_sha256": build["binary_sha256"],
+            "silo_image": IMAGE,
+            "silo_client_image": CLIENT_IMAGE,
+            "silo_release": RELEASE,
+            "stable_bundle_file_hashes": file_hashes,
+            "retained_bundle_function_hashes": function_hashes,
+            "build_identity_harness_adjustment": {
+                "function": identity_function,
+                "calculation_prefix_matches_accepted_head": identity_logic_match,
+                "difference": "diagnostic journal is optional for the same returned binary identity",
+            },
+        },
+        "retained_acceptance": {
+            "three_instance_routes_https_origins_hmr": "prior Queue result retained; no re-probe",
+            "reference_auth_and_signed_storage": "prior sanitized receipt matched; no re-request",
+            "storage_gate": "passed",
+        },
+        "pending_once": [
+            "guarded API restart and dependent endpoint handoff",
+            "occupied-port partial failure and owner reconciliation",
+            "unready-start interruption and exact-scope recovery",
+            "foreign-preserving teardown",
+            "dev:test bounded execution and cleanup",
+        ],
+    }
 
 
 def enable_profiles(checkout: Path, source: Path) -> None:
@@ -188,7 +446,7 @@ def install_reference_auth_trace_fixture(
 
 
 def record_reference_auth_build_identity(
-    checkout: Path, env: dict[str, str], diagnostics: StorageDiagnosticJournal,
+    checkout: Path, env: dict[str, str], diagnostics: StorageDiagnosticJournal | None,
     auth_patch_receipt: dict,
 ) -> dict:
     target = Path(env["CARGO_TARGET_DIR"]).resolve(strict=True)
@@ -217,7 +475,8 @@ def record_reference_auth_build_identity(
         "cargo_target_dir": str(target),
         "compile_selector": "acme-api/check",
     }
-    diagnostics.append("reference_auth_build_identity", **result)
+    if diagnostics is not None:
+        diagnostics.append("reference_auth_build_identity", **result)
     return result
 
 
@@ -440,46 +699,536 @@ def append_diagnostic_best_effort(diagnostics: StorageDiagnosticJournal | None,
         pass
 
 
+def _profile_probe_state_path(checkout: Path, name: str) -> Path:
+    return (checkout / ".effigy/runtime/host-processes/hybrid_services/effigy"
+            / f"{name}.listener.json")
+
+
+def _profile_manifest_hosts(checkout: Path, env: dict[str, str]) -> list[dict]:
+    config = RUNTIME.run([EFFIGY, "--repo", str(checkout), "config", "--inspect"],
+                         cwd=checkout, env=env, timeout=120, print_output=False).stdout
+    marker = "Effective Manifest\n------------------\n"
+    if marker not in config:
+        raise RuntimeError("Effigy config inspection omitted the effective Reference manifest")
+    effective = config.split(marker, 1)[1]
+    processes = []
+    for section in re.finditer(
+        r"(?ms)^\[\[containers\.hybrid_services\.host_processes\]\]\s*(.*?)(?=^\[|\Z)",
+        effective,
+    ):
+        name = re.search(r'(?m)^name\s*=\s*("(?:[^"\\]|\\.)*")\s*$', section.group(1))
+        if name is None:
+            raise RuntimeError("effective hybrid profile host-process declaration omitted its name")
+        try:
+            value = json.loads(name.group(1))
+        except json.JSONDecodeError as error:
+            raise RuntimeError("effective hybrid profile host-process name was malformed") from error
+        if not isinstance(value, str):
+            raise RuntimeError("effective hybrid profile host-process name was not a string")
+        processes.append({"name": value})
+    return processes
+
+
+def _append_profile_lifecycle_probe(checkout: Path, name: str, route: str, bind: str,
+                                    http_status: int, env: dict[str, str]) -> str:
+    fixture_root = Path(env["UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT"]).resolve(strict=True)
+    root = checkout.resolve(strict=True)
+    if fixture_root not in root.parents:
+        raise RuntimeError("lifecycle probe manifest edits are restricted to a disposable Reference checkout")
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name):
+        raise RuntimeError("lifecycle probe name is invalid")
+    host, separator, port = bind.rpartition(":")
+    if not separator or host != "127.0.0.1" or not port.isdigit() or not 0 <= int(port) <= 65535:
+        raise RuntimeError("lifecycle probe requires an exact IPv4 loopback bind")
+    manifest_path = checkout / "effigy.toml"
+    original = manifest_path.read_text(encoding="utf-8")
+    if f'name = "{name}"' in original:
+        raise RuntimeError("disposable Reference manifest already contains this lifecycle probe")
+    command = f'python3 {json.dumps(str(SCRIPTS / "qualification/managed-listener-probe.py"))}'
+    block = (
+        "\n# Disposable lifecycle probe appended to the assembled hybrid profile.\n"
+        "[[containers.hybrid_services.host_processes]]\n"
+        f'name = {json.dumps(name)}\n'
+        f"run = {json.dumps(command)}\n"
+        'cwd = "."\nrestart = "never"\n'
+        f"env = {{ EFFIGY_PROFILE_PROBE_HTTP_STATUS = {json.dumps(str(http_status))}, "
+        'EFFIGY_PROFILE_WAIT_ON_EADDRINUSE = "1" }\n'
+        "[containers.hybrid_services.host_processes.listener]\n"
+        f"bind = {json.dumps(bind)}\n"
+        "[containers.hybrid_services.host_processes.listener.readiness]\n"
+        'path = "/"\nstatus = 200\ntimeout_secs = 90\n'
+        "[containers.hybrid_services.host_processes.listener.route]\n"
+        f"domain = {json.dumps(route)}\ntls = true\n"
+    )
+    manifest_path.write_text(original + block, encoding="utf-8")
+    processes = _profile_manifest_hosts(checkout, env)
+    names = [item.get("name") for item in processes]
+    if names != ["api", "front", "admin", name]:
+        manifest_path.write_text(original, encoding="utf-8")
+        raise RuntimeError(f"fixture lifecycle probe did not extend the assembled production host-process list: {names}")
+    return original
+
+
+def _profile_probe_diagnostic(state_path: Path) -> dict:
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    diagnostic = state.get("diagnostic") or {}
+    return {
+        "schema": state.get("schema"),
+        "status": state.get("status"),
+        "generation": state.get("generation"),
+        "runtime_generation": state.get("runtime_generation"),
+        "claimed_address": diagnostic.get("claimed_address"),
+        "report": diagnostic.get("report"),
+        "ownership": diagnostic.get("ownership"),
+        "http_probe": diagnostic.get("http_probe"),
+        "http_status": diagnostic.get("http_status"),
+        "route": diagnostic.get("route"),
+        "route_owner_present": state.get("route_owner") is not None,
+    }
+
+
+class UncertainProfileOwnership(RuntimeError):
+    """A disposable managed profile lacked enough exact state for safe teardown."""
+
+
+def _verify_profile_probe_failure(checkout: Path, name: str, *, bind: str,
+                                   expected_status: int) -> dict:
+    state_path = _profile_probe_state_path(checkout, name)
+    if not state_path.is_file():
+        raise RuntimeError(f"{name} failed startup without retaining its managed owner state")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    diagnostic = state.get("diagnostic") or {}
+    if state.get("schema") != "effigy.managed.host-listener-state.v1" or state.get("status") != "failed":
+        raise RuntimeError(f"{name} did not retain a failed managed-listener generation")
+    if state.get("route_owner") is not None or diagnostic.get("route") != "not_reached":
+        raise RuntimeError(f"{name} published or retained an unowned route after failed readiness")
+    if diagnostic.get("claimed_address") != bind:
+        raise RuntimeError(f"{name} failed-listener receipt did not retain the exact configured bind")
+    if diagnostic.get("http_status") != expected_status:
+        raise RuntimeError(f"{name} readiness receipt observed HTTP {diagnostic.get('http_status')}, not {expected_status}")
+    if expected_status == 503 and diagnostic.get("ownership") != "exclusive_owner_observed":
+        raise RuntimeError(f"{name} unready HTTP response did not have a proven exclusive socket owner")
+    summary = _profile_probe_diagnostic(state_path)
+    if RUNTIME.address_accepts_connection(bind):
+        raise RuntimeError(f"{name} failed child still accepts connections after its failure state")
+    return summary
+
+
+def _profile_listener_snapshots(checkout: Path, names: tuple[str, ...],
+                                env: dict[str, str]) -> dict[str, dict]:
+    snapshots = {}
+    for name in names:
+        path = _profile_probe_state_path(checkout, name)
+        if not path.is_file():
+            raise UncertainProfileOwnership(f"production profile omitted the {name} listener owner state")
+        state = json.loads(path.read_text(encoding="utf-8"))
+        if state.get("schema") != "effigy.managed.host-listener-state.v1":
+            raise UncertainProfileOwnership(f"production profile {name} listener state schema is unknown")
+        if state.get("status") == "ready":
+            try:
+                _, state = listener_state(checkout, name, env)
+            except BaseException as error:
+                raise UncertainProfileOwnership(
+                    f"production profile {name} listener state could not be reconciled"
+                ) from error
+            if not RUNTIME.address_accepts_connection(state.get("address")):
+                raise UncertainProfileOwnership(f"production profile {name} ready listener is not accepting connections")
+        elif state.get("status") in {"failed", "stopped"}:
+            if state.get("route_owner") is not None:
+                raise UncertainProfileOwnership(f"terminal production profile {name} still has a route owner")
+        else:
+            raise UncertainProfileOwnership(
+                f"production profile {name} listener owner state is {state.get('status')!r}"
+            )
+        for role in ("supervisor", "child", "listener"):
+            pid = state.get(f"{role}_pid")
+            identity = state.get(f"{role}_start_identity")
+            if pid is not None and (not isinstance(pid, int) or not isinstance(identity, dict)
+                                    or not isinstance(identity.get("start_seconds"), int)):
+                raise UncertainProfileOwnership(f"production profile {name} has incomplete {role} identity")
+        snapshots[name] = state
+    return snapshots
+
+
+def _assert_profile_processes_absent(snapshots: dict[str, dict]) -> None:
+    for name, state in snapshots.items():
+        for role in ("supervisor", "child", "listener"):
+            pid = state.get(f"{role}_pid")
+            identity = state.get(f"{role}_start_identity")
+            if pid is None:
+                continue
+            if not isinstance(identity, dict) or not isinstance(identity.get("start_seconds"), int):
+                raise UncertainProfileOwnership(f"production profile {name} {role} lacks a recorded process identity")
+            observed = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "pid=,lstart="],
+                capture_output=True, text=True, timeout=15, check=False,
+            )
+            if observed.returncode not in (0, 1):
+                raise UncertainProfileOwnership(f"production profile {name} {role} identity could not be checked")
+            if observed.stdout.strip():
+                fields = observed.stdout.strip().split(None, 1)
+                if len(fields) != 2 or fields[0] != str(pid):
+                    raise UncertainProfileOwnership(f"production profile {name} {role} PID could not be reconciled")
+                current_start = int(datetime.strptime(fields[1], "%a %b %d %H:%M:%S %Y").timestamp())
+                if current_start == identity["start_seconds"]:
+                    raise RuntimeError(f"recorded production profile {name} {role} process remains after down")
+
+
+def _verify_profile_stopped_records(checkout: Path, snapshots: dict[str, dict], env: dict[str, str],
+                                    *, extra_routes: tuple[str, ...] = (),
+                                    owned_failed_addresses: tuple[str, ...] = ()) -> None:
+    current = {}
+    for name, before in snapshots.items():
+        state_path = _profile_probe_state_path(checkout, name)
+        if not state_path.is_file():
+            raise UncertainProfileOwnership(f"production profile down removed the {name} owner state")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        if state.get("status") != "stopped" or state.get("route_owner"):
+            raise UncertainProfileOwnership(f"production profile down did not retain a stopped {name} owner state")
+        address = before.get("address")
+        if isinstance(address, str):
+            sockets = RUNTIME.socket_snapshot(address)
+            if sockets.get("listening_pids") or RUNTIME.address_accepts_connection(address):
+                raise RuntimeError(f"production profile down left {name} listener {address} open")
+        current[name] = state
+    for address in owned_failed_addresses:
+        sockets = RUNTIME.socket_snapshot(address)
+        if sockets.get("listening_pids") or RUNTIME.address_accepts_connection(address):
+            raise RuntimeError(f"production profile down left failed owned listener {address} open")
+    _assert_profile_processes_absent(snapshots)
+    status = effigy_json(checkout, env, "container", "hybrid_services", "status", "--json")
+    active_services = [item.get("name") for item in status.get("services", [])
+                       if str(item.get("status", "")).lower() in
+                       {"up", "running", "created", "restarting"}]
+    active_listeners = [item.get("name") for item in status.get("managed_host_listeners", [])
+                        if item.get("status") == "ready"]
+    if active_services or active_listeners:
+        raise RuntimeError(f"production profile down left resources active: services={active_services} listeners={active_listeners}")
+    gateway = RUNTIME.gateway_json(EFFIGY, env, profile_root(checkout), "status")
+    routes = {item.get("domain") for item in gateway.get("routes", [])}
+    expected_routes = {state.get("route_domain") for state in snapshots.values() if state.get("route_domain")}
+    expected_routes.update(extra_routes)
+    if routes & expected_routes:
+        raise RuntimeError(f"production profile down left owned routes published: {sorted(routes & expected_routes)}")
+    if gateway.get("running") or routes:
+        raise RuntimeError("production profile down left its private gateway or routes active")
+
+
+def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagnostics: StorageDiagnosticJournal,
+                                     foreign: list[tuple[Path, dict[str, dict]]], gateway_root: Path,
+                                     gateway_port: int, before_states: dict[str, dict]) -> dict[str, dict]:
+    selector(checkout, "dev:hybrid:down", env)
+    _verify_stopped(checkout, before_states, env)
+    for sibling, states in foreign:
+        _verify_live(sibling, states, env)
+    original_manifest = _append_profile_lifecycle_probe(
+        checkout, "interrupted_probe", "interrupted." + route_domains(checkout, env)["api"],
+        "127.0.0.1:0", 503, env,
+    )
+    probe_path = _profile_probe_state_path(checkout, "interrupted_probe")
+    process = None
+    launch_attempted = False
+    scope_reconciled = False
+    try:
+        for sibling, states in foreign:
+            _verify_live(sibling, states, env)
+        launch_attempted = True
+        process = subprocess.Popen(
+            [EFFIGY, "--repo", str(checkout), "dev:hybrid"],
+            cwd=checkout, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            text=True, start_new_session=True,
+        )
+        deadline = time.monotonic() + 180
+        observed = None
+        while time.monotonic() < deadline and process.poll() is None:
+            if probe_path.is_file():
+                candidate = _profile_probe_diagnostic(probe_path)
+                if (candidate.get("http_status") == 503
+                        and candidate.get("route") == "not_reached"
+                        and candidate.get("ownership") == "exclusive_owner_observed"):
+                    observed = candidate
+                    break
+            time.sleep(0.1)
+        if observed is None:
+            diagnostics.append(
+                "interruption_precondition_failed", checkout=str(checkout),
+                selector="dev:hybrid", process_exit=process.poll(),
+                probe_state=(_profile_probe_diagnostic(probe_path) if probe_path.is_file() else None),
+                signal_sent=False,
+            )
+            raise RuntimeError("production dev:hybrid did not retain the unready managed-child precondition")
+        pgid = os.getpgid(process.pid)
+        if pgid != process.pid or process.poll() is not None:
+            diagnostics.append("interruption_signal_refused", checkout=str(checkout), selector="dev:hybrid",
+                               launcher_pid=process.pid, observed_pgid=pgid,
+                               signal_sent=False, probe_state=observed)
+            raise RuntimeError("production dev:hybrid startup was no longer an owned interruptible process group")
+        os.killpg(pgid, signal.SIGINT)
+        try:
+            stdout, stderr = process.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            if process.poll() is None:
+                os.killpg(pgid, signal.SIGTERM)
+            try:
+                stdout, stderr = process.communicate(timeout=15)
+            except subprocess.TimeoutExpired:
+                if process.poll() is None:
+                    os.killpg(pgid, signal.SIGKILL)
+                stdout, stderr = process.communicate(timeout=10)
+        diagnostics.append(
+            "interrupted_profile_start", checkout=str(checkout), selector="dev:hybrid",
+            launcher_pid=process.pid, owned_process_group=pgid, signal="SIGINT",
+            exit=process.returncode,
+            stdout_bytes=len(stdout.encode()) if isinstance(stdout, str) else 0,
+            stderr_bytes=len(stderr.encode()) if isinstance(stderr, str) else 0,
+            output_disposition="discarded to prevent pipe backpressure and retain no process output",
+            probe_state=observed,
+        )
+        if not probe_path.is_file():
+            raise UncertainProfileOwnership("interrupted production profile startup removed its managed probe owner record")
+        state = _profile_probe_diagnostic(probe_path)
+        if (state.get("status") not in {"failed", "stopped"} or state.get("route_owner_present")
+                or state.get("http_status") != 503 or state.get("route") != "not_reached"
+                or state.get("ownership") != "exclusive_owner_observed"):
+            raise RuntimeError("interrupted production profile did not retain a terminal unpublished probe state")
+        snapshots = _profile_listener_snapshots(
+            checkout, ("api", "front", "admin", "interrupted_probe"), env)
+        selector(checkout, "dev:hybrid:down", env)
+        diagnostics.append("interrupted_profile_scope_down", checkout=str(checkout), selector="dev:hybrid:down",
+                           probe_state=_profile_probe_diagnostic(probe_path))
+        claimed = state.get("claimed_address")
+        _verify_profile_stopped_records(
+            checkout, snapshots, env,
+            extra_routes=("interrupted." + route_domains(checkout, env)["api"],),
+            owned_failed_addresses=(claimed,) if isinstance(claimed, str) else (),
+        )
+        scope_reconciled = True
+        (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+        for sibling, states in foreign:
+            _verify_live(sibling, states, env)
+        selector(checkout, "dev:hybrid", env, timeout=1800)
+        recovered = {name: listener_state(checkout, name, env)[1]
+                     for name in ("api", "front", "admin")}
+        _verify_live(checkout, recovered, env)
+        for sibling, states in foreign:
+            _verify_live(sibling, states, env)
+        diagnostics.append("interrupted_profile_recovered", checkout=str(checkout), selector="dev:hybrid",
+                           listeners={name: {key: value.get(key) for key in
+                                             ("generation", "address", "route_domain")}
+                                      for name, value in recovered.items()})
+        return recovered
+    except UncertainProfileOwnership:
+        raise
+    except BaseException as error:
+        if process is not None and process.poll() is None:
+            pgid = os.getpgid(process.pid)
+            if pgid != process.pid:
+                raise UncertainProfileOwnership("interrupted startup launcher lost its owned process group") from error
+            os.killpg(pgid, signal.SIGTERM)
+            try:
+                process.communicate(timeout=15)
+            except subprocess.TimeoutExpired:
+                os.killpg(pgid, signal.SIGKILL)
+                process.communicate(timeout=10)
+        if not launch_attempted:
+            scope_reconciled = True
+            (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+            raise RuntimeError("interrupted production selector was not launched") from error
+        if not probe_path.is_file():
+            raise UncertainProfileOwnership("interrupted startup lacks a retained managed probe owner record") from error
+        try:
+            snapshots = _profile_listener_snapshots(
+                checkout, ("api", "front", "admin", "interrupted_probe"), env)
+            selector(checkout, "dev:hybrid:down", env)
+            _verify_profile_stopped_records(checkout, snapshots, env)
+            scope_reconciled = True
+            (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+            for sibling, states in foreign:
+                _verify_live(sibling, states, env)
+        except BaseException as cleanup_error:
+            raise UncertainProfileOwnership(
+                "interrupted production profile could not be reconciled from its exact owner records"
+            ) from cleanup_error
+        raise RuntimeError("interrupted production profile did not meet the required startup proof") from error
+    finally:
+        if process is not None and process.poll() is None:
+            # The caller owns this exact session; only this process group is signaled.
+            pgid = os.getpgid(process.pid)
+            if pgid == process.pid:
+                os.killpg(pgid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    os.killpg(pgid, signal.SIGKILL)
+                    process.wait(timeout=10)
+        if scope_reconciled:
+            (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+
+
+def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_states: dict[str, dict],
+                           env: dict[str, str], diagnostics: StorageDiagnosticJournal,
+                           before_states: dict[str, dict]) -> dict[str, dict]:
+    foreign_api = foreign_states["api"]
+    collision_domain = "collision." + route_domains(checkout, env)["api"]
+    selector(checkout, "dev:hybrid:down", env)
+    _verify_stopped(checkout, before_states, env)
+    _verify_live(foreign_checkout, foreign_states, env)
+    original_manifest = _append_profile_lifecycle_probe(
+        checkout, "collision_probe", collision_domain, foreign_api["address"], 200, env,
+    )
+    collision_path = _profile_probe_state_path(checkout, "collision_probe")
+    safe_failure = False
+    try:
+        result = RUNTIME.run([EFFIGY, "--repo", str(checkout), "dev:hybrid"],
+                             cwd=checkout, env=env, timeout=1800,
+                             expected=None, print_output=False)
+        diagnostics.append("occupied_port_profile_start", checkout=str(checkout), selector="dev:hybrid",
+                           exit=result.returncode, stdout_bytes=len(result.stdout.encode()),
+                           stderr_bytes=len(result.stderr.encode()),
+                           stdout_sha256=hashlib.sha256(result.stdout.encode()).hexdigest(),
+                           stderr_sha256=hashlib.sha256(result.stderr.encode()).hexdigest())
+        if result.returncode == 0:
+            raise RuntimeError("production dev:hybrid accepted a child bound to a foreign occupied API socket")
+        if not collision_path.is_file():
+            diagnostics.append("occupied_port_owner_uncertain", checkout=str(checkout),
+                               collision_listener="collision_probe", collision_owner_state="missing",
+                               cleanup_authorized=False)
+            raise UncertainProfileOwnership("occupied-port profile failure did not retain the exact managed-child owner record")
+        collision_state = json.loads(collision_path.read_text(encoding="utf-8"))
+        diagnostic = collision_state.get("diagnostic") or {}
+        if not (collision_state.get("schema") == "effigy.managed.host-listener-state.v1"
+                and collision_state.get("status") == "failed"
+                and collision_state.get("route_owner") is None
+                and diagnostic.get("claimed_address") == foreign_api["address"]
+                and diagnostic.get("route") == "not_reached"
+                and diagnostic.get("report") in {"absent", "not_observed"}
+                and diagnostic.get("ownership") == "not_reached"):
+            diagnostics.append("occupied_port_owner_uncertain", checkout=str(checkout),
+                               collision_state=_profile_probe_diagnostic(collision_path),
+                               cleanup_authorized=False)
+            raise UncertainProfileOwnership("occupied-port profile failure retained an ambiguous listener owner state")
+        spec_path = collision_path.parent / "collision_probe.spec.json"
+        collision_spec = json.loads(spec_path.read_text(encoding="utf-8")) if spec_path.is_file() else {}
+        if collision_spec.get("listener", {}).get("bind") != foreign_api["address"]:
+            raise RuntimeError("collision probe runtime spec did not retain the exact foreign API bind")
+        child_log = collision_path.parent / "collision_probe.log"
+        safe_errors = RUNTIME.safe_child_error_excerpt(
+            child_log.read_text(encoding="utf-8", errors="replace") if child_log.is_file() else "")
+        if not any("address already in use" in line.lower()
+                   or re.search(r"errno\s*=\s*(48|98|10048)\b", line, re.IGNORECASE)
+                   for line in safe_errors):
+            raise RuntimeError("strict occupied-port profile child did not retain EADDRINUSE evidence")
+        if RUNTIME.address_accepts_connection(foreign_api["address"]) is not True:
+            raise RuntimeError("foreign API listener stopped during the occupied-port profile attempt")
+        _verify_live(foreign_checkout, foreign_states, env)
+        gateway_root = profile_root(checkout)
+        routes = {item.get("domain"): item for item in
+                  REFERENCE.private_gateway_status(checkout, gateway_root).get("routes", [])}
+        if collision_domain in routes:
+            raise RuntimeError("failed occupied-port production selector published a collision route")
+        snapshots = _profile_listener_snapshots(checkout, ("api", "front", "admin", "collision_probe"), env)
+        selector(checkout, "dev:hybrid:down", env)
+        _verify_profile_stopped_records(checkout, snapshots, env,
+                                        extra_routes=(collision_domain,))
+        if _profile_probe_diagnostic(collision_path).get("status") != "stopped":
+            raise RuntimeError("exact production profile down did not reconcile the failed collision child")
+        if RUNTIME.address_accepts_connection(foreign_api["address"]) is not True:
+            raise RuntimeError("exact production profile down stopped the foreign occupied API listener")
+        _verify_live(foreign_checkout, foreign_states, env)
+        scope_reconciled = True
+        safe_failure = True
+        diagnostics.append("occupied_port_profile_reconciled", checkout=str(checkout),
+                           selector="dev:hybrid:down", foreign_checkout=str(foreign_checkout),
+                           foreign_api_address=foreign_api["address"],
+                           foreign_api_route=foreign_api["route_domain"],
+                           foreign_api_generation=foreign_api["generation"],
+                           collision_state=_profile_probe_diagnostic(collision_path),
+                           safe_child_errors=safe_errors[:8], collision_route_absent=True)
+    except UncertainProfileOwnership:
+        raise
+    except BaseException as error:
+        if not collision_path.is_file():
+            raise UncertainProfileOwnership("occupied-port selector failure has no retained probe owner record") from error
+        try:
+            snapshots = _profile_listener_snapshots(
+                checkout, ("api", "front", "admin", "collision_probe"), env)
+            selector(checkout, "dev:hybrid:down", env)
+            _verify_profile_stopped_records(checkout, snapshots, env, extra_routes=(collision_domain,))
+            _verify_live(foreign_checkout, foreign_states, env)
+            scope_reconciled = True
+        except BaseException as cleanup_error:
+            raise UncertainProfileOwnership(
+                "occupied-port selector failure could not be reconciled from exact owner state"
+            ) from cleanup_error
+        raise RuntimeError("occupied-port failure was safely reconciled but did not meet its proof gate") from error
+    finally:
+        if scope_reconciled:
+            (checkout / "effigy.toml").write_text(original_manifest, encoding="utf-8")
+    if not safe_failure:
+        raise RuntimeError("occupied-port profile lifecycle attempt did not reach a safe reconciled failure")
+    selector(checkout, "dev:hybrid", env, timeout=1800)
+    recovered = {name: listener_state(checkout, name, env)[1]
+                 for name in ("api", "front", "admin")}
+    _verify_live(checkout, recovered, env)
+    _verify_live(foreign_checkout, foreign_states, env)
+    diagnostics.append("occupied_port_profile_recovered", checkout=str(checkout), selector="dev:hybrid",
+                       listeners={name: {key: value.get(key) for key in
+                                         ("generation", "address", "route_domain")}
+                                  for name, value in recovered.items()})
+    return recovered
+
+
 def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storage_only: bool,
                             diagnostics: StorageDiagnosticJournal | None = None,
-                            auth_patch_receipt: dict | None = None) -> dict:
+                            auth_patch_receipt: dict | None = None,
+                            remaining_lifecycle: bool = False,
+                            retained_inputs: dict | None = None) -> dict:
     service_records: dict[Path, dict] = {}
     app_records: dict[Path, dict[str, dict]] = {}
+    api_build_identity: dict | None = None
     started: set[Path] = set()
+    held_for_uncertain_owner = False
     receipts: dict = {"production_selectors": [], "instances": [], "cleanup": []}
+    if remaining_lifecycle:
+        if (storage_only or not retained_inputs
+                or retained_inputs.get("retained_acceptance", {}).get("storage_gate") != "passed"):
+            raise RuntimeError("remaining-lifecycle mode requires the exact retained acceptance input match")
+        receipts["retained_acceptance_input_match"] = retained_inputs
     floor_template = '[manifest]\nminimum_effigy_version = "{% if inputs.profiles.enabled %}0.14.1{% else %}0.13.1{% endif %}"'
     if floor_template not in (ROOT / "export.toml").read_text(encoding="utf-8"):
         raise RuntimeError("profile input must raise the manifest floor only to 0.14.1")
     try:
-        for checkout in checkouts:
-            config = RUNTIME.run([EFFIGY, "--repo", str(checkout), "config", "--inspect"],
-                                 cwd=checkout, env=env, timeout=120, print_output=False).stdout
-            for block in ("[containers.hybrid_services]", "[[containers.hybrid_services.host_processes]]",
-                          "[containers.disposable_test]", '[tasks."dev:hybrid"]', '[tasks."dev:test"]'):
-                if block not in config:
-                    raise RuntimeError(f"opt-in assembly omitted production profile declaration {block}")
-            if "[bundle.sources]\nsiblings = false" not in config:
-                raise RuntimeError("opt-in Reference assembly did not preserve sources.siblings=false")
-            for name in ("dev:hybrid", "dev:hybrid:status", "dev:hybrid:down",
-                         "dev:test", "dev:test:status", "dev:test:down"):
-                plan = RUNTIME.run([EFFIGY, "--repo", str(checkout), name, "--plan"],
-                                   cwd=checkout, env=env, timeout=120, print_output=False).stdout
-                command = next((line.removeprefix("Command: ") for line in plan.splitlines()
-                                if line.startswith("Command: ")), "")
-                shell_quote = "'\"'\"'"
-                expected_repo = f"--repo {shell_quote}{checkout}{shell_quote}"
-                if (command.count("--repo") != 1 or expected_repo not in command
-                        or "{repo}" in command or "--repo \"'" in command):
-                    raise RuntimeError(f"{name} did not pass one well-formed disposable repo path to its launcher")
-                receipts["production_selectors"].append(
-                    {"checkout": str(checkout), "selector": name, "plan": "resolved"}
-                )
+        if not remaining_lifecycle:
+            for checkout in checkouts:
+                config = RUNTIME.run([EFFIGY, "--repo", str(checkout), "config", "--inspect"],
+                                     cwd=checkout, env=env, timeout=120, print_output=False).stdout
+                for block in ("[containers.hybrid_services]", "[[containers.hybrid_services.host_processes]]",
+                              "[containers.disposable_test]", '[tasks."dev:hybrid"]', '[tasks."dev:test"]'):
+                    if block not in config:
+                        raise RuntimeError(f"opt-in assembly omitted production profile declaration {block}")
+                if "[bundle.sources]\nsiblings = false" not in config:
+                    raise RuntimeError("opt-in Reference assembly did not preserve sources.siblings=false")
+                for name in ("dev:hybrid", "dev:hybrid:status", "dev:hybrid:down",
+                             "dev:test", "dev:test:status", "dev:test:down"):
+                    plan = RUNTIME.run([EFFIGY, "--repo", str(checkout), name, "--plan"],
+                                       cwd=checkout, env=env, timeout=120, print_output=False).stdout
+                    command = next((line.removeprefix("Command: ") for line in plan.splitlines()
+                                    if line.startswith("Command: ")), "")
+                    shell_quote = "'\"'\"'"
+                    expected_repo = f"--repo {shell_quote}{checkout}{shell_quote}"
+                    if (command.count("--repo") != 1 or expected_repo not in command
+                            or "{repo}" in command or "--repo \"'" in command):
+                        raise RuntimeError(f"{name} did not pass one well-formed disposable repo path to its launcher")
+                    receipts["production_selectors"].append(
+                        {"checkout": str(checkout), "selector": name, "plan": "resolved"}
+                    )
 
         for checkout in checkouts:
             started.add(checkout)
             selector(checkout, "dev:hybrid", env, timeout=1800)
-            if checkout == checkouts[0] and diagnostics is not None and auth_patch_receipt is not None:
-                record_reference_auth_build_identity(checkout, env, diagnostics, auth_patch_receipt)
+            if checkout == checkouts[0] and auth_patch_receipt is not None:
+                api_build_identity = record_reference_auth_build_identity(
+                    checkout, env, diagnostics, auth_patch_receipt)
             receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid", "exit": 0})
             status = effigy_json(checkout, env, "container", "hybrid_services", "status", "--json")
             service_records[checkout] = status
@@ -504,11 +1253,13 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
             postgres_port = service_loopback_port(compose, "postgres", 5432)
             smtp_port = service_loopback_port(compose, "mailpit", 1025)
             silo_port = service_loopback_port(compose, "silo", 9000)
-            endpoint_checks = [
-                RUNTIME.wait_loopback_service(postgres_port, "postgres"),
-                RUNTIME.wait_loopback_service(smtp_port, "mailpit"),
-                RUNTIME.wait_loopback_service(silo_port, "minio"),
-            ]
+            endpoint_checks = []
+            if not remaining_lifecycle:
+                endpoint_checks = [
+                    RUNTIME.wait_loopback_service(postgres_port, "postgres"),
+                    RUNTIME.wait_loopback_service(smtp_port, "mailpit"),
+                    RUNTIME.wait_loopback_service(silo_port, "minio"),
+                ]
             checkout_routes = _effective_checkout_routes(
                 effigy_json(checkout, env, "container", "hosts", "--json")
             )
@@ -525,36 +1276,43 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
             record["listeners"] = {name: {"address": state["address"], "route": state["route_domain"],
                                            "generation": state["generation"]}
                                    for name, state in states.items()}
-            record["occupied_bind_probes"] = prove_owned_bind_exclusion(states)
+            if remaining_lifecycle:
+                record["occupied_bind_probes"] = {
+                    "status": "retained_prior_receipt",
+                    "reprobed": False,
+                }
+            else:
+                record["occupied_bind_probes"] = prove_owned_bind_exclusion(states)
             selector(checkout, "dev:hybrid:status", env)
             receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid:status", "exit": 0})
-            if checkout == checkouts[0]:
+            if checkout == checkouts[0] and not remaining_lifecycle:
                 selector(checkout, "dev:hybrid", env, timeout=900)
                 receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid", "exit": 0,
                                                         "idempotent_existing_profile": True})
 
             gateway_root = Path(record["gateway_root"])
             gateway_port = int(record["gateway_port"])
-            RUNTIME.observe_routes(checkout, gateway_root, env, states, gateway_port)
-            RUNTIME.prove_minio(checkout, env, int(record["ports"]["silo"]),
-                                f"https://{record['domains']['front']}:{gateway_port}",
-                                container="hybrid_services", service="silo", client_service="silo_client",
-                                bucket_name="acme-media", cleanup_bucket=False)
-            silo_route = RUNTIME.prove_minio_gateway_route(checkout, gateway_root, record["domains"], gateway_port)
-            if silo_route.get("status") != "passed":
-                raise RuntimeError(f"profile Silo HTTPS/SNI route did not pass: {silo_route}")
-            record["silo_gateway"] = silo_route
-            for role, path in (("silo", "/"), ("dbgate", "/"), ("mailpit", "/")):
-                route = next((item for item in RUNTIME.REFERENCE.private_gateway_status(checkout, gateway_root).get("routes", [])
-                              if item.get("domain") == record["domains"][role]), None)
-                if not route or route.get("tls") is not True or route.get("cert_ready") is not True:
-                    raise RuntimeError(f"profile {role} service route is not privately TLS-ready")
-                ca_context = ssl.create_default_context(cafile=str(gateway_root / "ca/rootCA.pem"))
-                code, _, _ = REFERENCE.gateway_request(record["domains"][role], gateway_port, ca_context, path,
-                                                       {"Host": f"{record['domains'][role]}:{gateway_port}"})
-                if code >= 500:
-                    raise RuntimeError(f"profile service HTTPS route {role} returned HTTP {code}")
-            if checkout == checkouts[0]:
+            if not remaining_lifecycle:
+                RUNTIME.observe_routes(checkout, gateway_root, env, states, gateway_port)
+                RUNTIME.prove_minio(checkout, env, int(record["ports"]["silo"]),
+                                    f"https://{record['domains']['front']}:{gateway_port}",
+                                    container="hybrid_services", service="silo", client_service="silo_client",
+                                    bucket_name="acme-media", cleanup_bucket=False)
+                silo_route = RUNTIME.prove_minio_gateway_route(checkout, gateway_root, record["domains"], gateway_port)
+                if silo_route.get("status") != "passed":
+                    raise RuntimeError(f"profile Silo HTTPS/SNI route did not pass: {silo_route}")
+                record["silo_gateway"] = silo_route
+                for role, path in (("silo", "/"), ("dbgate", "/"), ("mailpit", "/")):
+                    route = next((item for item in RUNTIME.REFERENCE.private_gateway_status(checkout, gateway_root).get("routes", [])
+                                  if item.get("domain") == record["domains"][role]), None)
+                    if not route or route.get("tls") is not True or route.get("cert_ready") is not True:
+                        raise RuntimeError(f"profile {role} service route is not privately TLS-ready")
+                    ca_context = ssl.create_default_context(cafile=str(gateway_root / "ca/rootCA.pem"))
+                    code, _, _ = REFERENCE.gateway_request(record["domains"][role], gateway_port, ca_context, path,
+                                                           {"Host": f"{record['domains'][role]}:{gateway_port}"})
+                    if code >= 500:
+                        raise RuntimeError(f"profile service HTTPS route {role} returned HTTP {code}")
+            if checkout == checkouts[0] and not remaining_lifecycle:
                 upload_port = int(record["ports"]["silo"])
                 diagnostic_context = None
                 if diagnostics is not None:
@@ -602,6 +1360,11 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                         signed_delete_status=storage_receipt["signed_delete_status"],
                         bytes_equal=storage_receipt["bytes_equal"],
                     )
+        if remaining_lifecycle:
+            receipts["retained_acceptance_reuse"] = {
+                "storage_auth_and_three_instance_prerequisites": "input match accepted; no requests or route probes repeated",
+                "storage_gate": "passed in prior exact-input receipt",
+            }
 
         addresses = [state["address"] for states in app_records.values() for state in states.values()]
         routes = [state["route_domain"] for states in app_records.values() for state in states.values()]
@@ -618,14 +1381,22 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
             main, before = checkouts[0], app_records[checkouts[0]]
             restart_before = before["api"]
             restarted = REFERENCE.prove_reference_api_restart(
-                main, Path(receipts["instances"][0]["gateway_root"]), before)
+                main, Path(receipts["instances"][0]["gateway_root"]), before,
+                expected_api_binary=api_build_identity,
+                diagnostic_sink=diagnostics.append if diagnostics is not None else None,
+                require_durable_preflight=remaining_lifecycle)
             if not restarted:
                 raise RuntimeError(f"Reference API restart/dependent endpoint handoff was not proven: {REFERENCE.LAST_API_RESTART_DIAGNOSTIC}")
             _, after_api = listener_state(main, "api", env)
             if (after_api["generation"] == restart_before["generation"]
                     or after_api["address"] == restart_before["address"]):
                 raise RuntimeError("API restart did not change its actual listener generation and address")
-            after_states = {**before, "api": after_api}
+            after_states = {"api": after_api}
+            for dependent in ("front", "admin"):
+                _, after_dependent = listener_state(main, dependent, env)
+                if after_dependent["generation"] == before[dependent]["generation"]:
+                    raise RuntimeError(f"{dependent} did not restart after the API endpoint changed")
+                after_states[dependent] = after_dependent
             app_records[main] = after_states
             RUNTIME.observe_routes(main, Path(receipts["instances"][0]["gateway_root"]), env,
                                   after_states, int(receipts["instances"][0]["gateway_port"]))
@@ -633,17 +1404,126 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                                        "new_generation": after_api["generation"],
                                        "old_address": restart_before["address"],
                                        "new_address": after_api["address"],
+                                       "dependent_generations_changed": {
+                                           name: {"old": before[name]["generation"],
+                                                  "new": after_states[name]["generation"]}
+                                           for name in ("front", "admin")
+                                       },
                                        "dependent_front_admin_routes_reverified": True}
 
-            foreign = [(checkout, app_records[checkout]) for checkout in checkouts[1:]]
-            foreign_before = {checkout: dict(states) for checkout, states in foreign}
-            selector(main, "dev:hybrid:down", env)
-            receipts["production_selectors"].append({"checkout": str(main), "selector": "dev:hybrid:down", "exit": 0})
-            _verify_stopped(main, app_records[main], env)
-            for checkout, before_states in foreign_before.items():
-                _verify_live(checkout, before_states, env)
-            receipts["foreign_survivors_after_main_down"] = [str(path) for path in foreign_before]
-            for checkout in checkouts[1:]:
+            if remaining_lifecycle:
+                foreign = [(checkout, app_records[checkout]) for checkout in checkouts[1:]]
+                try:
+                    recovered_main = _run_interruptible_profile_start(
+                        main, env, diagnostics, foreign,
+                        Path(receipts["instances"][0]["gateway_root"]),
+                        int(receipts["instances"][0]["gateway_port"]), app_records[main],
+                    )
+                    receipts["interruption_recovery"] = {
+                        "status": "passed", "selector": "dev:hybrid",
+                        "interrupted_owner": _profile_probe_diagnostic(
+                            _profile_probe_state_path(main, "interrupted_probe")),
+                        "recovered_listeners": {
+                            name: {key: state.get(key) for key in
+                                   ("generation", "address", "route_domain")}
+                            for name, state in recovered_main.items()
+                        },
+                        "foreign_survivors": [str(path) for path, _ in foreign],
+                    }
+                except UncertainProfileOwnership as error:
+                    held_for_uncertain_owner = True
+                    receipts["owner_uncertainty"] = {
+                        "status": "held", "reason": str(error)[:600],
+                        "checkout": str(main), "stage": "interruption_recovery",
+                        "cleanup_authorized": False,
+                    }
+                    append_diagnostic_best_effort(
+                        diagnostics, "cleanup_held_uncertain_owner", checkout=str(main),
+                        stage="interruption_recovery", reason=type(error).__name__,
+                        cleanup_authorized=False,
+                    )
+                    raise
+                app_records[main] = recovered_main
+
+                collision_foreign = checkouts[1]
+                try:
+                    recovered_main = _run_profile_collision(
+                        main, collision_foreign, app_records[collision_foreign], env,
+                        diagnostics, app_records[main],
+                    )
+                    receipts["partial_failure"] = {
+                        "status": "passed", "selector": "dev:hybrid",
+                        "collision_owner": _profile_probe_diagnostic(
+                            _profile_probe_state_path(main, "collision_probe")),
+                        "foreign_listener_and_route_preserved": True,
+                        "recovered_listeners": {
+                            name: {key: state.get(key) for key in
+                                   ("generation", "address", "route_domain")}
+                            for name, state in recovered_main.items()
+                        },
+                    }
+                except UncertainProfileOwnership as error:
+                    held_for_uncertain_owner = True
+                    receipts["owner_uncertainty"] = {
+                        "status": "held", "reason": str(error)[:600],
+                        "checkout": str(main), "stage": "partial_failure",
+                        "cleanup_authorized": False,
+                    }
+                    append_diagnostic_best_effort(
+                        diagnostics, "cleanup_held_uncertain_owner", checkout=str(main),
+                        stage="partial_failure", reason=type(error).__name__,
+                        cleanup_authorized=False,
+                    )
+                    raise
+                app_records[main] = recovered_main
+                other_foreign = [(checkout, app_records[checkout]) for checkout in checkouts[1:]]
+                receipts["foreign_survivors_after_partial_failure"] = RUNTIME.assert_foreign_instances_live(
+                    other_foreign, Path(receipts["instances"][0]["gateway_root"]),
+                    int(receipts["instances"][0]["gateway_port"]),
+                    "remaining lifecycle partial-failure postcondition",
+                )
+
+                foreign_before = {checkout: dict(states) for checkout, states in
+                                  ((checkout, app_records[checkout]) for checkout in checkouts[1:])}
+                selector(main, "dev:hybrid:down", env)
+                receipts["production_selectors"].append(
+                    {"checkout": str(main), "selector": "dev:hybrid:down", "exit": 0})
+                _verify_stopped(main, app_records[main], env)
+                started.discard(main)
+                for checkout, before_states in foreign_before.items():
+                    _verify_live(checkout, before_states, env)
+                receipts["isolated_teardown"] = {
+                    "status": "passed",
+                    "main_scope": str(main),
+                    "foreign_survivors": [str(path) for path in foreign_before],
+                    "exact_identity_and_https_checks": True,
+                }
+                for index, checkout in enumerate(checkouts[1:], start=1):
+                    before_states = app_records[checkout]
+                    selector(checkout, "dev:hybrid:down", env)
+                    receipts["production_selectors"].append(
+                        {"checkout": str(checkout), "selector": "dev:hybrid:down", "exit": 0})
+                    _verify_stopped(checkout, before_states, env)
+                    started.discard(checkout)
+                    for survivor in checkouts[index + 1:]:
+                        _verify_live(survivor, app_records[survivor], env)
+            else:
+                foreign = [(checkout, app_records[checkout]) for checkout in checkouts[1:]]
+                foreign_before = {checkout: dict(states) for checkout, states in foreign}
+                selector(main, "dev:hybrid:down", env)
+                receipts["production_selectors"].append({"checkout": str(main), "selector": "dev:hybrid:down", "exit": 0})
+                _verify_stopped(main, app_records[main], env)
+                for checkout, before_states in foreign_before.items():
+                    _verify_live(checkout, before_states, env)
+                receipts["foreign_survivors_after_main_down"] = [str(path) for path in foreign_before]
+                for checkout in checkouts[1:]:
+                    selector(checkout, "dev:hybrid:down", env)
+                    receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid:down", "exit": 0})
+                    _verify_stopped(checkout, app_records[checkout], env)
+
+            for checkout in checkouts:
+                if remaining_lifecycle:
+                    continue
                 selector(checkout, "dev:hybrid:down", env)
                 receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid:down", "exit": 0})
                 _verify_stopped(checkout, app_records[checkout], env)
@@ -713,7 +1593,23 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                     exception_type=type(error).__name__)
         # Every profile start is recorded before invocation because a failed or
         # interrupted selector may have created owned resources before returning.
+        if held_for_uncertain_owner:
+            owner_hold = receipts.get("owner_uncertainty") or {}
+            append_diagnostic_best_effort(
+                diagnostics, "cleanup_held_uncertain_owner",
+                checkouts=[str(checkout) for checkout in sorted(started)],
+                stage=owner_hold.get("stage"), reason=owner_hold.get("reason"),
+                cleanup_authorized=False,
+            )
+            receipts["cleanup"].append({
+                "held": True,
+                "reason": owner_hold.get("reason") or "uncertain managed-child ownership",
+                "stage": owner_hold.get("stage"),
+                "private_profile_and_exact_scopes_preserved": True,
+            })
         for checkout in reversed(checkouts):
+            if held_for_uncertain_owner:
+                continue
             if checkout not in started:
                 continue
             try:
@@ -743,7 +1639,9 @@ def _verify_live(checkout: Path, states: dict[str, dict], env: dict[str, str]) -
     for name, before in states.items():
         _, after = listener_state(checkout, name, env)
         if any(after.get(key) != before.get(key) for key in
-               ("owner", "runtime_generation", "generation", "address", "supervisor_pid", "child_pid", "listener_pid")):
+               ("owner", "runtime_generation", "generation", "address", "supervisor_pid",
+                "supervisor_start_identity", "child_pid", "child_start_identity",
+                "listener_pid", "listener_start_identity")):
             raise RuntimeError(f"foreign production profile listener {name} changed after scoped down")
         route = routes.get(after["route_domain"])
         if not route or route.get("target") != after["address"] or not RUNTIME.address_accepts_connection(after["address"]):
@@ -765,6 +1663,27 @@ def _verify_stopped(checkout: Path, states: dict[str, dict], env: dict[str, str]
         after = json.loads(state_path.read_text(encoding="utf-8"))
         if after.get("status") != "stopped" or after.get("route_owner"):
             raise RuntimeError(f"profile listener {name} did not retain a stopped owner record")
+        for role in ("supervisor", "child", "listener"):
+            pid = before.get(f"{role}_pid")
+            identity = before.get(f"{role}_start_identity")
+            if pid is None:
+                continue
+            if (not isinstance(pid, int) or not isinstance(identity, dict)
+                    or not isinstance(identity.get("start_seconds"), int)):
+                raise RuntimeError(f"profile listener {name} has incomplete {role} identity after down")
+            observed = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "pid=,lstart="],
+                capture_output=True, text=True, timeout=15, check=False,
+            )
+            if observed.returncode not in (0, 1):
+                raise RuntimeError(f"profile listener {name} {role} process identity could not be checked")
+            if observed.stdout.strip():
+                fields = observed.stdout.strip().split(None, 1)
+                if len(fields) != 2 or fields[0] != str(pid):
+                    raise RuntimeError(f"profile listener {name} {role} PID could not be reconciled")
+                start_seconds = int(datetime.strptime(fields[1], "%a %b %d %H:%M:%S %Y").timestamp())
+                if start_seconds == identity["start_seconds"]:
+                    raise RuntimeError(f"recorded profile listener {name} {role} process remains after down")
         if RUNTIME.address_accepts_connection(before["address"]):
             raise RuntimeError(f"profile listener socket remains open after selector down: {before['address']}")
     root = profile_root(checkout)
@@ -781,10 +1700,24 @@ def main() -> int:
     RUNTIME.REFERENCE.EFFIGY = EFFIGY
     source = REFERENCE.reference_source()
     storage_only = os.environ.get("UNDERLAY_PROFILE_STORAGE_ONLY") == "1"
+    remaining_lifecycle = os.environ.get("UNDERLAY_PROFILE_REMAINING_LIFECYCLE") == "1"
+    if storage_only and remaining_lifecycle:
+        raise RuntimeError("storage-only and remaining-lifecycle modes are mutually exclusive")
     diagnostic_dir_value = os.environ.get("UNDERLAY_PROFILE_STORAGE_DIAGNOSTICS_DIR")
-    if storage_only and not diagnostic_dir_value:
-        raise RuntimeError("storage-only Reference proof requires UNDERLAY_PROFILE_STORAGE_DIAGNOSTICS_DIR")
+    prior_diagnostic_dir_value = os.environ.get("UNDERLAY_PROFILE_PRIOR_DIAGNOSTICS_DIR")
+    if (storage_only or remaining_lifecycle) and not diagnostic_dir_value:
+        raise RuntimeError("instrumented Reference proof requires UNDERLAY_PROFILE_STORAGE_DIAGNOSTICS_DIR")
+    if remaining_lifecycle and not prior_diagnostic_dir_value:
+        raise RuntimeError("remaining-lifecycle proof requires UNDERLAY_PROFILE_PRIOR_DIAGNOSTICS_DIR")
+    retained_inputs = (validate_retained_lifecycle_inputs(Path(prior_diagnostic_dir_value), source)
+                       if remaining_lifecycle and prior_diagnostic_dir_value else None)
     diagnostic_dir = Path(diagnostic_dir_value).expanduser().resolve(strict=True) if diagnostic_dir_value else None
+    if remaining_lifecycle:
+        prior_journal = Path(retained_inputs["prior_diagnostic_sources"]["journal"]).resolve(strict=True)
+        if diagnostic_dir == prior_journal.parent:
+            raise RuntimeError("new lifecycle diagnostics must use a separate directory; retained receipts are immutable")
+        if list(diagnostic_dir.iterdir()):
+            raise RuntimeError("new lifecycle diagnostic directory must be empty")
     fixture_root = RUNTIME.mktemp_root()
     print(f"PRIVATE OPT-IN REFERENCE ROOT: {fixture_root}", flush=True)
     diagnostics = (StorageDiagnosticJournal(diagnostic_dir / "storage-diagnostics.jsonl", fixture_root)
@@ -796,7 +1729,11 @@ def main() -> int:
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324",
                            selector=("proof:dev-profiles:reference-storage" if storage_only
-                                     else "proof:dev-profiles:reference-runtime"))
+                                     else "proof:dev-profiles:reference-runtime"),
+                           continuation=("remaining_lifecycle" if remaining_lifecycle
+                                         else "storage_only" if storage_only else "full_runtime"))
+        if retained_inputs is not None:
+            diagnostics.append("retained_acceptance_input_match", result=retained_inputs)
     private_home = fixture_root / "home"
     private_home.mkdir(mode=0o700)
     colima_home = fixture_root / "colima-home"
@@ -824,7 +1761,8 @@ def main() -> int:
     for checkout in checkouts:
         REFERENCE.point_bundle_at_task_branch(checkout)
     auth_patch_receipt = install_reference_auth_trace_fixture(checkouts[0], diagnostics)
-    REFERENCE.prove_reference_configuration(checkouts)
+    if not remaining_lifecycle:
+        REFERENCE.prove_reference_configuration(checkouts)
     for checkout in checkouts:
         enable_profiles(checkout, Path(os.environ["UNDERLAY_PROFILE_EFFIGY_SOURCE"]).resolve(strict=True))
         bundle = RUNTIME.effigy_json(EFFIGY, checkout, runtime_env, "bundle", "inspect", "--json")
@@ -838,7 +1776,8 @@ def main() -> int:
         install_reference_silo_fixture(checkout)
         RUNTIME.install_public_origin_fixture(checkout)
     REFERENCE.initialize_reference_fixture_secrets(checkouts, runtime_env)
-    REFERENCE.prove_worktree_plans(checkouts, runtime_env)
+    if not remaining_lifecycle:
+        REFERENCE.prove_worktree_plans(checkouts, runtime_env)
     for checkout in checkouts:
         prepared = RUNTIME.run([EFFIGY, "--repo", str(checkout), "workspace:js:prepare"],
                                cwd=checkout, env=runtime_env, timeout=900, print_output=False)
@@ -850,20 +1789,21 @@ def main() -> int:
     safe_to_purge_colima = False
     attempt_succeeded = False
     try:
-        compile_result = RUNTIME.run(
-            [EFFIGY, "--repo", str(checkouts[0] / "apps/acme-api"), "check"],
-            cwd=checkouts[0] / "apps/acme-api", env=runtime_env,
-            timeout=900, expected=None, print_output=False,
-        )
-        append_diagnostic_best_effort(
-            diagnostics, "reference_auth_fixture_compile",
-            selector="acme-api/check", exit=compile_result.returncode,
-            reference_source_commit=auth_patch_receipt["reference_source_commit"],
-            patch_sha256=auth_patch_receipt["patch_sha256"],
-            cargo_lock_sha256=auth_patch_receipt["cargo_lock_sha256"],
-        )
-        if compile_result.returncode != 0:
-            raise RuntimeError("instrumented disposable Reference auth fixture compile failed")
+        if not remaining_lifecycle:
+            compile_result = RUNTIME.run(
+                [EFFIGY, "--repo", str(checkouts[0] / "apps/acme-api"), "check"],
+                cwd=checkouts[0] / "apps/acme-api", env=runtime_env,
+                timeout=900, expected=None, print_output=False,
+            )
+            append_diagnostic_best_effort(
+                diagnostics, "reference_auth_fixture_compile",
+                selector="acme-api/check", exit=compile_result.returncode,
+                reference_source_commit=auth_patch_receipt["reference_source_commit"],
+                patch_sha256=auth_patch_receipt["patch_sha256"],
+                cargo_lock_sha256=auth_patch_receipt["cargo_lock_sha256"],
+            )
+            if compile_result.returncode != 0:
+                raise RuntimeError("instrumented disposable Reference auth fixture compile failed")
         colima_start_attempted = True
         RUNTIME.run(["colima", "start", "--profile", "effigy", "--runtime", "containerd",
                      "--cpu", "6", "--memory", "8", "--disk", "64"],
@@ -875,7 +1815,9 @@ def main() -> int:
                                silo_release=RELEASE, silo_client_image=CLIENT_IMAGE)
         receipts = verify_profile_runtime(checkouts, runtime_env, storage_only=storage_only,
                                           diagnostics=diagnostics,
-                                          auth_patch_receipt=auth_patch_receipt)
+                                          auth_patch_receipt=auth_patch_receipt,
+                                          remaining_lifecycle=remaining_lifecycle,
+                                          retained_inputs=retained_inputs)
         receipts["checkout_retire"] = []
         for checkout in checkouts:
             append_diagnostic_best_effort(diagnostics, "checkout_retirement_started",

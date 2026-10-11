@@ -116,5 +116,170 @@ class ProcessAncestryTests(unittest.TestCase):
         self.assertIsNone(reference.process_ancestry_chain(400, 100, {400: 300, 300: 400}))
 
 
+class ReferenceTaskCwdTests(unittest.TestCase):
+    def checkout(self, parent: Path) -> Path:
+        root = parent / "reference"
+        catalog = root / "apps/acme-api"
+        catalog.mkdir(parents=True)
+        (root / "effigy.toml").write_text(
+            '[bundle.dirs]\napi = "apps/acme-api"\n\n'
+            '[bundle.catalogs]\napi = "acme-api"\n',
+            encoding="utf-8",
+        )
+        (catalog / "effigy.toml").write_text(
+            '[catalog]\nalias = "acme-api"\n\n'
+            '[tasks]\napi = "cd {repo} && cargo run -p acme-api {args}"\n',
+            encoding="utf-8",
+        )
+        return root
+
+    def test_configured_catalog_task_resolves_exact_canonical_cwd(self):
+        with tempfile.TemporaryDirectory(prefix="underlay-api-cwd-") as temporary:
+            root = self.checkout(Path(temporary))
+            contract = reference.configured_reference_api_task_cwd(root)
+            self.assertEqual(contract["selector"], "acme-api/api")
+            self.assertEqual(contract["task_run"], "cd {repo} && cargo run -p acme-api {args}")
+            self.assertEqual(contract["expected_cwd"], str((root / "apps/acme-api").resolve()))
+
+    def test_catalog_mapping_rejects_alias_task_or_sibling_escape(self):
+        with tempfile.TemporaryDirectory(prefix="underlay-api-cwd-") as temporary:
+            parent = Path(temporary)
+            root = self.checkout(parent)
+            nested = root / "apps/acme-api/effigy.toml"
+            nested.write_text(
+                '[catalog]\nalias = "other-api"\n\n'
+                '[tasks]\napi = "cd {repo} && cargo run -p acme-api {args}"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "alias"):
+                reference.configured_reference_api_task_cwd(root)
+
+            nested.write_text(
+                '[catalog]\nalias = "acme-api"\n\n'
+                '[tasks]\napi = "cargo run -p acme-api"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "exact catalog cwd"):
+                reference.configured_reference_api_task_cwd(root)
+
+            sibling = parent / "sibling/apps/acme-api"
+            sibling.mkdir(parents=True)
+            (sibling / "effigy.toml").write_text(nested.read_text(encoding="utf-8"), encoding="utf-8")
+            (root / "apps/acme-api").rename(root / "apps/acme-api-original")
+            (root / "apps/acme-api").symlink_to(sibling, target_is_directory=True)
+            with self.assertRaisesRegex(RuntimeError, "outside its canonical checkout"):
+                reference.configured_reference_api_task_cwd(root)
+
+    def test_observed_cwd_requires_one_exact_canonical_directory(self):
+        with tempfile.TemporaryDirectory(prefix="underlay-api-cwd-") as temporary:
+            parent = Path(temporary)
+            root = self.checkout(parent)
+            expected = (root / "apps/acme-api").resolve()
+            alias = parent / "catalog-alias"
+            alias.symlink_to(expected, target_is_directory=True)
+            matched, observation = reference.process_cwd_matches([str(alias)], expected)
+            self.assertTrue(matched)
+            self.assertEqual(observation["canonical_path"], str(expected))
+
+            adjacent = parent / "apps/acme-api-adjacent"
+            adjacent.mkdir(parents=True)
+            for paths in ([], [str(expected), str(expected)]):
+                with self.subTest(paths=paths):
+                    matched, observation = reference.process_cwd_matches(paths, expected)
+                    self.assertFalse(matched)
+                    self.assertIsNotNone(observation["error"])
+            matched, observation = reference.process_cwd_matches([str(adjacent)], expected)
+            self.assertFalse(matched)
+            self.assertEqual(observation["canonical_path"], str(adjacent.resolve()))
+
+    def test_observed_api_executable_requires_exact_canonical_binary_and_hash(self):
+        with tempfile.TemporaryDirectory(prefix="underlay-api-binary-") as temporary:
+            parent = Path(temporary)
+            expected = parent / "private-build/acme-api"
+            expected.parent.mkdir()
+            expected.write_bytes(b"qualified private API binary")
+            expected_hash = optin._sha256_bytes(expected.read_bytes())
+            alias = parent / "private-build-alias"
+            alias.symlink_to(expected)
+            matched, evidence = reference.process_executable_matches(
+                [str(alias)], expected, expected_hash)
+            self.assertTrue(matched)
+            self.assertEqual(evidence["canonical_path"], str(expected.resolve()))
+
+            # macOS lsof's `txt` inventory includes dyld and mapped files as
+            # well as the executable. The exact expected binary must occur
+            # once; unrelated text mappings do not make its identity ambiguous.
+            matched, evidence = reference.process_executable_matches(
+                [str(expected), "/usr/lib/dyld", "/usr/lib/libSystem.B.dylib"],
+                expected, expected_hash)
+            self.assertTrue(matched)
+            self.assertEqual(evidence["matching_path_count"], 1)
+
+            adjacent = parent / "adjacent/acme-api"
+            adjacent.parent.mkdir()
+            adjacent.write_bytes(expected.read_bytes())
+            matched, evidence = reference.process_executable_matches(
+                [str(adjacent)], expected, expected_hash)
+            self.assertFalse(matched)
+            self.assertEqual(evidence["expected_sha256"], expected_hash)
+            for paths in ([], [str(expected), str(expected)]):
+                with self.subTest(paths=paths):
+                    matched, evidence = reference.process_executable_matches(
+                        paths, expected, expected_hash)
+                    self.assertFalse(matched)
+                    self.assertIsNotNone(evidence["error"])
+
+            matched, _ = reference.process_executable_matches(
+                [str(expected)], expected, "0" * 64)
+            self.assertFalse(matched)
+
+
+class ProfileOwnerHoldTests(unittest.TestCase):
+    def state_path(self, checkout: Path, name: str = "api") -> Path:
+        path = optin._profile_probe_state_path(checkout, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def test_missing_or_unknown_managed_owner_state_holds_cleanup(self):
+        with tempfile.TemporaryDirectory(prefix="underlay-owner-hold-") as temporary:
+            checkout = Path(temporary)
+            with self.assertRaisesRegex(optin.UncertainProfileOwnership, "omitted"):
+                optin._profile_listener_snapshots(checkout, ("api",), {})
+
+            path = self.state_path(checkout)
+            path.write_text(json.dumps({"schema": "unknown", "status": "ready"}), encoding="utf-8")
+            with self.assertRaisesRegex(optin.UncertainProfileOwnership, "schema is unknown"):
+                optin._profile_listener_snapshots(checkout, ("api",), {})
+
+    def test_in_progress_owner_state_is_not_treated_as_stopped_or_released(self):
+        with tempfile.TemporaryDirectory(prefix="underlay-owner-hold-") as temporary:
+            checkout = Path(temporary)
+            path = self.state_path(checkout)
+            path.write_text(json.dumps({
+                "schema": "effigy.managed.host-listener-state.v1",
+                "status": "starting", "generation": "generation-1",
+                "route_owner": None,
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(optin.UncertainProfileOwnership, "'starting'"):
+                optin._profile_listener_snapshots(checkout, ("api",), {})
+
+    def test_probe_fixture_cannot_edit_checkout_outside_fresh_root(self):
+        with tempfile.TemporaryDirectory(prefix="underlay-owner-hold-") as temporary:
+            parent = Path(temporary)
+            fixture_root = parent / "fixture"
+            fixture_root.mkdir()
+            checkout = parent / "outside"
+            checkout.mkdir()
+            manifest = checkout / "effigy.toml"
+            manifest.write_text('[bundle]\n', encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "disposable Reference checkout"):
+                optin._append_profile_lifecycle_probe(
+                    checkout, "interrupted_probe", "interrupted.api.test",
+                    "127.0.0.1:0", 503,
+                    {"UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT": str(fixture_root)},
+                )
+            self.assertEqual(manifest.read_text(encoding="utf-8"), "[bundle]\n")
+
+
 if __name__ == "__main__":
     unittest.main()
