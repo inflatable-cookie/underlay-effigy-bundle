@@ -143,6 +143,78 @@ class StorageDiagnosticTests(unittest.TestCase):
             self.assertEqual(records[-1]["status"], 201)
             self.assertNotIn("presigned-secret-should-not-appear", path.read_text())
 
+    def test_auth_trace_patch_artifact_is_private_bounded_and_exact_source_scoped(self):
+        with tempfile.TemporaryDirectory(prefix="underlay-storage-diagnostics-") as root:
+            root_path = Path(root)
+            fixture = root_path / "fixture"
+            diagnostics_dir = root_path / "diagnostics"
+            fixture.mkdir(mode=0o700)
+            diagnostics_dir.mkdir(mode=0o700)
+            journal = StorageDiagnosticJournal(diagnostics_dir / "storage-diagnostics.jsonl", fixture)
+            payload = b"diff --git a/example b/example\n"
+            artifact = Path(journal.write_artifact("reference-auth-diagnostic.patch", payload))
+            journal.close()
+
+            self.assertEqual(artifact.read_bytes(), payload)
+            self.assertEqual(stat.S_IMODE(artifact.stat().st_mode), 0o600)
+            with self.assertRaisesRegex(ValueError, "bounded Reference auth fixture patch"):
+                journal.write_artifact("unexpected.patch", payload)
+
+    def test_auth_trace_logs_retain_only_allowlisted_phase_fields(self):
+        line = ('INFO underlay_profile_auth_diagnostic: correlation="fixture-auth-login" '
+                'phase="auth_verify_worker" elapsed_ms=8150 outcome="valid" '
+                'user_id=01234567-89ab-cdef-0123-456789abcdef')
+        safe = sanitize_service_log_line(line)
+        self.assertEqual(
+            safe,
+            "AUTH_DIAGNOSTIC correlation=fixture-auth-login phase=auth_verify_worker "
+            "elapsed_ms=8150 outcome=valid",
+        )
+        self.assertNotIn("user_id", safe)
+
+
+class ReferenceAuthTracePatchTests(unittest.TestCase):
+    def test_patch_contains_only_the_auth_fixture_files_and_safe_phases(self):
+        patch = Path(__file__).with_name("fixtures") / "reference-auth-diagnostic.patch"
+        content = patch.read_text(encoding="utf-8")
+        self.assertLessEqual(patch.stat().st_size, 24 * 1024)
+        targets = {
+            line.removeprefix("+++ b/")
+            for line in content.splitlines()
+            if line.startswith("+++ b/")
+        }
+        self.assertEqual(targets, {
+            "apps/acme-api/crates/api/src/routes/shared/auth/basic.rs",
+            "apps/acme-api/crates/auth/src/local/login.rs",
+            "apps/acme-api/crates/auth/src/local/mod.rs",
+        })
+        required_phases = (
+            "api_login_handler", "api_login_auth_call", "api_login_role_lookup",
+            "api_login_response", "auth_rate_limit", "auth_user_lookup",
+            "auth_lockout_check", "auth_credential_lookup", "auth_verify_spawn",
+            "auth_verify_worker", "auth_verify_join", "auth_failed_attempt_write",
+            "auth_failed_attempt_reset", "auth_credential_last_used",
+            "auth_totp_lookup", "auth_session_create",
+        )
+        additions = "\n".join(
+            line[1:] for line in content.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        for phase in required_phases:
+            self.assertIn(phase, additions)
+        trace_fields = "\n".join(
+            line for line in additions.splitlines()
+            if any(field in line for field in (
+                "tracing::info!", "target:", "correlation =", "phase =",
+                "elapsed_ms =", "outcome,",
+            ))
+        )
+        self.assertIn('correlation = "fixture-auth-login"', trace_fields)
+        self.assertNotRegex(
+            trace_fields,
+            r"(?i)email|password|secret|token|authorization|user_id|payload|sql",
+        )
+
     def test_journal_rejects_path_templates_with_queries_and_fixture_local_path(self):
         with tempfile.TemporaryDirectory(prefix="underlay-storage-diagnostics-") as root:
             root_path = Path(root)

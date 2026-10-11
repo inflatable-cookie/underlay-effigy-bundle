@@ -22,6 +22,14 @@ from urllib.parse import quote, urlsplit
 _FRAMING_HEADERS = ("content-length", "transfer-encoding", "connection", "content-type")
 _MAX_LOG_BYTES = 24 * 1024
 _MAX_LOG_LINES = 80
+_MAX_ARTIFACT_BYTES = 24 * 1024
+_AUTH_TRACE_TARGET = "underlay_profile_auth_diagnostic"
+_AUTH_TRACE_FIELDS = re.compile(
+    r'["\']?correlation["\']?\s*[:=]\s*["\']?fixture-auth-login["\']?[, ]+'
+    r'["\']?phase["\']?\s*[:=]\s*["\']?([a-z_]+)["\']?[, ]+'
+    r'["\']?elapsed_ms["\']?\s*[:=]\s*["\']?(\d+)["\']?[, ]+'
+    r'["\']?outcome["\']?\s*[:=]\s*["\']?([a-z_]+)["\']?'
+)
 
 
 class StorageDiagnosticJournal:
@@ -142,6 +150,26 @@ class StorageDiagnosticJournal:
                     path=str(target), bytes=len(payload), lines=len(safe_lines))
         return str(target)
 
+    def write_artifact(self, name: str, payload: bytes) -> str:
+        if name != "reference-auth-diagnostic.patch" or len(payload) > _MAX_ARTIFACT_BYTES:
+            raise ValueError("diagnostic artifact must be the bounded Reference auth fixture patch")
+        target = self.path.parent / name
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(target, flags, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            offset = 0
+            while offset < len(payload):
+                offset += os.write(fd, payload[offset:])
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        digest = hashlib.sha256(payload).hexdigest()
+        self.append("diagnostic_artifact_captured", name=name, path=str(target),
+                    bytes=len(payload), sha256=digest)
+        return str(target)
+
     def close(self) -> None:
         if self._fd >= 0:
             os.close(self._fd)
@@ -162,6 +190,14 @@ def sanitize_service_log_line(line: str) -> str:
     line = re.sub(r"(?i)\b[0-9a-f]{8}-[0-9a-f-]{27,}\b", "<id>", line)
     line = re.sub(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", "<email>", line)
     line = re.sub(r"(?i)(qualification-local-only|minioadmin)", "[credential omitted]", line)
+    line = re.sub(r'(?i)(user_id\s*[=:]\s*)"?[0-9a-f-]{36}', r'\1<id>', line)
+    if _AUTH_TRACE_TARGET in line:
+        match = _AUTH_TRACE_FIELDS.search(line)
+        if not match:
+            return "[auth diagnostic line omitted: unexpected format]"
+        phase, elapsed_ms, outcome = match.groups()
+        return (f"AUTH_DIAGNOSTIC correlation=fixture-auth-login phase={phase} "
+                f"elapsed_ms={elapsed_ms} outcome={outcome}")
     if not re.search(r"(?i)error|warn|timeout|request|response|status|listening|shutdown|ready|started|stopped|configur|db_configured", line):
         return ""
     return line[:1000]
@@ -283,8 +319,20 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
         raise
     if diagnostics:
         diagnostics.append("service_setup_completed", operation="fixture_admin_role_grant", service="postgres")
-    session = api("login", "POST", "/v1/auth/login", "/v1/auth/login",
-                  {"email": email, "password": password})
+    try:
+        session = api("login", "POST", "/v1/auth/login", "/v1/auth/login",
+                      {"email": email, "password": password})
+    except TimeoutError as error:
+        if diagnostics is not None:
+            diagnostics.append("auth_server_phase_capture_wait_started",
+                               operation="login", exception_type=type(error).__name__, wait_seconds=15)
+        # The client deadline is unchanged. Give this one in-flight server request
+        # a bounded opportunity to finish its auth phases before log capture.
+        time.sleep(15)
+        if diagnostics is not None:
+            diagnostics.append("auth_server_phase_capture_wait_completed",
+                               operation="login", wait_seconds=15)
+        raise
     token = session["data"]["access_token"]
     media = api("media_create", "POST", "/v1/admin/media", "/v1/admin/media", {"kind": "image", "visibility": "public",
                 "title": "Disposable Silo qualification", "original_filename": "qualification.png"})["data"]

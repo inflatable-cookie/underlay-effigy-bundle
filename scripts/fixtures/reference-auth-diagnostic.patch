@@ -1,0 +1,305 @@
+--- a/apps/acme-api/crates/api/src/routes/shared/auth/basic.rs
++++ b/apps/acme-api/crates/api/src/routes/shared/auth/basic.rs
+@@ -67,8 +67,11 @@
+     State(state): State<AppState>,
+     Json(payload): Json<LoginRequest>,
+ ) -> impl IntoResponse {
++    let api_started = std::time::Instant::now();
++    tracing::info!(target: "underlay_profile_auth_diagnostic", correlation = "fixture-auth-login", phase = "api_login_handler", elapsed_ms = 0u64, outcome = "started");
+     // Validate input
+     if let Err(validation_err) = payload.validate() {
++        tracing::info!(target: "underlay_profile_auth_diagnostic", correlation = "fixture-auth-login", phase = "api_login_response", elapsed_ms = api_started.elapsed().as_millis() as u64, outcome = "validation_error");
+         return validation_error_response(validation_err).into_response();
+     }
+ 
+@@ -77,7 +80,9 @@
+ 
+     let client_ip = client_ip(&ctx);
+ 
+-    match state
++    let auth_started = std::time::Instant::now();
++    tracing::info!(target: "underlay_profile_auth_diagnostic", correlation = "fixture-auth-login", phase = "api_login_auth_call", elapsed_ms = 0u64, outcome = "started");
++    let auth_result = state
+         .local_auth
+         .login_with_password_and_ip(
+             email,
+@@ -85,15 +90,19 @@
+             payload.code.as_deref(),
+             client_ip.as_deref(),
+         )
+-        .await
+-    {
++        .await;
++    tracing::info!(target: "underlay_profile_auth_diagnostic", correlation = "fixture-auth-login", phase = "api_login_auth_call", elapsed_ms = auth_started.elapsed().as_millis() as u64, outcome = if auth_result.is_ok() { "ok" } else { "error" });
++    match auth_result {
+         Ok(session) => {
++            let role_lookup_started = std::time::Instant::now();
++            tracing::info!(target: "underlay_profile_auth_diagnostic", correlation = "fixture-auth-login", phase = "api_login_role_lookup", elapsed_ms = 0u64, outcome = "started");
+             let role = state
+                 .local_auth
+                 .me(session.user.id)
+                 .await
+                 .map(|(_, r)| r)
+                 .unwrap_or_else(|_| "user".to_string());
++            tracing::info!(target: "underlay_profile_auth_diagnostic", correlation = "fixture-auth-login", phase = "api_login_role_lookup", elapsed_ms = role_lookup_started.elapsed().as_millis() as u64, outcome = "completed");
+ 
+             let refresh_token = session.refresh_token.clone();
+             let include_refresh_token = include_refresh_token_in_body(&headers);
+@@ -106,14 +115,19 @@
+                 tracing::warn!("Failed to set auth cookies: {}", e);
+             }
+ 
+-            (
++            let response = (
+                 StatusCode::OK,
+                 response_headers,
+                 Json(SingleResponse { data: dto }),
+             )
+-                .into_response()
+-        }
+-        Err(err) => map_auth_error_to_response(err),
++                .into_response();
++            tracing::info!(target: "underlay_profile_auth_diagnostic", correlation = "fixture-auth-login", phase = "api_login_response", elapsed_ms = api_started.elapsed().as_millis() as u64, outcome = "success");
++            response
++        }
++        Err(err) => {
++            tracing::info!(target: "underlay_profile_auth_diagnostic", correlation = "fixture-auth-login", phase = "api_login_response", elapsed_ms = api_started.elapsed().as_millis() as u64, outcome = "auth_error");
++            map_auth_error_to_response(err)
++        },
+     }
+ }
+ 
+--- a/apps/acme-api/crates/auth/src/local/mod.rs
++++ b/apps/acme-api/crates/auth/src/local/mod.rs
+@@ -47,18 +47,52 @@
+ mod totp;
+ mod user;
+ 
++pub(super) fn fixture_auth_trace(
++    phase: &'static str,
++    started: std::time::Instant,
++    outcome: &'static str,
++) {
++    tracing::info!(
++        target: "underlay_profile_auth_diagnostic",
++        correlation = "fixture-auth-login",
++        phase,
++        elapsed_ms = started.elapsed().as_millis() as u64,
++        outcome,
++    );
++}
++
+ async fn verify_password_blocking(
+     hasher: Argon2Hasher,
+     password: Vec<u8>,
+     secret_encrypted: String,
+ ) -> AuthResult<bool> {
+-    tokio::task::spawn_blocking(move || {
+-        hasher
++    let scheduled_at = std::time::Instant::now();
++    fixture_auth_trace("auth_verify_spawn", scheduled_at, "started");
++    let joined = tokio::task::spawn_blocking(move || {
++        fixture_auth_trace("auth_verify_worker", scheduled_at, "started");
++        let verify_started = std::time::Instant::now();
++        let result = hasher
+             .verify_password(&password, &secret_encrypted)
+-            .map_err(|_| AuthError::Internal("Failed to verify password".into()))
++            .map_err(|_| AuthError::Internal("Failed to verify password".into()));
++        let outcome = match &result {
++            Ok(true) => "valid",
++            Ok(false) => "invalid",
++            Err(_) => "error",
++        };
++        fixture_auth_trace("auth_verify_worker", verify_started, outcome);
++        result
+     })
+-    .await
+-    .map_err(|_| AuthError::Internal("Failed to verify password".into()))?
++    .await;
++    match joined {
++        Ok(result) => {
++            fixture_auth_trace("auth_verify_join", scheduled_at, "ok");
++            result
++        }
++        Err(_) => {
++            fixture_auth_trace("auth_verify_join", scheduled_at, "join_error");
++            Err(AuthError::Internal("Failed to verify password".into()))
++        }
++    }
+ }
+ 
+ async fn hash_password_blocking(hasher: Argon2Hasher, password: Vec<u8>) -> AuthResult<String> {
+--- a/apps/acme-api/crates/auth/src/local/login.rs
++++ b/apps/acme-api/crates/auth/src/local/login.rs
+@@ -79,9 +79,26 @@
+         ip: Option<&str>,
+     ) -> AuthResult<(User, Credential, String)> {
+         // Check rate limit before any database lookups
+-        self.check_login_rate_limit(email, ip).await?;
+-
+-        let Some(user) = self.find_user_by_email(email).await? else {
++        let rate_limit_started = std::time::Instant::now();
++        super::fixture_auth_trace("auth_rate_limit", rate_limit_started, "started");
++        let rate_limit_result = self.check_login_rate_limit(email, ip).await;
++        super::fixture_auth_trace(
++            "auth_rate_limit",
++            rate_limit_started,
++            if rate_limit_result.is_ok() { "ok" } else { "error" },
++        );
++        rate_limit_result?;
++
++        let user_lookup_started = std::time::Instant::now();
++        super::fixture_auth_trace("auth_user_lookup", user_lookup_started, "started");
++        let user_lookup = self.find_user_by_email(email).await;
++        let user_lookup_outcome = match &user_lookup {
++            Ok(Some(_)) => "found",
++            Ok(None) => "not_found",
++            Err(_) => "error",
++        };
++        super::fixture_auth_trace("auth_user_lookup", user_lookup_started, user_lookup_outcome);
++        let Some(user) = user_lookup? else {
+             // Burn one KDF pass so an unknown email costs the same as a real
+             // verify (mirrors underlay's PasswordAuthService::dummy_verify).
+             // Without this, the fast miss path is an account-existence oracle.
+@@ -98,21 +115,42 @@
+         }
+ 
+         // Check if account is locked out
+-        if let Some(retry_after) = self.check_lockout(user.id).await? {
+-            if let Err(err) = self.record_locked_login_attempt(user.id, ip).await {
+-                tracing::warn!(
+-                    error = ?err,
+-                    user_id = %user.id,
+-                    "failed to record locked login attempt"
+-                );
++        let lockout_started = std::time::Instant::now();
++        super::fixture_auth_trace("auth_lockout_check", lockout_started, "started");
++        let lockout_result = self.check_lockout(user.id).await;
++        let lockout_outcome = match &lockout_result {
++            Ok(Some(_)) => "locked",
++            Ok(None) => "clear",
++            Err(_) => "error",
++        };
++        super::fixture_auth_trace("auth_lockout_check", lockout_started, lockout_outcome);
++        if let Some(retry_after) = lockout_result? {
++            let record_started = std::time::Instant::now();
++            super::fixture_auth_trace("auth_locked_attempt_record", record_started, "started");
++            let record_result = self.record_locked_login_attempt(user.id, ip).await;
++            super::fixture_auth_trace(
++                "auth_locked_attempt_record",
++                record_started,
++                if record_result.is_ok() { "ok" } else { "error" },
++            );
++            if let Err(err) = record_result {
++                tracing::warn!(error = ?err, "failed to record locked login attempt");
+             }
+             return Err(AuthError::RateLimited {
+                 retry_after_seconds: retry_after,
+             });
+         }
+ 
+-        let Some((credential, role)) = self.find_password_credential_and_role(user.id).await?
+-        else {
++        let credential_started = std::time::Instant::now();
++        super::fixture_auth_trace("auth_credential_lookup", credential_started, "started");
++        let credential_result = self.find_password_credential_and_role(user.id).await;
++        let credential_outcome = match &credential_result {
++            Ok(Some(_)) => "found",
++            Ok(None) => "not_found",
++            Err(_) => "error",
++        };
++        super::fixture_auth_trace("auth_credential_lookup", credential_started, credential_outcome);
++        let Some((credential, role)) = credential_result? else {
+             // Same timing equalizer: a user with no password credential must
+             // not resolve faster than a real password verify.
+             self.dummy_verify().await;
+@@ -128,10 +166,22 @@
+ 
+         if !ok {
+             // Record failed attempt and check for lockout
+-            if let Some(retry_after) = self
++            let failed_attempt_started = std::time::Instant::now();
++            super::fixture_auth_trace("auth_failed_attempt_write", failed_attempt_started, "started");
++            let failed_attempt_result = self
+                 .record_failed_login(user.id, ip, "wrong_password")
+-                .await?
+-            {
++                .await;
++            let failed_attempt_outcome = match &failed_attempt_result {
++                Ok(Some(_)) => "recorded_and_locked",
++                Ok(None) => "recorded",
++                Err(_) => "error",
++            };
++            super::fixture_auth_trace(
++                "auth_failed_attempt_write",
++                failed_attempt_started,
++                failed_attempt_outcome,
++            );
++            if let Some(retry_after) = failed_attempt_result? {
+                 return Err(AuthError::RateLimited {
+                     retry_after_seconds: retry_after,
+                 });
+@@ -140,9 +190,25 @@
+         }
+ 
+         // Password correct - reset failed login count
+-        self.reset_failed_logins(user.id, ip).await?;
+-
+-        self.update_credential_last_used(credential.id).await?;
++        let reset_started = std::time::Instant::now();
++        super::fixture_auth_trace("auth_failed_attempt_reset", reset_started, "started");
++        let reset_result = self.reset_failed_logins(user.id, ip).await;
++        super::fixture_auth_trace(
++            "auth_failed_attempt_reset",
++            reset_started,
++            if reset_result.is_ok() { "ok" } else { "error" },
++        );
++        reset_result?;
++
++        let credential_update_started = std::time::Instant::now();
++        super::fixture_auth_trace("auth_credential_last_used", credential_update_started, "started");
++        let credential_update = self.update_credential_last_used(credential.id).await;
++        super::fixture_auth_trace(
++            "auth_credential_last_used",
++            credential_update_started,
++            if credential_update.is_ok() { "ok" } else { "error" },
++        );
++        credential_update?;
+ 
+         Ok((user, credential, role))
+     }
+@@ -166,7 +232,16 @@
+     ) -> AuthResult<AuthSession> {
+         let (user, _credential, role) = self.verify_user_credentials(email, password, ip).await?;
+ 
+-        if let Some(totp) = self.find_totp_details(user.id).await? {
++        let totp_lookup_started = std::time::Instant::now();
++        super::fixture_auth_trace("auth_totp_lookup", totp_lookup_started, "started");
++        let totp_result = self.find_totp_details(user.id).await;
++        let totp_outcome = match &totp_result {
++            Ok(Some(_)) => "configured",
++            Ok(None) => "not_configured",
++            Err(_) => "error",
++        };
++        super::fixture_auth_trace("auth_totp_lookup", totp_lookup_started, totp_outcome);
++        if let Some(totp) = totp_result? {
+             let Some(code) = code else {
+                 return Err(AuthError::TwoFactorRequired);
+             };
+@@ -174,7 +249,15 @@
+         }
+ 
+         let roles = roles_for_user(&role);
+-        let (tokens, session) = self.create_session(user.id, roles).await?;
++        let session_started = std::time::Instant::now();
++        super::fixture_auth_trace("auth_session_create", session_started, "started");
++        let session_result = self.create_session(user.id, roles).await;
++        super::fixture_auth_trace(
++            "auth_session_create",
++            session_started,
++            if session_result.is_ok() { "ok" } else { "error" },
++        );
++        let (tokens, session) = session_result?;
+ 
+         Ok(AuthSession {
+             user,

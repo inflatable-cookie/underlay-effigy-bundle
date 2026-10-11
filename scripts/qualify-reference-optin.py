@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import errno
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -97,6 +98,127 @@ def install_reference_silo_fixture(checkout: Path) -> None:
         return
     else:
         raise RuntimeError("Reference Silo fixture adapter source did not match its reviewed exact patch")
+
+
+REFERENCE_AUTH_TRACE_PATCH = SCRIPTS / "fixtures/reference-auth-diagnostic.patch"
+REFERENCE_AUTH_TRACE_FILES = (
+    "apps/acme-api/crates/api/src/routes/shared/auth/basic.rs",
+    "apps/acme-api/crates/auth/src/local/login.rs",
+    "apps/acme-api/crates/auth/src/local/mod.rs",
+)
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def reference_auth_trace_patch_metadata() -> dict:
+    patch = REFERENCE_AUTH_TRACE_PATCH.read_bytes()
+    if len(patch) > 24 * 1024:
+        raise RuntimeError("Reference auth fixture patch exceeded its bounded size")
+    lines = patch.decode("utf-8").splitlines()
+    targets = {
+        line.removeprefix("+++ b/") for line in lines if line.startswith("+++ b/")
+    }
+    if targets != set(REFERENCE_AUTH_TRACE_FILES):
+        raise RuntimeError("Reference auth fixture patch changed files outside its reviewed scope")
+    return {
+        "path": str(REFERENCE_AUTH_TRACE_PATCH),
+        "sha256": hashlib.sha256(patch).hexdigest(),
+        "bytes": len(patch),
+        "files": list(REFERENCE_AUTH_TRACE_FILES),
+        "payload": patch,
+    }
+
+
+def install_reference_auth_trace_fixture(
+    checkout: Path, diagnostics: StorageDiagnosticJournal | None = None,
+) -> dict:
+    """Apply only the bounded login phase trace to this disposable Reference clone."""
+    patch = reference_auth_trace_patch_metadata()
+    source_commit = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True, timeout=15,
+    ).stdout.strip()
+    before = {
+        relative: _sha256_file(checkout / relative)
+        for relative in REFERENCE_AUTH_TRACE_FILES
+    }
+    checked = subprocess.run(
+        ["git", "-C", str(checkout), "apply", "--check", patch["path"]],
+        capture_output=True, text=True, timeout=30,
+    )
+    if checked.returncode != 0:
+        raise RuntimeError("Reference auth fixture patch did not match the pinned checkout")
+    applied = subprocess.run(
+        ["git", "-C", str(checkout), "apply", patch["path"]],
+        capture_output=True, text=True, timeout=30,
+    )
+    if applied.returncode != 0:
+        raise RuntimeError("Reference auth fixture patch failed after its exact check")
+    after = {
+        relative: _sha256_file(checkout / relative)
+        for relative in REFERENCE_AUTH_TRACE_FILES
+    }
+    if any(before[path] == after[path] for path in REFERENCE_AUTH_TRACE_FILES):
+        raise RuntimeError("Reference auth fixture patch did not change every expected file")
+    lockfile = checkout / "apps/acme-api/Cargo.lock"
+    if not lockfile.is_file():
+        raise RuntimeError("Reference auth fixture could not retain the API Cargo.lock identity")
+    receipt = {
+        "reference_source_commit": source_commit,
+        "patch_sha256": patch["sha256"],
+        "patch_bytes": patch["bytes"],
+        "cargo_lock_sha256": _sha256_file(lockfile),
+        "files": [
+            {"path": relative, "sha256_before": before[relative], "sha256_after": after[relative]}
+            for relative in REFERENCE_AUTH_TRACE_FILES
+        ],
+    }
+    if diagnostics is not None:
+        receipt["patch_artifact"] = diagnostics.write_artifact(
+            "reference-auth-diagnostic.patch", patch["payload"],
+        )
+        diagnostics.append("reference_auth_fixture_patched", **receipt)
+    return receipt
+
+
+def record_reference_auth_build_identity(
+    checkout: Path, env: dict[str, str], diagnostics: StorageDiagnosticJournal,
+    auth_patch_receipt: dict,
+) -> dict:
+    target = Path(env["CARGO_TARGET_DIR"]).resolve(strict=True)
+    fixture_root = Path(env["UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT"]).resolve(strict=True)
+    if not target.is_relative_to(fixture_root):
+        raise RuntimeError("Reference auth build target escaped the disposable fixture root")
+    candidates = (
+        target / "debug/acme-api",
+        checkout / "apps/acme-api/target/debug/acme-api",
+        checkout / "target/debug/acme-api",
+    )
+    binary = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if binary is None:
+        raise RuntimeError("instrumented Reference API build artifact was not retained in the private fixture")
+    metadata = binary.lstat()
+    if not binary.is_file() or binary.is_symlink():
+        raise RuntimeError("instrumented Reference API binary is not a regular private build artifact")
+    binary = binary.resolve(strict=True)
+    result = {
+        "reference_source_commit": auth_patch_receipt["reference_source_commit"],
+        "patch_sha256": auth_patch_receipt["patch_sha256"],
+        "cargo_lock_sha256": auth_patch_receipt["cargo_lock_sha256"],
+        "binary_path": str(binary),
+        "binary_bytes": metadata.st_size,
+        "binary_sha256": _sha256_file(binary),
+        "cargo_target_dir": str(target),
+        "compile_selector": "acme-api/check",
+    }
+    diagnostics.append("reference_auth_build_identity", **result)
+    return result
 
 
 def profile_root(checkout: Path, profile: str = "hybrid") -> Path:
@@ -319,7 +441,8 @@ def append_diagnostic_best_effort(diagnostics: StorageDiagnosticJournal | None,
 
 
 def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storage_only: bool,
-                            diagnostics: StorageDiagnosticJournal | None = None) -> dict:
+                            diagnostics: StorageDiagnosticJournal | None = None,
+                            auth_patch_receipt: dict | None = None) -> dict:
     service_records: dict[Path, dict] = {}
     app_records: dict[Path, dict[str, dict]] = {}
     started: set[Path] = set()
@@ -355,6 +478,8 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
         for checkout in checkouts:
             started.add(checkout)
             selector(checkout, "dev:hybrid", env, timeout=1800)
+            if checkout == checkouts[0] and diagnostics is not None and auth_patch_receipt is not None:
+                record_reference_auth_build_identity(checkout, env, diagnostics, auth_patch_receipt)
             receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid", "exit": 0})
             status = effigy_json(checkout, env, "container", "hybrid_services", "status", "--json")
             service_records[checkout] = status
@@ -441,6 +566,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                         "fixture_root": env["UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT"],
                         "reference_checkout": str(checkout),
                         "reference_commit": reference_commit,
+                        "auth_fixture": auth_patch_receipt or {},
                         "effigy_source": "8ecd64b37963cd6832a2b6ffa528034c56828504",
                         "effigy_binary": str(Path(EFFIGY).resolve()),
                         "effigy_binary_sha256": "03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324",
@@ -697,6 +823,7 @@ def main() -> int:
         checkouts = checkouts[:1]
     for checkout in checkouts:
         REFERENCE.point_bundle_at_task_branch(checkout)
+    auth_patch_receipt = install_reference_auth_trace_fixture(checkouts[0], diagnostics)
     REFERENCE.prove_reference_configuration(checkouts)
     for checkout in checkouts:
         enable_profiles(checkout, Path(os.environ["UNDERLAY_PROFILE_EFFIGY_SOURCE"]).resolve(strict=True))
@@ -723,6 +850,20 @@ def main() -> int:
     safe_to_purge_colima = False
     attempt_succeeded = False
     try:
+        compile_result = RUNTIME.run(
+            [EFFIGY, "--repo", str(checkouts[0] / "apps/acme-api"), "check"],
+            cwd=checkouts[0] / "apps/acme-api", env=runtime_env,
+            timeout=900, expected=None, print_output=False,
+        )
+        append_diagnostic_best_effort(
+            diagnostics, "reference_auth_fixture_compile",
+            selector="acme-api/check", exit=compile_result.returncode,
+            reference_source_commit=auth_patch_receipt["reference_source_commit"],
+            patch_sha256=auth_patch_receipt["patch_sha256"],
+            cargo_lock_sha256=auth_patch_receipt["cargo_lock_sha256"],
+        )
+        if compile_result.returncode != 0:
+            raise RuntimeError("instrumented disposable Reference auth fixture compile failed")
         colima_start_attempted = True
         RUNTIME.run(["colima", "start", "--profile", "effigy", "--runtime", "containerd",
                      "--cpu", "6", "--memory", "8", "--disk", "64"],
@@ -733,7 +874,8 @@ def main() -> int:
             diagnostics.append("pinned_images_prepared", silo_image=IMAGE,
                                silo_release=RELEASE, silo_client_image=CLIENT_IMAGE)
         receipts = verify_profile_runtime(checkouts, runtime_env, storage_only=storage_only,
-                                          diagnostics=diagnostics)
+                                          diagnostics=diagnostics,
+                                          auth_patch_receipt=auth_patch_receipt)
         receipts["checkout_retire"] = []
         for checkout in checkouts:
             append_diagnostic_best_effort(diagnostics, "checkout_retirement_started",
