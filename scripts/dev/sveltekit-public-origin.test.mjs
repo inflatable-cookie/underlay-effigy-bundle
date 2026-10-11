@@ -191,6 +191,91 @@ test("forwarded host and scheme are validated when supplied", () => {
   );
 });
 
+test("gateway requests to the configured readiness path are not local probes", () => {
+  const readinessPath = "/";
+  const normalized = normalizeSvelteKitEvent(
+    eventFor({
+      host: "front.acme.test:5443",
+      forwardedHost: "front.acme.test",
+      forwardedProto: "https",
+      path: readinessPath,
+    }),
+    publicOrigin,
+    readinessPath,
+  );
+  assert.equal(normalized.url.href, `${publicOrigin}/`);
+  assert.equal(normalized.request.url, `${publicOrigin}/`);
+
+  const directProbe = normalizeSvelteKitEvent(
+    eventFor({
+      host: "front.acme.test",
+      forwardedHost: null,
+      forwardedProto: null,
+      path: readinessPath,
+      requestAddress: "http://127.0.0.1:62904",
+    }),
+    publicOrigin,
+    readinessPath,
+  );
+  assert.equal(directProbe.url.origin, publicOrigin);
+});
+
+test("only the declared hostname may differ for a direct readiness probe", () => {
+  const declaredProbe = normalizeSvelteKitEvent(
+    eventFor({
+      host: "front-api.acme.test",
+      forwardedHost: null,
+      forwardedProto: null,
+      path: "/",
+      requestAddress: "http://127.0.0.1:62904",
+    }),
+    publicOrigin,
+    "/",
+    "front-api.acme.test",
+  );
+  assert.equal(declaredProbe.url.href, `${publicOrigin}/`);
+
+  assert.throws(
+    () => normalizeSvelteKitEvent(
+      eventFor({
+        host: "front-api.acme.test",
+        forwardedHost: null,
+        forwardedProto: null,
+        path: "/browse/item",
+        requestAddress: "http://127.0.0.1:62904",
+      }),
+      publicOrigin,
+      "/",
+      "front-api.acme.test",
+    ),
+    /Host does not match/,
+  );
+  assert.throws(
+    () => normalizeSvelteKitEvent(
+      eventFor({
+        host: "foreign.test",
+        forwardedHost: null,
+        forwardedProto: null,
+        path: "/",
+        requestAddress: "http://127.0.0.1:62904",
+      }),
+      publicOrigin,
+      "/",
+      "front-api.acme.test",
+    ),
+    /Host does not match/,
+  );
+  assert.throws(
+    () => normalizeSvelteKitEvent(
+      eventFor({ path: "/browse/item" }),
+      publicOrigin,
+      "/",
+      "front-api.acme.test:4100",
+    ),
+    /hostname without a port/,
+  );
+});
+
 test("foreign, malformed, and opaque browser origins are rejected", () => {
   for (const origin of ["https://foreign.test:5443", "not a URL", "null"]) {
     assert.throws(

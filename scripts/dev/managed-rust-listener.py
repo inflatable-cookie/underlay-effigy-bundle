@@ -19,6 +19,17 @@ import tempfile
 import time
 from pathlib import Path
 
+from profile_launcher import (
+    ProfileError,
+    _bootstrap_silo,
+    _profile_root,
+    _profile_env,
+    profile_context,
+    profile_environment,
+    profile_for_containers,
+    verify_binary,
+)
+
 
 BIND_ENV = "EFFIGY_MANAGED_HOST_LISTENER_BIND"
 REPORT_ENV = "EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE"
@@ -132,14 +143,47 @@ def write_report(address: str) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if not argv or argv[0] != "--" or len(argv) < 2:
-        raise RuntimeError("usage: managed-rust-listener.py -- <Effigy selector command...>")
+    if len(argv) != 2 or argv[0] != "--" or not re.fullmatch(r"[A-Za-z0-9_.:/-]+", argv[1]):
+        raise RuntimeError("usage: managed-rust-listener.py -- <one Effigy task selector>")
     host, requested_port = bind_preference()
-    command = argv[1:]
+    selector = argv[1]
     environment = os.environ.copy()
-    environment["HOST"] = host
-    environment["PORT"] = str(requested_port)
-    child = subprocess.Popen(command, env=environment)
+    identity = verify_binary(
+        environment.get("UNDERLAY_PROFILE_EFFIGY_SOURCE"),
+        environment.get("UNDERLAY_PROFILE_EFFIGY_BIN"),
+    )
+    repo_value = environment.get("UNDERLAY_PROFILE_REPO")
+    candidate = Path(repo_value).expanduser() if repo_value else Path.cwd()
+    candidate = candidate.resolve(strict=True)
+    if not (candidate / "effigy.toml").is_file():
+        candidate = next(
+            (parent for parent in candidate.parents if (parent / "effigy.toml").is_file()),
+            None,
+        )
+    if candidate is None:
+        raise RuntimeError("could not locate the consumer checkout root containing effigy.toml")
+    repo = candidate.resolve(strict=True)
+    container = environment.get("EFFIGY_PROFILE_CONTAINER_NAME", "")
+    host_container = environment.get("EFFIGY_PROFILE_HOST_CONTAINER_NAME", "")
+    profile = profile_for_containers(container, host_container)
+    service_container, _ = {
+        "hybrid": ("hybrid_services", "hybrid_services"),
+        "disposable_test": ("disposable_test", "disposable_test"),
+    }[profile]
+    root = _profile_root(repo, profile)
+    runtime_env = _profile_env(repo, root, environment, profile)
+    context = profile_context(identity, repo, runtime_env, service_container)
+    child_env = profile_environment(context, runtime_env)
+    _bootstrap_silo(identity, repo, child_env, service_container, context)
+    child_env["HOST"] = host
+    child_env["PORT"] = str(requested_port)
+
+    # Invoke the selector through the exact source-qualified executable. Its
+    # absolute path and contents were checked before any nested runtime call.
+    verify_binary(identity.source, identity.binary)
+    command = [identity.binary, "--repo", str(repo), selector]
+    environment = child_env
+    child = subprocess.Popen(command, cwd=repo, env=environment)
     stopping = False
 
     def stop_child(signum: int, _frame: object) -> None:

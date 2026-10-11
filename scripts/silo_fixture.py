@@ -142,12 +142,17 @@ def prepare_published_images(runtime_root: Path, environment: dict[str, str]) ->
     shape = command(prefix + ["--entrypoint", "/bin/sh", IMAGE, "-c",
         "command -v silo; command -v mc; command -v mcli; silo --version; mc --version; sha256sum /usr/bin/silo /usr/bin/mc"], env=environment, timeout=60)
     client_version = command(prefix + [CLIENT_IMAGE, "--version"], env=environment, timeout=60)
-    if RELEASE not in shape or RELEASE not in client_version:
+    client_shape = command(prefix + ["--entrypoint", "/bin/sh", CLIENT_IMAGE, "-c",
+        "command -v sh; command -v mc; mc --version; sha256sum /usr/bin/mc"], env=environment, timeout=60)
+    if RELEASE not in shape or RELEASE not in client_version or RELEASE not in client_shape:
         raise RuntimeError("published Silo/client executable release differs from selected image")
-    if PINS["pgsty/silo"]["revision"][:12] not in shape or PINS["pgsty/mc"]["revision"][:12] not in client_version:
+    if (PINS["pgsty/silo"]["revision"][:12] not in shape
+            or PINS["pgsty/mc"]["revision"][:12] not in client_version
+            or PINS["pgsty/mc"]["revision"][:12] not in client_shape):
         raise RuntimeError("published Silo/client executable commit differs from source provenance")
     result["executable_shape"] = shape.strip()
     result["client_version"] = client_version.strip()
+    result["client_executable_shape"] = client_shape.strip()
     receipt.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(f"PASS published Silo platform/release contract; receipt: {receipt}", flush=True)
     return result

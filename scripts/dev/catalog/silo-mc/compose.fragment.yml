@@ -1,0 +1,5 @@
+services:
+  {{ service_name }}:
+    image: {{ image }}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["while :; do sleep 3600; done"]

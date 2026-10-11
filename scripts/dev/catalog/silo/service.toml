@@ -1,0 +1,44 @@
+[service]
+name = "silo"
+description = "Opt-in published PGSTY Silo object storage for isolated Underlay profiles"
+
+[params.image]
+type = "string"
+default = "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46"
+description = "Digest-pinned published PGSTY Silo server image. This local profile override does not change the shared MinIO catalog."
+
+[params.root_user]
+type = "string"
+default = "minioadmin"
+description = "Loopback-only local Silo root user"
+
+[params.root_password]
+type = "string"
+default = "minioadmin"
+description = "Loopback-only local Silo root password"
+
+[params.api_port]
+type = "integer"
+default = 9000
+description = "Silo S3 API container port"
+
+[params.console_port]
+type = "integer"
+default = 9001
+description = "Silo console container port"
+
+[capabilities]
+exec_target = true
+shell = "/bin/sh"
+loopback_alias_label = "s3"
+loopback_alias_port = 9000
+
+[volumes.data]
+mount = "/data"
+named = true
+persist = true
+description = "Private per-checkout Silo object data"
+
+[ports]
+default = [9000, 9001]
+description = "Silo S3 API (9000) and console (9001)"

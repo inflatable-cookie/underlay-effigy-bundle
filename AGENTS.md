@@ -25,5 +25,7 @@ Northstar, `northstar` skill).
 
 ## Validate
 
-Assemble the bundle from a consumer checkout (for example acowtancy) before
-merging; see `docs/knowledge/contracts/release.md`.
+Assemble the bundle from a disposable consumer checkout before merging; see
+`docs/knowledge/contracts/release.md`. For opt-in profile changes, preserve a
+default-input assembly and also exercise the explicit profile selectors,
+exact-source admission, and owned cleanup in an isolated consumer runtime.

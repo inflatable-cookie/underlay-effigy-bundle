@@ -43,6 +43,7 @@ def run(
     args: list[str],
     *,
     cwd: Path | None = None,
+    env: dict[str, str] | None = None,
     timeout: float = 60,
     expected: int = 0,
     show_output: bool = True,
@@ -51,6 +52,7 @@ def run(
     result = subprocess.run(
         args,
         cwd=cwd,
+        env=env,
         text=True,
         capture_output=True,
         timeout=timeout,
@@ -86,9 +88,10 @@ def run(
     return result
 
 
-def effigy_json(checkout: Path, *args: str) -> dict:
+def effigy_json(checkout: Path, *args: str, env: dict[str, str] | None = None) -> dict:
     result = run(
         [EFFIGY, "--repo", str(checkout), *args],
+        env=env,
         timeout=30,
         show_output=False,
     )
@@ -186,7 +189,16 @@ def prove_reference_configuration(checkouts: list[Path]) -> None:
         show_output=False,
     ).stdout
     effective_manifest = effective.split("Effective Manifest\n------------------\n", 1)[1]
-    assert '[bundle.sources]\nsiblings = false' in effective_manifest
+    if '[bundle.sources]\nsiblings = false' not in effective_manifest:
+        raise RuntimeError("default Reference assembly did not preserve bundle.sources.siblings=false")
+    if "[containers.hybrid_services]" in effective_manifest or '[tasks."dev:hybrid"]' in effective_manifest:
+        raise RuntimeError("omitted profiles.enabled unexpectedly emitted opt-in profile declarations")
+    bundle_inputs = (REPO / "bundle.toml").read_text(encoding="utf-8")
+    export_template = (REPO / "export.toml").read_text(encoding="utf-8")
+    if not re.search(r'(?m)^name = "profiles\.enabled"\ntype = "bool"\n[^\n]*\ndefault = false$', bundle_inputs):
+        raise RuntimeError("profiles.enabled must default to false in the bundle input schema")
+    if '[manifest]\nminimum_effigy_version = "{% if inputs.profiles.enabled %}0.14.1{% else %}0.13.1{% endif %}"' not in export_template:
+        raise RuntimeError("profile input must raise the manifest floor only to 0.14.1; defaults remain 0.13.1")
     assert 'catalog = "workspace-rust-bun"' in effective_manifest
     for port in (41001, 41002, 41003):
         assert f'"{port}:{port}"' in effective_manifest
@@ -486,11 +498,29 @@ def install_public_origin_hooks(checkouts: list[Path]) -> None:
 import {{ withSvelteKitPublicOrigin }} from {json.dumps(helper)};
 
 export * from "./hooks.server.js";
-export const handle = withSvelteKitPublicOrigin(existingHooks.handle, {{
+const publicOriginHandle = withSvelteKitPublicOrigin(existingHooks.handle, {{
   enabled: import.meta.env.DEV && process.env.EFFIGY_PROFILE_PUBLIC_ORIGIN === "true",
   publicOrigin: process.env.EFFIGY_PROFILE_PUBLIC_URL,
-  readinessPath: "/__effigy/ready",
+  readinessPath: "/",
+  readinessHost: process.env.EFFIGY_PROFILE_SELF_DECLARED,
 }});
+export const handle = async (input) => {{
+  try {{
+    return await publicOriginHandle(input);
+  }} catch (error) {{
+    const request = input?.event?.request;
+    console.error("[qualification public-origin diagnostics]", JSON.stringify({{
+      error: error instanceof Error ? error.message : "unknown hook error",
+      publicOrigin: process.env.EFFIGY_PROFILE_PUBLIC_URL,
+      requestOrigin: request ? new URL(request.url).origin : null,
+      eventOrigin: input?.event?.url?.origin ?? null,
+      host: request?.headers?.get("host") ?? null,
+      forwardedHost: request?.headers?.get("x-forwarded-host") ?? null,
+      forwardedProto: request?.headers?.get("x-forwarded-proto") ?? null,
+    }}));
+    throw error;
+  }}
+}};
 ''',
                 encoding="utf-8",
             )
@@ -575,9 +605,17 @@ def fixture_public_origin_observations(
 
 
 def managed_listener_state(
-    checkout: Path, name: str, *, allow_unready: bool = False
+    checkout: Path,
+    name: str,
+    *,
+    allow_unready: bool = False,
+    effective_domain: str | None = None,
 ) -> tuple[Path, dict]:
-    state_path = checkout / ".effigy/runtime/host-processes/hybrid/effigy" / f"{name}.listener.json"
+    candidates = (
+        checkout / ".effigy/runtime/host-processes/hybrid_services/effigy" / f"{name}.listener.json",
+        checkout / ".effigy/runtime/host-processes/hybrid/effigy" / f"{name}.listener.json",
+    )
+    state_path = next((path for path in candidates if path.is_file()), candidates[0])
     state = json.loads(state_path.read_text(encoding="utf-8"))
     if state.get("status") != "ready" or not state.get("route_owner"):
         if allow_unready:
@@ -589,6 +627,12 @@ def managed_listener_state(
     assert report["generation"] == state["generation"]
     assert report["address"] == state["address"]
     assert state["route_owner"]["address"] == state["address"]
+    if effective_domain is not None:
+        declared_domain = state.get("route_domain")
+        if not isinstance(declared_domain, str) or not effective_domain:
+            raise RuntimeError(f"Reference managed listener {name} has no verified declared/effective route")
+        state["declared_route_domain"] = declared_domain
+        state["route_domain"] = effective_domain
     return state_path, state
 
 
@@ -1019,19 +1063,19 @@ def prove_private_pilot_receipts(checkouts: list[Path]) -> None:
     print("BLOCKED MinIO: the live disposable hybrid stack contains Postgres and Mailpit only; no genuine MinIO service was available", flush=True)
     print("NOT PROVEN: two worktree apps running simultaneously, child restart/address propagation, interrupted/uncertain recovery, partial-failure isolation, and teardown preserving foreign resources", flush=True)
 
-def prove_worktree_plans(checkouts: list[Path]) -> None:
+def prove_worktree_plans(checkouts: list[Path], env: dict[str, str] | None = None) -> None:
     scopes = []
     domains = []
     for checkout in checkouts:
-        scope = effigy_json(checkout, "container", "scope", "--json")["result"]["scope"]
-        hosts = effigy_json(checkout, "container", "hosts", "--json")["result"]
+        scope = effigy_json(checkout, "container", "scope", "--json", env=env)["result"]["scope"]
+        hosts = effigy_json(checkout, "container", "hosts", "--json", env=env)["result"]
         scopes.append(scope.get("token") or "primary")
         domains.append(hosts["base_domain"]["effective"])
         assert all(
             route["origin"] is None or route["origin"].startswith("https://")
             for route in hosts["routes"]
         )
-        run([EFFIGY, "--repo", str(checkout), "dev", "--plan"], timeout=30)
+        run([EFFIGY, "--repo", str(checkout), "dev", "--plan"], env=env, timeout=30)
 
     assert len(set(scopes)) == 3, scopes
     assert len(set(domains)) == 3, domains
@@ -1063,11 +1107,14 @@ def prove_real_adapter_task_plans(checkout: Path) -> None:
 def prove_bundle_adapter_sources() -> None:
     rust_adapter = REPO / "scripts/dev/managed-rust-listener.py"
     fixture_scripts = (
+        REPO / "scripts/dev/profile_launcher.py",
         REPO / "scripts/silo_fixture.py",
         REPO / "scripts/reference_storage_probe.py",
         REPO / "scripts/qualify-silo-artifacts.py",
         REPO / "scripts/qualify-reference-container.py",
         REPO / "scripts/qualify-reference-runtime.py",
+        REPO / "scripts/qualify-reference-optin.py",
+        REPO / "scripts/dev/profile_admission_test.py",
         REPO / "scripts/qualification/managed-listener-probe.py",
     )
     vite_adapter = REPO / "scripts/dev/managed-vite-listener.mjs"
@@ -1089,11 +1136,12 @@ def prove_bundle_adapter_sources() -> None:
         "EFFIGY_MANAGED_HOST_LISTENER_BIND",
         "EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE",
         "EFFIGY_MANAGED_HOST_LISTENER_GENERATION",
-        "EFFIGY_MANAGED_HOST_API_PUBLIC_URL",
+        "const apiUrl = makeUrl(routes.api)",
         "EFFIGY_PROFILE_GATEWAY_HTTPS_PORT",
         "EFFIGY_PROFILE_PUBLIC_ORIGIN",
         "EFFIGY_PROFILE_PUBLIC_URL",
         "EFFIGY_PROFILE_PUBLIC_CONFIG_GENERATOR",
+        "allowedHosts: [publicUrl.hostname]",
         "protocol: publicUrl.protocol === \"https:\" ? \"wss\" : \"ws\"",
     ):
         assert token in vite_source, f"Vite adapter is missing {token}"
@@ -1120,13 +1168,16 @@ def main() -> int:
     if prepared:
         root = Path(prepared).expanduser().resolve(strict=True)
         checkouts = prepared_reference_instances(root, source)
+        fixture_home = root / "home"
+        fixture_home.mkdir(mode=0o700, exist_ok=True)
+        fixture_env = {**os.environ, "HOME": str(fixture_home)}
         for checkout in checkouts:
             point_bundle_at_task_branch(checkout)
             bundle = effigy_json(checkout, "bundle", "inspect", "--json")["result"]
             assert bundle["source"]["source_type"] == "path"
             assert Path(bundle["source"]["source_path"]).resolve() == REPO.resolve()
         prove_private_pilot_receipts(checkouts)
-        prove_worktree_plans(checkouts)
+        prove_worktree_plans(checkouts, fixture_env)
         prove_real_adapter_task_plans(checkouts[0])
         return 0
 
@@ -1140,7 +1191,7 @@ def main() -> int:
         fixture_home = root / "home"
         fixture_home.mkdir(mode=0o700)
         initialize_reference_fixture_secrets(checkouts, {**os.environ, "HOME": str(fixture_home)})
-        prove_worktree_plans(checkouts)
+        prove_worktree_plans(checkouts, {**os.environ, "HOME": str(fixture_home)})
         prove_real_adapter_task_plans(checkouts[0])
         print(
             "CONFIGURATION-ONLY: set UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT to a prepared "

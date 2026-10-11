@@ -22,7 +22,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from silo_fixture import IMAGE, RELEASE, install_minio_catalog_override, prepare_published_images
+from silo_fixture import CLIENT_IMAGE, IMAGE, RELEASE, install_minio_catalog_override, prepare_published_images
 from reference_storage_probe import prove_reference_upload
 from qualification_runtime import require_effigy_binary
 
@@ -36,7 +36,7 @@ SPEC.loader.exec_module(REFERENCE)
 
 
 def run(args: list[str], *, cwd: Path | None = None, env: dict[str, str], timeout: int = 600,
-        expected: int = 0, print_output: bool = True) -> subprocess.CompletedProcess[str]:
+        expected: int | None = 0, print_output: bool = True) -> subprocess.CompletedProcess[str]:
     print(f"COMMAND: {' '.join(args)}", flush=True)
     result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
     print(f"EXIT: {result.returncode}", flush=True)
@@ -47,7 +47,7 @@ def run(args: list[str], *, cwd: Path | None = None, env: dict[str, str], timeou
             print(result.stderr.rstrip(), flush=True)
     else:
         print(f"OUTPUT: captured stdout={len(result.stdout)} bytes stderr={len(result.stderr)} bytes", flush=True)
-    if result.returncode != expected:
+    if expected is not None and result.returncode != expected:
         detail = safe_effigy_error(result.stdout) or safe_effigy_error(result.stderr)
         suffix = f"; {detail}" if detail else ""
         raise RuntimeError(f"expected exit {expected}, got {result.returncode}: {' '.join(args)}{suffix}")
@@ -173,7 +173,7 @@ def route_domains(hosts: dict) -> dict[str, str]:
             result["api"] = effective
         elif declared == "s3.acme.test":
             result["s3"] = effective
-        elif declared == "minio.acme.test":
+        elif declared in {"minio.acme.test", "silo.acme.test"}:
             result["minio"] = effective
     missing = {"front", "admin", "api", "s3", "minio"} - set(result)
     if missing:
@@ -196,7 +196,7 @@ def declared_route_domains(hosts: dict) -> dict[str, str]:
             result["api"] = declared
         elif declared == "s3.acme.test":
             result["s3"] = declared
-        elif declared == "minio.acme.test":
+        elif declared in {"minio.acme.test", "silo.acme.test"}:
             result["minio"] = declared
     missing = {"front", "admin", "api", "s3", "minio"} - set(result)
     if missing:
@@ -608,7 +608,9 @@ def verify_scope_down(checkout: Path, states: dict[str, dict], gateway_root: Pat
     for sibling, sibling_states in survivor_instances:
         one = {"checkout": str(sibling), "listeners": []}
         for name, before in sibling_states.items():
-            _, after = REFERENCE.managed_listener_state(sibling, name)
+            _, after = REFERENCE.managed_listener_state(
+                sibling, name, effective_domain=before["route_domain"]
+            )
             if after["generation"] != before["generation"] or after["address"] != before["address"]:
                 raise RuntimeError(f"foreign {name} listener changed while main checkout was retired")
             if not address_accepts_connection(after["address"]):
@@ -831,13 +833,13 @@ def replace_once(text: str, pattern: str, replacement: str, label: str) -> str:
 
 
 def configure_app_urls(checkout: Path, domains: dict[str, str], postgres_port: int,
-                       gateway_port: int) -> None:
+                       gateway_port: int, *, database_password: str = "qualification-local-only") -> None:
     config_path = checkout / "config/effigy.toml"
     config = config_path.read_text(encoding="utf-8")
     config = replace_once(config, r'^public_host\s*=\s*"[^"]+"$',
                           f'public_host = "{domains["api"]}"', "API public host")
     config = replace_once(config, r'^url\s*=\s*"postgres://[^"]+"$',
-                          f'url = "postgres://postgres:qualification-local-only@127.0.0.1:{postgres_port}/acme"',
+                          f'url = "postgres://postgres:{database_password}@127.0.0.1:{postgres_port}/acme"',
                           "host-reachable Postgres URL")
     origins = [f"https://{domains[name]}:{gateway_port}" for name in ("front", "admin")]
     config = replace_once(config, r'^allowed_origins\s*=\s*\[[^\]]*\]$',
@@ -1020,7 +1022,9 @@ def recover_reference_apps(checkout: Path, original_manifest: str, env: dict[str
     if resumed.get("exit") != 0:
         raise RuntimeError("Reference host-process recovery task failed after exact-scope reconciliation")
     recovered_states = {
-        name: REFERENCE.managed_listener_state(checkout, name)[1]
+        name: REFERENCE.managed_listener_state(
+            checkout, name, effective_domain=names[name]
+        )[1]
         for name in ("api", "front", "admin")
     }
     observe_routes(checkout, Path(env["EFFIGY_GATEWAY_PRIVATE_STATE_ROOT"]), env,
@@ -1109,7 +1113,9 @@ def assert_foreign_instances_live(instances: list[tuple[Path, dict[str, dict]]],
         routes = {route.get("domain"): route for route in
                   REFERENCE.private_gateway_status(checkout, gateway_root).get("routes", [])}
         for name, before in states.items():
-            _, after = REFERENCE.managed_listener_state(checkout, name)
+            _, after = REFERENCE.managed_listener_state(
+                checkout, name, effective_domain=before["route_domain"]
+            )
             if any(after.get(key) != before.get(key) for key in
                    ("owner", "runtime_generation", "generation", "address",
                     "supervisor_pid", "supervisor_start_identity", "child_pid", "child_start_identity")):
@@ -1482,7 +1488,9 @@ def prove_failed_collision_is_scoped(main_checkout: Path, main_states: dict[str,
             raise RuntimeError(f"partial failure left main-scope listener {name} accepting connections")
 
     for name, before in foreign_states.items():
-        _, after = REFERENCE.managed_listener_state(foreign_checkout, name)
+        _, after = REFERENCE.managed_listener_state(
+            foreign_checkout, name, effective_domain=before["route_domain"]
+        )
         if after["generation"] != before["generation"] or after["address"] != before["address"]:
             raise RuntimeError(f"partial failure changed foreign worktree listener {name}")
         if not address_accepts_connection(after["address"]):
@@ -1548,9 +1556,10 @@ def install_public_origin_fixture(checkout: Path) -> None:
 
 
 def service_shell(binary: str, checkout: Path, env: dict[str, str], command: str,
-                  timeout: int = 90, print_output: bool = True) -> str:
-    result = run([binary, "--repo", str(checkout), "container", "hybrid", "shell",
-                  "--service", "minio", "--command", command],
+                  timeout: int = 90, print_output: bool = True,
+                  container: str = "hybrid", service: str = "minio") -> str:
+    result = run([binary, "--repo", str(checkout), "container", container, "shell",
+                  "--service", service, "--command", command],
                  cwd=checkout, env=env, timeout=timeout, print_output=print_output)
     return result.stdout
 
@@ -1609,24 +1618,52 @@ def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid
         connection.close()
 
 
-def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_origin: str) -> dict:
-    minio_version = service_shell(EFFIGY, checkout, env, "silo --version")
-    mc_version = service_shell(EFFIGY, checkout, env, "mc --version")
-    if IMAGE not in (checkout / "infra/dev/catalog/minio/compose.fragment.yml").read_text(encoding="utf-8"):
-        raise RuntimeError("fixture MinIO catalog override is missing the published Silo image")
+def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_origin: str,
+                *, container: str = "hybrid", service: str = "minio",
+                client_service: str | None = None, bucket_name: str | None = None,
+                cleanup_bucket: bool = True) -> dict:
+    def shell(command: str) -> str:
+        return service_shell(EFFIGY, checkout, env, command, container=container,
+                             service=client_service or service)
+
+    minio_version = service_shell(EFFIGY, checkout, env, "silo --version",
+                                  container=container, service=service)
+    mc_version = shell("mc --version")
+    status = effigy_json(EFFIGY, checkout, env, "container", container, "status", "--json")
+    compose_path = Path(status["compose_file"])
+    if not compose_path.is_absolute():
+        compose_path = checkout / compose_path
+    compose = compose_path.read_text(encoding="utf-8")
+
+    def service_block(name: str) -> str | None:
+        match = re.search(
+            rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:|^volumes:|\Z)",
+            compose,
+        )
+        return match.group(1) if match else None
+
+    server_block = service_block(service)
+    if server_block is None or f"image: {IMAGE}" not in server_block:
+        raise RuntimeError(f"generated {container} compose does not pin the published Silo image for {service}")
+    if client_service is not None:
+        client_block = service_block(client_service)
+        if client_block is None or f"image: {CLIENT_IMAGE}" not in client_block:
+            raise RuntimeError(
+                f"generated {container} compose does not pin the published Silo client image for {client_service}"
+            )
     if RELEASE not in minio_version or RELEASE not in mc_version:
         raise RuntimeError("the running catalog service did not expose the pinned Silo and MC releases")
     with socket.create_connection(("127.0.0.1", minio_port), timeout=10):
         pass
     print(f"PASS host loopback reached the published Silo API listener 127.0.0.1:{minio_port}", flush=True)
-    service_shell(EFFIGY, checkout, env, "mc ready local")
-    bucket = "underlay-reference-qualification"
-    service_shell(EFFIGY, checkout, env, f"mc mb local/{bucket} --ignore-existing")
+    shell("mc ready local")
+    bucket = bucket_name or "underlay-reference-qualification"
+    shell(f"mc mb local/{bucket} --ignore-existing")
     invalid_status, _, _ = _s3_request(minio_port, "GET", f"/{bucket}/", invalid_credentials=True)
     if invalid_status != 403:
         raise RuntimeError(f"Silo accepted invalid signed fixture credentials: HTTP {invalid_status}")
     payload = "underlay-reference-published-silo-proof"
-    service_shell(EFFIGY, checkout, env, f"printf %s {json.dumps(payload)} | mc pipe local/{bucket}/probe.txt")
+    shell(f"printf %s {json.dumps(payload)} | mc pipe local/{bucket}/probe.txt")
     mc_put_status, _, received = _s3_request(
         minio_port, "GET", f"/{bucket}/probe.txt",
     )
@@ -1654,7 +1691,7 @@ def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_or
         allowed_headers = cors_headers.get("access-control-allow-headers", "").lower()
         if not all(header in allowed_headers for header in ("authorization", "x-amz-content-sha256", "x-amz-date")):
             raise RuntimeError("MinIO CORS preflight did not allow the signed S3 request headers")
-        print("PASS published Silo server-level CORS preflight for the exact browser origin, PUT, and signed headers",
+        print("PASS published Silo bucket CORS preflight for the exact browser origin, PUT, and signed headers",
               flush=True)
     finally:
         cors_connection.close()
@@ -1671,7 +1708,8 @@ def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_or
     if delete_status not in (200, 204):
         raise RuntimeError(f"host-signed MinIO object DELETE returned HTTP {delete_status}")
     print(f"PASS host-to-MinIO signed S3 PUT/GET/DELETE through 127.0.0.1:{minio_port}", flush=True)
-    service_shell(EFFIGY, checkout, env, f"mc rb local/{bucket}")
+    if cleanup_bucket:
+        shell(f"mc rb local/{bucket}")
     # A foreign browser origin must receive no usable CORS grant.
     connection = http.client.HTTPConnection("127.0.0.1", minio_port, timeout=10)
     try:
@@ -1904,7 +1942,7 @@ def main() -> int:
         for checkout in checkouts:
             REFERENCE.point_bundle_at_task_branch(checkout)
         receipts["fixture_secrets"] = REFERENCE.initialize_reference_fixture_secrets(checkouts, runtime_env)
-        REFERENCE.prove_worktree_plans(checkouts)
+        REFERENCE.prove_worktree_plans(checkouts, runtime_env)
         if storage_only:
             checkouts = checkouts[:1]
         for checkout in checkouts:
@@ -1990,7 +2028,9 @@ def main() -> int:
         for index, checkout in enumerate(checkouts):
             states: dict[str, dict] = {}
             for name in ("api", "front", "admin"):
-                _, state = REFERENCE.managed_listener_state(checkout, name)
+                _, state = REFERENCE.managed_listener_state(
+                    checkout, name, effective_domain=domains_by_checkout[checkout][name]
+                )
                 states[name] = state
                 all_addresses.append(state["address"])
                 all_domains.append(state["route_domain"])
@@ -2080,7 +2120,9 @@ def main() -> int:
         api_ready_after_probe = after.get("status") == "ready" and bool(after.get("route_owner"))
         if api_ready_after_probe:
             refreshed_states = {
-                name: REFERENCE.managed_listener_state(main_checkout, name)[1]
+                name: REFERENCE.managed_listener_state(
+                    main_checkout, name, effective_domain=domains_by_checkout[main_checkout][name]
+                )[1]
                 for name in ("api", "front", "admin")
             }
         else:

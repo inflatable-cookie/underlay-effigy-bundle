@@ -2,16 +2,50 @@
 
 ## Direction
 
-The intended consumer development default is hybrid: isolated service
-containers for Postgres, MinIO, Mailpit and DbGate, with Rust and Bun processes
-on the host. `dev:container` retains the Linux whole-stack path. `dev:test`
-provides a short-lived, worktree-isolated host and service environment without
-automatically running full QA.
+The bundle exposes opt-in hybrid and disposable-test profiles. Hybrid uses
+isolated service containers for Postgres, DbGate, Mailpit and published PGSTY
+Silo, with Rust and Bun processes on the host. `dev:container` names the
+existing Linux whole-stack path. `dev:test` runs one configured Effigy selector
+within a bounded timeout, then withdraws its private routes and stops its
+disposable profile containers. Named database volumes remain owned by that
+profile for normal checkout cleanup. It never runs full QA.
 
-These are intended profiles, not a claim that the current bundle implements
-them. Existing defaults remain container-based. New profile additions must be
-opt-in and backward-compatible; switching a consumer's `dev` default requires
-an explicit migration after qualification. Container-only use remains valid.
+Profile declarations are rendered only when `profiles.enabled = true`; its
+default is false. The unchanged `dev` task and omitted-input composition remain
+container-based. Switching a consumer's `dev` default and permanent Reference
+source adoption require separate explicit work. Unsupported profile admission
+does not change the container-only path.
+
+The bundle inputs `profiles.effigy_source` and `profiles.effigy_binary` must
+name the clean qualified source checkout and absolute executable. Before any
+profile state, service, gateway or cleanup operation, the launcher checks
+source commit `2f7b1819fd0e72afff18a6053be424719ecf71fc`, version `effigy
+v0.14.1`, and macOS arm64 binary SHA-256
+`2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc`. Current
+runtime qualification is macOS arm64 only. Unknown, changed, wrong-platform or
+unavailable identities fail before runtime effects, with actionable input
+guidance. Each nested Effigy operation uses that verified absolute path, never
+`PATH`. The effective Effigy floor rises to `0.14.1` only when profiles are
+enabled; default-input consumers retain the existing `0.13.1` floor. The
+floor is supplemental; it cannot prove this exact capability because old
+`+local` builds can satisfy the opt-in floor.
+
+`profiles.test_task` accepts one selector, with no shell text or extra
+arguments. `profiles.test_timeout_secs` defaults to 900 and is bounded to
+1–7200 seconds. A failed or interrupted action still attempts the test
+profile's exact down and route-withdrawal operations; uncertainty retains the
+owned scope for explicit recovery through `dev:test:down`.
+
+On first opt-in start, the launcher installs the bundle-owned local Silo
+server and MC client catalogs under `infra/dev/catalog/silo` and
+`infra/dev/catalog/silo-mc` only when those exact paths are absent. Conflicting
+local catalogs are preserved and cause refusal before startup. Both images use
+approved digest-pinned PGSTY releases; the shared catalog and default MinIO
+stack remain unchanged. The local overrides remain until the operator stops
+the profile. They are not a shared catalog migration or an upstream MinIO
+availability fix. `profiles.silo_bucket` selects the application's actual
+development bucket; its safe default is the first configured database name
+followed by `-media`.
 
 ## Ownership
 
@@ -89,13 +123,13 @@ restart on dependency endpoint/readiness changes. Failed-generation
 diagnostics describe report, ownership, HTTP readiness and publication phases;
 they are not ownership authority.
 
-The bundle's opt-in Rust adapter passes the bind preference into the actual
-Rust task, discovers its descendant's loopback listener and reports the actual
-address. The Vite adapter loads the application's installed configuration,
-strictly binds its managed loopback address, consumes the current API public
-URL, and sets browser/HMR URLs including the gateway's actual HTTPS port.
-Effigy owns their lifecycle; these adapters introduce no allocator or cache
-manager. They are not connected to the bundle's default `dev` selector.
+The bundle's Rust adapter passes the bind preference into the actual Rust
+selector, discovers its descendant's loopback listener, and reports the
+actual address. The Vite adapter loads the application's installed
+configuration, strictly binds its managed loopback address, resolves the
+current scoped API route and gateway HTTPS port, then sets browser and HMR
+URLs. Effigy owns their lifecycle; these adapters introduce no allocator or
+cache manager. They are not connected to the bundle's default `dev` selector.
 
 `scripts/dev/sveltekit-public-origin.mjs` supplies an explicit development hook
 wrapper for an HTTP Vite listener behind an HTTPS gateway. A consumer opts in
@@ -106,8 +140,11 @@ or without the explicit profile flag. The configured HTTPS origin is fixed;
 Host, forwarded context and unsafe request Origin are validated against it.
 The wrapper presents coherent `event.url` and `event.request.url`, retaining
 path/query, method, headers, cookies and the unread body stream. Its narrowly
-scoped readiness path permits Effigy's host-only authority for safe local
-readiness probes. It does not widen CSRF/CORS or change the upstream transport.
+scoped readiness path permits the configured service hostname when Effigy's
+direct prepublication HTTP probe sends that hostname without a port or
+forwarded headers. This applies only to a safe GET/HEAD on the exact readiness
+path with no Origin; browser requests still require the configured public
+authority. It does not widen CSRF/CORS or change the upstream transport.
 
 Private gateway mode requires a canonical caller-owned mode-0700 root via
 `EFFIGY_GATEWAY_PRIVATE_STATE_ROOT` and explicit `--private-state-root`.

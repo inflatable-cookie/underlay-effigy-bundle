@@ -181,6 +181,57 @@ default = "s3"
 example = "blob"
 
 [[inputs]]
+name = "routes.silo"
+type = "string"
+description = "Gateway subdomain label for the opt-in PGSTY Silo console route."
+default = "silo"
+example = "objects"
+
+[[inputs]]
+name = "profiles.enabled"
+type = "bool"
+description = "Opt in to bundle-owned host hybrid and disposable test profiles. These selectors require the exact qualified Effigy source and macOS binary below; omitted or false preserves the existing container-only defaults."
+default = false
+
+[[inputs]]
+name = "profiles.effigy_source"
+type = "string"
+description = "Absolute path to the clean Effigy source checkout at the qualified profile-capability commit. Required only when profiles.enabled is true."
+default = ""
+
+[[inputs]]
+name = "profiles.effigy_binary"
+type = "string"
+description = "Absolute path to the qualified macOS arm64 Effigy v0.14.1 binary. The profile launcher verifies its source commit, version and SHA-256 before runtime effects."
+default = ""
+
+[[inputs]]
+name = "profiles.test_task"
+type = "string"
+description = "One Effigy selector for dev:test to run after the disposable profile is ready. Empty refuses before startup; full qa is never implicit."
+default = ""
+example = "app-api/test"
+
+[[inputs]]
+name = "profiles.test_prefix"
+type = "string"
+description = "Route prefix used only by disposable dev:test services and browser origins."
+default = "test"
+
+[[inputs]]
+name = "profiles.silo_bucket"
+type = "string"
+description = "Object-store bucket provisioned in each isolated profile. Defaults to the first configured database name plus -media; set it to the consumer application's actual development bucket when different."
+default = ""
+example = "acme-media"
+
+[[inputs]]
+name = "profiles.test_timeout_secs"
+type = "integer"
+description = "Maximum run time for the single configured dev:test selector, in seconds."
+default = 900
+
+[[inputs]]
 name = "system_name"
 type = "string"
 description = "Name of the `[systems.<name>]` block rendered by the bundle."

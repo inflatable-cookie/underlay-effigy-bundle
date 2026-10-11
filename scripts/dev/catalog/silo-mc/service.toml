@@ -1,0 +1,12 @@
+[service]
+name = "silo-mc"
+description = "Pinned published PGSTY mc client for isolated Silo profile administration"
+
+[params.image]
+type = "string"
+default = "docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd"
+description = "Digest-pinned published client for the local Silo service"
+
+[capabilities]
+exec_target = true
+shell = "/bin/sh"

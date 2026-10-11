@@ -11,7 +11,8 @@ import ssl
 from urllib.parse import quote, urlsplit
 
 
-def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway_port, minio_port):
+def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway_port, minio_port,
+                           *, service_container="hybrid"):
     context = ssl.create_default_context(cafile=str(gateway_root / "ca/rootCA.pem"))
     api_domain = states["api"]["route_domain"]
     origin = f'https://{states["admin"]["route_domain"]}:{gateway_port}'
@@ -51,7 +52,7 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
     # Grant only this newly registered account in this fresh fixture database.
     # Existing seed credentials and operator auth are not used.
     sql = "UPDATE auth.users SET role='admin' WHERE email='silo-qualification@example.invalid';"
-    runtime.run([runtime.EFFIGY, "--repo", str(checkout), "container", "hybrid", "shell",
+    runtime.run([runtime.EFFIGY, "--repo", str(checkout), "container", service_container, "shell",
                  "--service", "postgres", "--command",
                  'psql -v ON_ERROR_STOP=1 -U postgres -d acme -c ' + runtime.shlex.quote(sql)],
                 cwd=checkout, env=env, timeout=60, print_output=False)
@@ -65,7 +66,19 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
                     {"content_type": "image/png", "content_length": len(payload)})
     plan = initiated["upload_plan"]
     upload = urlsplit(plan["upload_url"])
-    s3_domain = runtime.route_domains(runtime.effigy_json(runtime.EFFIGY, checkout, env, "container", "hosts", "--json"))["s3"]
+    service_hosts = runtime.effigy_json(
+        runtime.EFFIGY, checkout, env, "container", service_container, "hosts", "--json"
+    )
+    s3_routes = [
+        route.get("effective")
+        for route in service_hosts.get("routes", [])
+        if route.get("declared") == "s3.acme.test"
+        and isinstance(route.get("effective"), str)
+        and route.get("effective")
+    ]
+    if len(s3_routes) != 1:
+        raise RuntimeError("Reference hybrid service host map omitted its unique S3 route")
+    s3_domain = s3_routes[0]
     if upload.scheme != "https" or upload.hostname != s3_domain or upload.port != gateway_port or plan["method"] != "PUT":
         raise RuntimeError("Reference upload plan did not use the registered private Silo HTTPS authority and PUT")
     headers = dict(plan["headers"])

@@ -44,15 +44,68 @@ sibling checkouts in the bundle inputs:
 siblings = false
 ```
 
-## Development profile qualification
+## Development profiles
 
-The bundle owns opt-in Rust/Vite managed-listener adapters and a SvelteKit
-development public-origin hook in `scripts/dev/`. They use Effigy's owned
-loopback binding, generation report, readiness and dependency interfaces. The
-hook validates a configured HTTPS origin and keeps SvelteKit's event/request
-URLs coherent behind the private HTTPS gateway. Consumer default selectors
-remain container-based; this change supplies qualification machinery and
-explicit disposable consumer overrides.
+The bundle keeps its existing container-backed `dev` path as the default and
+also exposes `dev:container` as its stable name. Host-process profiles are
+emitted only when `profiles.enabled = true`. They require the exact qualified
+Effigy source and binary paths; semver alone is not sufficient because a
+local-version build can report the old release version while missing the
+managed-listener and private-gateway contracts.
+
+```toml
+[bundle.profiles]
+enabled = true
+effigy_source = "/path/to/effigy-at-2f7b1819"
+effigy_binary = "/path/to/effigy-at-2f7b1819/target/release/effigy"
+test_task = "app-api/test" # one bounded Effigy selector for dev:test
+test_timeout_secs = 900
+# silo_bucket = "acme-media" # defaults to <first database>-media
+```
+
+The opt-in selectors are `dev:hybrid`, `dev:hybrid:status`,
+`dev:hybrid:down`, `dev:test`, `dev:test:status`, and `dev:test:down`. Effigy
+starts each profile's isolated services and its declared host listeners in one
+owned container lifecycle so status and cleanup cover both together.
+`dev:hybrid` runs Rust and Vite on the host with isolated Postgres, DbGate,
+Mailpit, and the pinned published PGSTY Silo service. Host listeners use
+Effigy's owned bind, generation, readiness, route and dependent-URL contracts.
+`dev:test` runs only the configured selector, enforces its timeout, then
+withdraws its private routes and stops its disposable profile containers. Its
+isolated named database volumes remain owned by that profile for normal worktree
+cleanup. It never invokes full QA. Use `dev:test:down` to reconcile a run
+interrupted before its normal cleanup.
+
+The profile launcher checks the clean Effigy source revision
+`2f7b1819fd0e72afff18a6053be424719ecf71fc`, binary version `effigy v0.14.1`,
+and qualified macOS arm64 SHA-256
+`2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc` before
+starting services, the gateway, or cleanup. The current opt-in runtime is
+qualified on macOS arm64; unsupported platforms and changed/unknown binaries
+are refused with the container profile still available. Child Effigy calls
+use the verified absolute binary, never a `PATH` fallback.
+
+The project-local Silo server and MC client catalogs are installed only after
+opt-in and only when neither `infra/dev/catalog/silo` nor
+`infra/dev/catalog/silo-mc` conflicts with the bundle-owned versions. They use
+the approved published images, provision `profiles.silo_bucket` (default
+`<first database>-media`), and keep the shared MinIO catalog and container
+default unchanged. Stop the profile through its selector before removing the
+generated local overrides.
+Opt-in assembly raises the effective Effigy minimum to `0.14.1`; omitted or
+disabled profile inputs keep the existing `0.13.1` floor. The exact source and
+binary gate still rejects same-version local builds without the qualified
+managed-listener and private-gateway capabilities.
+
+The bundle also owns Rust/Vite managed-listener adapters and a SvelteKit
+development public-origin hook in `scripts/dev/`. The hook validates a
+configured HTTPS origin and keeps SvelteKit event/request URLs coherent behind
+the private HTTPS gateway. Its direct readiness exception accepts only the
+configured service hostname on the exact safe prepublication probe; browser
+requests still require the public authority. Consumer `dev` default changes
+and permanent Reference source adoption remain separate work.
+
+## Development profile qualification
 
 Use the approved private Effigy source and binary:
 
@@ -63,6 +116,7 @@ export UNDERLAY_REFERENCE_SOURCE=~/Dev/projects/underlay-reference
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:public-origin
+"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:profile-contract-tests
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-runtime
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-container
 "$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:silo-contract-tests
@@ -97,7 +151,7 @@ that timeout or establish a runtime fix. See the owning development-profile
 contract above for the qualification boundary.
 The original published default MinIO image pull remains
 unqualified (`insufficient_scope`); Silo does not repair that registry access.
-No hybrid/dev:test consumer migration or default switch is delivered.
+No consumer default switch or Reference source migration is delivered.
 
 ## Browser runtime (`browser_runtime`)
 

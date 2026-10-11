@@ -117,13 +117,23 @@ function verifyOriginHeader(value, expectedOrigin, method) {
   }
 }
 
-function requestAtPublicOrigin(request, eventUrl, expectedOrigin, readinessPath) {
+function configuredReadinessHost(raw) {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const declared = parseAuthority(raw, "configured readiness Host");
+  if (declared.explicitPort !== "") {
+    fail("configured readiness Host must be a hostname without a port");
+  }
+  return declared;
+}
+
+function requestAtPublicOrigin(request, eventUrl, expectedOrigin, readinessPath, readinessHost) {
   const headers = request.headers;
   if (!headers || typeof headers.get !== "function") {
     fail("Request headers are unavailable");
   }
 
   const expected = new URL(expectedOrigin);
+  const declaredReadinessHost = configuredReadinessHost(readinessHost);
   const incomingUrl = new URL(request.url);
   const svelteUrl = new URL(eventUrl);
   const host = headers.get("host");
@@ -143,8 +153,13 @@ function requestAtPublicOrigin(request, eventUrl, expectedOrigin, readinessPath)
     incomingUrl.pathname === readinessPath &&
     incomingUrl.search === "" &&
     originHeader === null &&
+    headers.get("x-forwarded-host") === null &&
+    headers.get("x-forwarded-proto") === null &&
     readinessAuthority !== null &&
-    matchesConfiguredHost(readinessAuthority, expected, true);
+    readinessAuthority.explicitPort === "" &&
+    (matchesConfiguredHost(readinessAuthority, expected, true) ||
+      (declaredReadinessHost !== null &&
+        readinessAuthority.hostname === declaredReadinessHost.hostname));
   if (!localReadinessProbe && authorityOrigin(host, "Host") !== expected.origin) {
     fail("Host does not match the configured public origin");
   }
@@ -216,13 +231,19 @@ function requestWithUrl(request, url) {
   return new Request(url, init);
 }
 
-export function normalizeSvelteKitEvent(event, publicOrigin, readinessPath = "/__effigy/ready") {
+export function normalizeSvelteKitEvent(
+  event,
+  publicOrigin,
+  readinessPath = "/__effigy/ready",
+  readinessHost = null,
+) {
   const expectedOrigin = configuredOrigin(publicOrigin);
   const requestUrl = requestAtPublicOrigin(
     event.request,
     event.url,
     expectedOrigin,
     readinessPath,
+    readinessHost,
   );
   const request = requestWithUrl(event.request, requestUrl);
 
@@ -246,6 +267,7 @@ export function withSvelteKitPublicOrigin(handle, options = {}) {
       input.event,
       options.publicOrigin,
       options.readinessPath || "/__effigy/ready",
+      options.readinessHost || null,
     );
     const wrapped = { ...input, event };
     return handle ? handle(wrapped) : input.resolve(event);

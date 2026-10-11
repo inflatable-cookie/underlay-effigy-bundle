@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { open, readFile, rename } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 function required(name) {
   const value = process.env[name];
@@ -22,18 +23,63 @@ function parseBind(raw) {
   return { host: "127.0.0.1", port };
 }
 
+function consumerRoot() {
+  let current = resolve(process.env.UNDERLAY_PROFILE_REPO || process.cwd());
+  while (true) {
+    if (existsSync(join(current, "effigy.toml"))) return current;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  throw new Error("could not locate the consumer checkout root containing effigy.toml");
+}
+
 async function main() {
   const { host, port } = parseBind(required("EFFIGY_MANAGED_HOST_LISTENER_BIND"));
   const reportPath = resolve(required("EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE"));
   const generation = required("EFFIGY_MANAGED_HOST_LISTENER_GENERATION");
-  const publicUrl = new URL(required("EFFIGY_PROFILE_PUBLIC_URL"));
-  const apiUrl = new URL(required("EFFIGY_MANAGED_HOST_API_PUBLIC_URL"));
-  const frontUrl = new URL(required("EFFIGY_PROFILE_FRONT_PUBLIC_URL"));
-  const adminUrl = new URL(required("EFFIGY_PROFILE_ADMIN_PUBLIC_URL"));
-  const hmrPort = Number(required("EFFIGY_PROFILE_GATEWAY_HTTPS_PORT"));
-  if (!Number.isInteger(hmrPort) || hmrPort < 1 || hmrPort > 65535) {
-    throw new Error("EFFIGY_PROFILE_GATEWAY_HTTPS_PORT must be the gateway's actual HTTPS port");
+  const repo = consumerRoot();
+  const serviceContainer = required("EFFIGY_PROFILE_CONTAINER_NAME");
+  const hostContainer = required("EFFIGY_PROFILE_HOST_CONTAINER_NAME");
+  const containers = {
+    hybrid_services: { profile: "hybrid", service: "hybrid_services" },
+    disposable_test: { profile: "disposable_test", service: "disposable_test" },
+  };
+  const selected = containers[hostContainer];
+  if (!selected || selected.service !== serviceContainer) {
+    throw new Error(`unsupported managed profile containers ${serviceContainer}/${hostContainer}`);
   }
+  const adapterDirectory = dirname(fileURLToPath(import.meta.url));
+  const contextResult = spawnSync(
+    "python3",
+    [join(adapterDirectory, "profile_launcher.py"), "context", selected.profile, "--repo", repo],
+    { cwd: repo, env: process.env, encoding: "utf8", timeout: 300_000 },
+  );
+  if (contextResult.error || contextResult.status !== 0) {
+    throw new Error(`qualified profile context lookup failed (status ${contextResult.status ?? "spawn"})`);
+  }
+  const context = JSON.parse(contextResult.stdout);
+  const hmrPort = Number(context.https_port);
+  if (!Number.isInteger(hmrPort) || hmrPort < 1 || hmrPort > 65535) {
+    throw new Error("qualified profile context has no actual gateway HTTPS port");
+  }
+  const routes = context.routes || {};
+  for (const role of ["api", "front", "admin"]) {
+    if (typeof routes[role] !== "string" || !routes[role]) {
+      throw new Error(`qualified profile context has no effective ${role} route`);
+    }
+  }
+  const selfDeclared = required("EFFIGY_PROFILE_SELF_DECLARED");
+  const frontDeclared = required("EFFIGY_PROFILE_FRONT_DECLARED");
+  const adminDeclared = required("EFFIGY_PROFILE_ADMIN_DECLARED");
+  const selfDomain = selfDeclared === frontDeclared ? routes.front
+    : selfDeclared === adminDeclared ? routes.admin : null;
+  if (!selfDomain) throw new Error("Vite listener declaration does not match the front or admin route");
+  const makeUrl = (domain) => new URL(`https://${domain}:${hmrPort}`);
+  const publicUrl = makeUrl(selfDomain);
+  const apiUrl = makeUrl(routes.api);
+  const frontUrl = makeUrl(routes.front);
+  const adminUrl = makeUrl(routes.admin);
   for (const url of [publicUrl, apiUrl, frontUrl, adminUrl]) {
     if (!url.port && hmrPort !== 443) url.port = String(hmrPort);
     if (url.protocol !== "https:") throw new Error(`profile route must use HTTPS: ${url}`);
@@ -87,6 +133,7 @@ async function main() {
   process.env.ORIGIN = publicUrl.origin;
   process.env.EFFIGY_PROFILE_PUBLIC_URL = publicUrl.origin;
   process.env.EFFIGY_PROFILE_PUBLIC_ORIGIN = "true";
+  process.env.EFFIGY_PROFILE_GATEWAY_HTTPS_PORT = String(hmrPort);
   const server = await createServer({
     configFile,
     server: {

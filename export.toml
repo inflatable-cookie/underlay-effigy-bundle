@@ -1,5 +1,5 @@
 [manifest]
-minimum_effigy_version = "0.13.1"
+minimum_effigy_version = "{% if inputs.profiles.enabled %}0.14.1{% else %}0.13.1{% endif %}"
 extend = ["bootstrap.children", "secrets"]
 
 {% set resolved_project_name = inputs.project_name or inputs.workspace_subdir ~ "-" ~ bundle.name %}
@@ -243,6 +243,224 @@ concurrent = [
   { role = "shell", service = "{{ inputs.workspace_service_name }}", start = 2, tab = 5 },
   { role = "lifecycle", start = 1, tab = 6 },
 ]
+
+# A stable name for the legacy container-backed development path. This alias
+# remains available when opt-in profiles are omitted.
+[tasks."dev:container"]
+run = [{ task = "dev" }]
+
+{% if inputs.profiles.enabled %}
+# These declarations are emitted only after an explicit profiles.enabled=true.
+# The launcher validates the supported Effigy source/binary before it starts
+# the private gateway or either isolated service environment.
+{% set test_host = inputs.profiles.test_prefix ~ "." ~ inputs.host %}
+{% set api_domain = route_domain(inputs.host, inputs.routes.api, "api") %}
+{% set front_domain = route_domain(inputs.host, inputs.routes.front, "") %}
+{% set admin_domain = route_domain(inputs.host, inputs.routes.admin, "admin") %}
+{% set s3_domain = route_domain(inputs.host, inputs.routes.s3, "s3") %}
+{% set silo_domain = route_domain(inputs.host, inputs.routes.silo, "silo") %}
+{% set test_api_domain = route_domain(test_host, inputs.routes.api, "api") %}
+{% set test_front_domain = route_domain(test_host, inputs.routes.front, "") %}
+{% set test_admin_domain = route_domain(test_host, inputs.routes.admin, "admin") %}
+{% set test_s3_domain = route_domain(test_host, inputs.routes.s3, "s3") %}
+{% set test_silo_domain = route_domain(test_host, inputs.routes.silo, "silo") %}
+
+[containers.hybrid_services]
+driver = "colima"
+profile = "effigy"
+startup = "detached"
+project_name = "{{ resolved_project_name }}-hybrid"
+working_dir = "/"
+primary_service = "postgres"
+
+[containers.hybrid_services.host]
+publish_address = "127.0.0.1"
+
+[containers.hybrid_services.services.postgres]
+catalog = "postgres"
+database = "{{ inputs.databases|first }}"
+databases = [{% for database in inputs.databases %}"{{ database }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+
+[containers.hybrid_services.services.dbgate]
+catalog = "dbgate"
+database_host = "postgres"
+database = "{{ inputs.databases|first }}"
+database_user = "postgres"
+database_password = "secret"
+connection_label = "{{ resolved_project_name }} hybrid"
+
+[containers.hybrid_services.services.mailpit]
+catalog = "mailpit"
+
+[containers.hybrid_services.services.silo]
+catalog = "silo"
+
+[containers.hybrid_services.services.silo_client]
+catalog = "silo-mc"
+
+[containers.hybrid_services.dns]
+routes = [
+  { domain = "{{ s3_domain }}", tls = true, port = 9000, service = "silo" },
+  { domain = "dbgate.{{ inputs.host }}", tls = true, port = 3000, service = "dbgate" },
+  { domain = "mailpit.{{ inputs.host }}", tls = true, port = 8025, service = "mailpit" },
+  { domain = "{{ silo_domain }}", tls = true, port = 9001, service = "silo" },
+]
+
+[[containers.hybrid_services.host_processes]]
+name = "api"
+run = 'python3 "{{ bundle.root }}/scripts/dev/managed-rust-listener.py" -- "{{ sel_api }}/api"'
+cwd = "."
+restart = "on-failure"
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", EFFIGY_PROFILE_CONTAINER_NAME = "hybrid_services", EFFIGY_PROFILE_HOST_CONTAINER_NAME = "hybrid_services", EFFIGY_PROFILE_DATABASE_NAME = "{{ inputs.databases|first }}", EFFIGY_PROFILE_DATABASE_PASSWORD = "secret", EFFIGY_PROFILE_SILO_BUCKET = "{{ inputs.profiles.silo_bucket or (inputs.databases|first ~ '-media') }}", EFFIGY_PROFILE_API_DECLARED = "{{ api_domain }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ front_domain }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ admin_domain }}", EFFIGY_PROFILE_S3_DECLARED = "{{ s3_domain }}", EFFIGY_PROFILE_DBGATE_DECLARED = "dbgate.{{ inputs.host }}", EFFIGY_PROFILE_MAILPIT_DECLARED = "mailpit.{{ inputs.host }}", EFFIGY_PROFILE_SILO_DECLARED = "{{ silo_domain }}", ENVIRONMENT = "effigy" }
+
+[containers.hybrid_services.host_processes.listener]
+bind = "127.0.0.1:0"
+
+[containers.hybrid_services.host_processes.listener.readiness]
+path = "/v1/health"
+status = 200
+timeout_secs = 540
+
+[containers.hybrid_services.host_processes.listener.route]
+domain = "{{ api_domain }}"
+tls = true
+
+{% for app in [("front", sel_front, inputs.dirs.front or "app-front", front_domain), ("admin", sel_admin, inputs.dirs.admin or "app-admin", admin_domain)] %}
+[[containers.hybrid_services.host_processes]]
+name = "{{ app[0] }}"
+run = 'bun "{{ bundle.root }}/scripts/dev/managed-vite-listener.mjs"'
+cwd = "{{ app[2] }}"
+restart = "on-failure"
+depends_on = ["api"]
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", EFFIGY_PROFILE_CONTAINER_NAME = "hybrid_services", EFFIGY_PROFILE_HOST_CONTAINER_NAME = "hybrid_services", EFFIGY_PROFILE_DATABASE_NAME = "{{ inputs.databases|first }}", EFFIGY_PROFILE_DATABASE_PASSWORD = "secret", EFFIGY_PROFILE_SILO_BUCKET = "{{ inputs.profiles.silo_bucket or (inputs.databases|first ~ '-media') }}", EFFIGY_PROFILE_API_DECLARED = "{{ api_domain }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ front_domain }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ admin_domain }}", EFFIGY_PROFILE_S3_DECLARED = "{{ s3_domain }}", EFFIGY_PROFILE_DBGATE_DECLARED = "dbgate.{{ inputs.host }}", EFFIGY_PROFILE_MAILPIT_DECLARED = "mailpit.{{ inputs.host }}", EFFIGY_PROFILE_SILO_DECLARED = "{{ silo_domain }}", EFFIGY_PROFILE_SELF_DECLARED = "{{ app[3] }}", EFFIGY_PROFILE_PUBLIC_CONFIG_FILE = "src/lib/config/public-api.generated.ts", EFFIGY_PROFILE_PUBLIC_CONFIG_GENERATOR = "scripts/generate-public-config.ts", EFFIGY_PROFILE_VITE_CONFIG = "vite.config.ts", ENVIRONMENT = "effigy" }
+
+[containers.hybrid_services.host_processes.listener]
+bind = "127.0.0.1:0"
+
+[containers.hybrid_services.host_processes.listener.readiness]
+path = "/"
+status = 200
+timeout_secs = 540
+
+[containers.hybrid_services.host_processes.listener.route]
+domain = "{{ app[3] }}"
+tls = true
+{% endfor %}
+
+[containers.disposable_test]
+driver = "colima"
+profile = "effigy"
+startup = "detached"
+project_name = "{{ resolved_project_name }}-test"
+working_dir = "/"
+primary_service = "postgres"
+
+[containers.disposable_test.host]
+publish_address = "127.0.0.1"
+
+[containers.disposable_test.services.postgres]
+catalog = "postgres"
+database = "{{ inputs.databases|first }}"
+databases = [{% for database in inputs.databases %}"{{ database }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+
+[containers.disposable_test.services.dbgate]
+catalog = "dbgate"
+database_host = "postgres"
+database = "{{ inputs.databases|first }}"
+database_user = "postgres"
+database_password = "secret"
+connection_label = "{{ resolved_project_name }} disposable test"
+
+[containers.disposable_test.services.mailpit]
+catalog = "mailpit"
+
+[containers.disposable_test.services.silo]
+catalog = "silo"
+
+[containers.disposable_test.services.silo_client]
+catalog = "silo-mc"
+
+[containers.disposable_test.dns]
+routes = [
+  { domain = "{{ test_s3_domain }}", tls = true, port = 9000, service = "silo" },
+  { domain = "dbgate.{{ test_host }}", tls = true, port = 3000, service = "dbgate" },
+  { domain = "mailpit.{{ test_host }}", tls = true, port = 8025, service = "mailpit" },
+  { domain = "{{ test_silo_domain }}", tls = true, port = 9001, service = "silo" },
+]
+
+[[containers.disposable_test.host_processes]]
+name = "api"
+run = 'python3 "{{ bundle.root }}/scripts/dev/managed-rust-listener.py" -- "{{ sel_api }}/api"'
+cwd = "."
+restart = "on-failure"
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", EFFIGY_PROFILE_CONTAINER_NAME = "disposable_test", EFFIGY_PROFILE_HOST_CONTAINER_NAME = "disposable_test", EFFIGY_PROFILE_DATABASE_NAME = "{{ inputs.databases|first }}", EFFIGY_PROFILE_DATABASE_PASSWORD = "secret", EFFIGY_PROFILE_API_DECLARED = "{{ test_api_domain }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ test_front_domain }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ test_admin_domain }}", EFFIGY_PROFILE_S3_DECLARED = "{{ test_s3_domain }}", EFFIGY_PROFILE_DBGATE_DECLARED = "dbgate.{{ test_host }}", EFFIGY_PROFILE_MAILPIT_DECLARED = "mailpit.{{ test_host }}", EFFIGY_PROFILE_SILO_DECLARED = "{{ test_silo_domain }}", EFFIGY_PROFILE_SILO_BUCKET = "{{ inputs.profiles.silo_bucket or (inputs.databases|first ~ '-media') }}", AWS_ACCESS_KEY_ID = "minioadmin", AWS_SECRET_ACCESS_KEY = "minioadmin", AWS_EC2_METADATA_DISABLED = "true" }
+
+[containers.disposable_test.host_processes.listener]
+bind = "127.0.0.1:0"
+
+[containers.disposable_test.host_processes.listener.readiness]
+path = "/v1/health"
+status = 200
+timeout_secs = 540
+
+[containers.disposable_test.host_processes.listener.route]
+domain = "{{ test_api_domain }}"
+tls = true
+
+{% for app in [("front", sel_front, inputs.dirs.front or "app-front", test_front_domain), ("admin", sel_admin, inputs.dirs.admin or "app-admin", test_admin_domain)] %}
+[[containers.disposable_test.host_processes]]
+name = "{{ app[0] }}"
+run = 'bun "{{ bundle.root }}/scripts/dev/managed-vite-listener.mjs"'
+cwd = "{{ app[2] }}"
+restart = "on-failure"
+depends_on = ["api"]
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", EFFIGY_PROFILE_CONTAINER_NAME = "disposable_test", EFFIGY_PROFILE_HOST_CONTAINER_NAME = "disposable_test", EFFIGY_PROFILE_API_DECLARED = "{{ test_api_domain }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ test_front_domain }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ test_admin_domain }}", EFFIGY_PROFILE_DBGATE_DECLARED = "dbgate.{{ test_host }}", EFFIGY_PROFILE_MAILPIT_DECLARED = "mailpit.{{ test_host }}", EFFIGY_PROFILE_SILO_DECLARED = "{{ test_silo_domain }}", EFFIGY_PROFILE_SELF_DECLARED = "{{ app[3] }}", EFFIGY_PROFILE_PUBLIC_CONFIG_FILE = "src/lib/config/public-api.generated.ts", EFFIGY_PROFILE_PUBLIC_CONFIG_GENERATOR = "scripts/generate-public-config.ts", EFFIGY_PROFILE_VITE_CONFIG = "vite.config.ts", ENVIRONMENT = "effigy" }
+
+[containers.disposable_test.host_processes.listener]
+bind = "127.0.0.1:0"
+
+[containers.disposable_test.host_processes.listener.readiness]
+path = "/"
+status = 200
+timeout_secs = 540
+
+[containers.disposable_test.host_processes.listener.route]
+domain = "{{ app[3] }}"
+tls = true
+{% endfor %}
+
+[tasks."dev:hybrid"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" start hybrid --repo {repo}'
+run_in = "host"
+secrets = "required"
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", UNDERLAY_PROFILE_TEST_TASK = "{{ inputs.profiles.test_task }}", UNDERLAY_PROFILE_TEST_TIMEOUT_SECS = "{{ inputs.profiles.test_timeout_secs }}" }
+
+[tasks."dev:hybrid:status"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" status hybrid --repo {repo}'
+run_in = "host"
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}" }
+
+[tasks."dev:hybrid:down"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" down hybrid --repo {repo}'
+run_in = "host"
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}" }
+
+[tasks."dev:test"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" test disposable_test --repo {repo}'
+run_in = "host"
+secrets = "required"
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", UNDERLAY_PROFILE_TEST_TASK = "{{ inputs.profiles.test_task }}", UNDERLAY_PROFILE_TEST_TIMEOUT_SECS = "{{ inputs.profiles.test_timeout_secs }}" }
+
+[tasks."dev:test:status"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" status disposable_test --repo {repo}'
+run_in = "host"
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}" }
+
+[tasks."dev:test:down"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" down disposable_test --repo {repo}'
+run_in = "host"
+env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}" }
+{% endif %}
 
 [bootstrap]
 run = [

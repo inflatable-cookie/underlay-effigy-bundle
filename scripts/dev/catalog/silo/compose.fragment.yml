@@ -1,0 +1,19 @@
+services:
+  {{ service_name }}:
+    image: {{ image }}
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "{{ root_user }}"
+      MINIO_ROOT_PASSWORD: "{{ root_password }}"
+      MC_HOST_local: "http://{{ root_user }}:{{ root_password }}@127.0.0.1:9000"
+    ports:
+      - "{{ api_port }}:9000"
+      - "{{ console_port }}:9001"
+    volumes:
+      - {{ project_name }}-{{ service_name }}-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
