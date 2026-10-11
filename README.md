@@ -299,7 +299,7 @@ token and documented effective project. Shared overrides and foreign/conflicting
 identity refuse. Native generated Compose is checked before startup and again
 against actual status afterward; these observations grant no cleanup authority.
 
-The latest service-only attempt passed those scope checks, private gateway and
+The preceding service-only attempt passed those scope checks, private gateway and
 main services, alias bootstrap and client override checks. It stopped on the
 Silo server `hostname` probe (inner exit 127, Effigy outer exit 1), before MC
 object operations or S3 requests. The stderr message was not retained, so no
@@ -308,3 +308,11 @@ container identity probe with demonstrated executable preconditions is the next
 bounded prerequisite. Recorded new service/gateway down calls exited zero;
 VM/images/volumes remain held and retirement is unproven. Old held resources
 remain untouched; whole-profile acceptance remains incomplete.
+
+Storage correlation evidence follows the [owning evidence boundary](docs/knowledge/contracts/dev-profiles.md#storage-endpoint-evidence-boundary): native selected services and live published ports plus exact challenge-byte correspondence. DNS/IP addresses and network inventory remain unobserved. This diagnostic cannot certify whole-profile acceptance or retirement.
+
+The current exact-source command-mode shell collects output internally before
+emitting it. An external pipe cap cannot prove the required inner capture bound,
+so the storage diagnostic stops after both native checkout preflights and before
+VM/gateway/service startup. Image-interface and endpoint correspondence execution
+remain unqualified; the historical storage failure cause remains unknown.

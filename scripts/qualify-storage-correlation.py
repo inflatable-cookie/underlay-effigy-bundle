@@ -7,10 +7,11 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import secrets
 
 from qualification_runtime import require_effigy_binary, SUPPORTED_EFFIGY_SOURCE, SUPPORTED_EFFIGY_SHA256
 from reference_storage_probe import StorageDiagnosticJournal
-from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity
+from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity, bounded_run, shell_region, status_projection, environment_guard, cross_scope, strict_json, capture_contract
 from silo_fixture import prepare_published_images
 import importlib.util
 
@@ -26,6 +27,23 @@ def load(name, filename):
 OPT = load('storage_optin', 'qualify-reference-optin.py')
 DEV = load('storage_launcher', 'dev/profile_launcher.py')
 
+
+SAFE_REASONS = {'container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused'}
+
+def image_interfaces(env,journal,nonce):
+    from silo_fixture import IMAGE,CLIENT_IMAGE
+    from storage_correlation import stat_projection
+    # Source stat.go uses parseStat/MarshalIndent for both local and S3 content;
+    # only the shared message shape is qualified by this no-network file control.
+    for image in (IMAGE,CLIENT_IMAGE):
+        marker='UNDERLAY_'+secrets.token_hex(16).upper()
+        command=shell_command('set -eu; command -v mc >/dev/null; command -v sh >/dev/null; set -C; printf %s challenge > /root/underlay-'+nonce+'; mc stat --json /root/underlay-'+nonce,marker)
+        capture=bounded_run(['colima','nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c',command],env=env,timeout=60)
+        journal.append('image_interface',exit=capture['exit'],outcome=capture['outcome'],stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'],network='none')
+        if capture['exit'] or capture['outcome']!='complete':raise ValueError('image_interface_refused')
+        region,inner=shell_region(capture['stdout'].decode(),marker)
+        if inner!=0:raise ValueError('image_interface_refused')
+        stat_projection(region, 'underlay-'+nonce,9)
 
 def main():
     binary = require_effigy_binary()
@@ -52,25 +70,39 @@ def main():
             raise RuntimeError('verified executable changed')
         journal.append('command', operation=label, phase='before_process')
         try:
-            process = subprocess.run(invocation(binary, checkout, args), cwd=checkout, env=env, capture_output=True, text=True, timeout=timeout)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            journal.append('command_exception', operation=label, exception_type=type(error).__name__)
-            raise RuntimeError('bounded service command failed') from None
-        journal.append('command_exit', operation=label, exit=process.returncode, stdout_bytes=len(process.stdout.encode()), stderr_bytes=len(process.stderr.encode()),
-                       **(nested_exit(process.stdout) if '--command' in args else {}))
-        if process.returncode != 0:
-            raise RuntimeError(f'{label} exit {process.returncode}')
-        return process.stdout
+            captured = bounded_run(invocation(binary, checkout, args), cwd=checkout, env=env, timeout=timeout)
+        except OSError:
+            journal.append('command_exception', operation=label, outcome='spawn_refused')
+            raise ValueError('command_spawn_refused') from None
+        journal.append('command_exit',operation=label,exit=captured['exit'],
+                       stdout_bytes=captured['stdout_bytes'],stderr_bytes=captured['stderr_bytes'],
+                       outcome=captured['outcome'])
+        if captured['outcome'] != 'complete': raise ValueError('command_capture_'+captured['outcome'])
+        try: output=captured['stdout'].decode('utf-8')
+        except UnicodeDecodeError: raise ValueError('command_encoding_unknown') from None
+        if captured['exit'] != 0 and '--command' not in args:
+            raise ValueError('command_exit_refused')
+        return output, captured['exit']
 
     def result(label, checkout, args):
-        envelope = json.loads(call(label, checkout, args))
-        if envelope.get('ok') is not True or not isinstance(envelope.get('result'), dict):
-            raise RuntimeError('negative or malformed Effigy envelope')
-        return envelope['result']
+        output,_=call(label,checkout,args)
+        envelope=strict_json(output)
+        if (not isinstance(envelope,dict) or envelope.get('schema')!='effigy.command.v1'
+                or envelope.get('schema_version')!=1 or envelope.get('ok') is not True
+                or not isinstance(envelope.get('result'),dict)):
+            raise ValueError('command_envelope_refused')
+        value=envelope['result']
+        if args[0]=='config': expected='effigy.config.v1'
+        elif args[0]=='gateway': expected='effigy.gateway.status.v1' if args[1]=='status' else 'effigy.gateway.command.v1'
+        else: expected='effigy.container.'+args[1 if args[1]=='scope' else 2]+'.v1'
+        if value.get('schema')!=expected or value.get('schema_version')!=1 or value.get('ok') is not True:
+            raise ValueError('native_result_schema_refused')
+        return value
 
     failure = None
     vm_started = False
     gateway_started = False
+    nonce=secrets.token_hex(16)
     try:
         # Read only the specifically retained generated manifest. The old VM,
         # containers, alias database and uncertain resources are never queried.
@@ -135,15 +167,26 @@ def main():
                            catalog_files_sha256={alias: hashlib.sha256((checkout / 'infra/dev/catalog' / alias / 'service.toml').read_bytes()).hexdigest() for alias in ('silo', 'silo-mc')},
                            effective_hosts=hosts_projection(hosts, checkout, identity), runtime_effects=False)
 
+        # Both real identities are retained. Output captured inside core cannot
+        # be bounded by our external pipe reader. Stop before any runtime effect.
+        if len(identities)!=2 or identities[main_checkout]['kind']!='none' or identities[first]['kind']!='worktree':
+            raise ValueError('checkout_orchestration_refused')
+        evidence=capture_contract(Path(os.environ['UNDERLAY_PROFILE_EFFIGY_SOURCE']))
+        journal.append('capture_contract_gate',**evidence,runtime_effects=False)
+        raise ValueError('container_capture_boundary_unqualified')
+
         # No service starts until both typed production/minimal compositions agree.
-        process = subprocess.run(['colima', 'start', '--profile', 'effigy', '--runtime', 'containerd', '--cpu', '2', '--memory', '4', '--disk', '32'], env=env, capture_output=True, timeout=1200)
-        journal.append('private_vm_start', exit=process.returncode)
-        if process.returncode: raise RuntimeError('private VM startup failed')
+        journal.append('start_intents', fixture=str(fixture), gateway=str(gateway), checkouts=[str(main_checkout),str(first)], private_vm_held=True)
+        process = bounded_run(['colima', 'start', '--profile', 'effigy', '--runtime', 'containerd', '--cpu', '2', '--memory', '4', '--disk', '32'], env=env, timeout=1200)
+        journal.append('private_vm_start', exit=process['exit'], outcome=process['outcome'])
+        if process['exit'] or process['outcome']!='complete': raise ValueError('private_vm_start_unknown')
         vm_started = True
         prepare_published_images(fixture, env)
+        image_interfaces(env, journal, nonce)
         # The production Silo catalog declares a TCP alias; pinned core starts
         # its gateway for that catalog capability even without explicit DNS.
         # Use only reviewed private TLS and ephemeral loopback listeners.
+        gateway_started = True
         result('private-tls', main_checkout, ['gateway', 'setup-tls', '--private-state-root', str(gateway), '--json'])
         result('private-service-gateway', main_checkout, ['gateway', 'up', '--private-state-root', str(gateway), '--dns-addr', '127.0.0.1:0', '--proxy-addr', '127.0.0.1:0', '--https-addr', '127.0.0.1:0', '--json'])
         gateway_started = True
@@ -158,7 +201,13 @@ def main():
             bindings = DEV._compose_loopback_port_bindings(checkout, status)
             matches = [port for service, port, target in bindings if service == 'silo' and target == 9000]
             if len(matches) != 1: raise RuntimeError('ambiguous Silo loopback map')
-            port = matches[0]
+            identity = identities[checkout]
+            selected = status_projection(status, identity, bindings)
+            port = selected['port']
+            for previous in results:
+                if previous['port']==port or previous['project']==selected['project'] or set(previous['selected_container_sha256']) & set(selected['selected_container_sha256']):
+                    raise ValueError('cross_checkout_identity_conflict')
+            journal.append('selected_services', **selected)
             raw = compose.read_bytes()
             identity = identities[checkout]
             journal.append('compose_identity_observation', checkout=str(checkout),
@@ -177,45 +226,49 @@ def main():
                            service_names=['silo','silo_client'])
 
             def shell(label, command, service='silo_client'):
-                return call(label, checkout, ['container', 'hybrid_services', 'shell', '--service', service, '--command', shell_command(command)])
-            # Same persistent alias/config setup as production bootstrap; no app,
-            # gateway, CORS or authentication task is invoked here.
-            shell('alias-bootstrap', 'set -eu; mc alias set local http://silo:9000 minioadmin minioadmin >/dev/null 2>&1')
-            shell('client-env-check', 'set -eu; test -z "${MC_HOST_local:-}"; test -z "${MC_CONFIG_DIR:-}"; test -z "${MC_CONFIG_ENV_FILE:-}"; test "$HOME" = /root')
-            for service in ('silo', 'silo_client'):
-                output = shell('container-identity', 'hostname', service=service)
-                identities = re.findall(r'(?m)^([a-f0-9]{12,64})$', output)
-                if len(identities) != 1: raise RuntimeError('missing exact selected container identity')
-                journal.append('selected_container', service=service, container_hostname=identities[0])
-            outcome = correlate(shell, OPT.RUNTIME._s3_request, journal, port, key)
+                marker='UNDERLAY_'+secrets.token_hex(16).upper()
+                output,outer=call(label,checkout,['container','hybrid_services','shell','--service',service,'--command',shell_command(command,marker)])
+                region,inner=shell_region(output,marker)
+                journal.append('shell_completion',operation=label,service=service,inner_exit=inner,
+                               outer_exit=outer,region_bytes=len(region.encode()),framing='unique_marker')
+                if outer!=0 or inner!=0:raise ValueError('shell_operation_refused')
+                return region
+            # Presence (including empty) refuses before persisted alias bootstrap.
+            for service in ('silo','silo_client'):
+                shell('routing_environment_guard',environment_guard(service),service=service)
+            shell('alias-bootstrap','set -eu; mc alias set local http://silo:9000 minioadmin minioadmin')
+            outcome=correlate(shell,OPT.RUNTIME._s3_request,journal,port,key,nonce)
+            outcome.update(selected)
             results.append(outcome)
-        for own, foreign in ((results[0], results[1]), (results[1], results[0])):
-            status, _, body = OPT.RUNTIME._s3_request(own['port'], 'GET', f"/{foreign['bucket']}/{foreign['key']}", diagnostics=journal, diagnostic_operation='cross_scope_get', diagnostic_path_template='/<bucket>/<foreign-object>')
-            journal.append('cross_scope_result', status=status, **s3_error(body))
-            if status != 404: raise RuntimeError('cross-scope object isolation failed')
+        for own,foreign in ((results[0],results[1]),(results[1],results[0])):
+            cross_scope(OPT.RUNTIME._s3_request,journal,own,foreign)
+
     except Exception as error:
         failure = type(error).__name__
-        journal.append('diagnosis_failed', exception_type=failure)
+        journal.append('diagnosis_failed', exception_type=failure, reason=str(error) if isinstance(error,ValueError) and str(error) in SAFE_REASONS else 'unknown')
         print(f'STOP: storage correlation {failure}; see sanitized journal', flush=True)
     finally:
         for checkout in reversed(started):
             for service in ('silo', 'silo_client'):
                 try:
-                    output = call('finite-service-log', checkout, ['container', 'hybrid_services', 'logs', '--service', service], timeout=10)
+                    output, _ = call('finite-service-log', checkout, ['container', 'hybrid_services', 'logs', '--service', service], timeout=10)
                     journal.write_log(f'{checkout.name}-{service.replace("_", "-")}.log', output.splitlines()[-80:])
+                    journal.append('service_log_evidence',service=service,availability='unavailable_until_sanitized_lines_verified')
                 except Exception as error:
                     journal.append('service_log_unavailable', service=service, exception_type=type(error).__name__)
             try:
                 result('new-owned-scoped-down', checkout, ['container', 'hybrid_services', 'down', '--json'])
                 status = result('new-owned-after-down', checkout, ['container', 'hybrid_services', 'status', '--json'])
-                rows = status.get('services', [])
-                journal.append('cleanup_status', checkout=str(checkout), service_states=[{'name': row.get('name') if row.get('name') in ('silo','silo_client') else 'unknown', 'status': row.get('status') if row.get('status') in ('running','stopped','exited','missing','healthy') else 'unknown'} for row in rows if isinstance(row,dict)])
+                observation=status_projection(status,identities[checkout],[],after_down=True)
+                journal.append('cleanup_status',checkout=str(checkout),**observation,retirement_proven=False)
             except Exception as error:
                 journal.append('cleanup_unknown', exception_type=type(error).__name__)
                 failure = failure or 'CleanupUnknown'
         if gateway_started:
             try:
                 status = result('new-private-gateway-status', main_checkout, ['gateway', 'status', '--private-state-root', str(gateway), '--json'])
+                if status.get('private') is not True or status.get('gateway_dir')!=str(gateway) or not isinstance(status.get('routes'),list):
+                    raise ValueError('gateway_identity_unknown')
                 if status.get('routes'):
                     raise RuntimeError('private routes remain held')
                 result('new-private-gateway-down', main_checkout, ['gateway', 'down', '--private-state-root', str(gateway), '--json'])
@@ -224,7 +277,7 @@ def main():
                 failure = failure or 'CleanupUnknown'
         journal.append('disposition', private_vm_started=vm_started, private_vm_held=vm_started, volume_retirement_proven=False, old_resources_touched=False)
         journal.close()
-        summary = {'source':SUPPORTED_EFFIGY_SOURCE, 'binary_sha256':SUPPORTED_EFFIGY_SHA256, 'failure_class':failure, 'results':results, 'whole_profile_acceptance':False, 'old_resources_touched':False}
+        summary = {'source':SUPPORTED_EFFIGY_SOURCE, 'binary_sha256':SUPPORTED_EFFIGY_SHA256, 'failure_class':failure, 'results':[{k:v for k,v in r.items() if k!='payloads'} for r in results], 'whole_profile_acceptance':False, 'old_resources_touched':False}
         path = packet / 'result.json'
         path.write_text(json.dumps(summary, indent=2)+'\n')
         path.chmod(0o600)

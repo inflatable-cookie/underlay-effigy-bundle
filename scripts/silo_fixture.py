@@ -31,33 +31,12 @@ PINS = {
 
 
 def command(args: list[str], *, env: dict[str, str], cwd: Path | None = None, timeout: int = 3600) -> str:
-    print(f"COMMAND: {' '.join(args)}", flush=True)
-    result = subprocess.run(
-        args,
-        cwd=cwd,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    print(f"EXIT: {result.returncode}", flush=True)
-    if result.stdout.strip():
-        print(result.stdout.rstrip(), flush=True)
-    if result.stderr.strip():
-        print(result.stderr.rstrip(), flush=True)
-    if result.returncode:
-        # Preserve enough bounded build context for a private fixture failure
-        # receipt to identify the failing stage without dumping an unbounded
-        # compiler log or any task environment values.
-        stderr = result.stderr.rstrip()[-3600:]
-        stdout = result.stdout.rstrip()[-1200:]
-        excerpt = "\n".join(part for part in (stderr, stdout) if part)
-        raise RuntimeError(
-            f"command exited {result.returncode}: {' '.join(args)}"
-            + (f"\nbounded command output tail:\n{excerpt}" if excerpt else "")
-        )
-    return result.stdout
+    from storage_correlation import bounded_run
+    result = bounded_run(args, cwd=cwd, env=env, timeout=timeout)
+    print(f"IMAGE COMMAND: exit={result['exit']} outcome={result['outcome']} stdout_bytes={result['stdout_bytes']} stderr_bytes={result['stderr_bytes']}", flush=True)
+    if result['exit'] or result['outcome'] != 'complete':
+        raise RuntimeError('bounded pinned-image command refused')
+    return result['stdout'].decode('utf-8')
 
 
 def registry_contract(repository: str, arch: str) -> dict:
@@ -138,7 +117,7 @@ def prepare_published_images(runtime_root: Path, environment: dict[str, str]) ->
     receipt.chmod(0o600)
     for image in (IMAGE, CLIENT_IMAGE):
         command(["colima", "nerdctl", "--profile", "effigy", "--", "pull", "--platform", f"linux/{arch}", image], env=environment, timeout=1200)
-    prefix = ["colima", "nerdctl", "--profile", "effigy", "--", "run", "--rm"]
+    prefix = ["colima", "nerdctl", "--profile", "effigy", "--", "run", "--rm", "--network", "none"]
     shape = command(prefix + ["--entrypoint", "/bin/sh", IMAGE, "-c",
         "command -v silo; command -v mc; command -v mcli; silo --version; mc --version; sha256sum /usr/bin/silo /usr/bin/mc"], env=environment, timeout=60)
     client_version = command(prefix + [CLIENT_IMAGE, "--version"], env=environment, timeout=60)

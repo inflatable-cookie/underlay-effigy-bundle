@@ -68,51 +68,100 @@ class CorrelationTests(unittest.TestCase):
         for body in (b'bad', b'<!DOCTYPE a><Error/>', b'<Error><Code>seeded-secret</Code></Error>', b'x' * 16385):
             self.assertEqual(probe.s3_error(body), {'error_code': 'unknown'})
 
-    def test_alias_stat_and_headers_never_dump_secrets(self):
-        record = {'status': 'success', 'alias': 'local', 'URL': 'http://user:seeded-secret@silo:9000?secret', 'accessKey': 'seeded-secret'}
-        self.assertNotIn('secret', json.dumps(probe.alias_projection(json.dumps(record))))
-        for change in ({'URL': 'http://foreign:9000'}, {'status': 'error'}, {'alias': 'foreign'}):
-            with self.assertRaises(ValueError):
-                probe.alias_projection(json.dumps({**record, **change}))
-        self.assertEqual(probe.stat_projection('{"status":"success","size":39,"secret":"seeded-secret"}'), {'status': 'success', 'size': 39})
-        for value in ('{"status":"error","message":"secret"}', '{"status":"success","size":true}', 'bad'):
-            with self.assertRaises(ValueError):
-                probe.stat_projection(value)
-        response = Mock()
-        response.getheader.side_effect = lambda name: {'Content-Length': '39', 'Content-Type': 'seeded-secret', 'Connection': 'close'}.get(name)
-        self.assertEqual(probe.safe_framing(response), {'content-length': '39', 'content-type': 'unclassified', 'connection': 'close'})
+    @staticmethod
+    def alias():
+        return json.dumps({'status':'success','alias':'local','URL':'http://silo:9000',
+                           'accessKey':'minioadmin','secretKey':'minioadmin','api':'S3v4',
+                           'path':'auto','src':'/root/.mc/config.json'},indent=1)
 
-    def test_actual_operation_order_and_404_stops_host_write(self):
-        calls = []
-        def shell(label, command, **kwargs):
+    @staticmethod
+    def stat(key,size):
+        return json.dumps({'status':'success','name':key,'lastModified':'2026-10-11T00:00:00Z',
+                           'size':size,'etag':'digest','type':'file'},indent=1)
+
+    def test_pretty_multiline_and_duplicate_json_refusal(self):
+        self.assertEqual(probe.alias_projection(self.alias())['endpoint'],'http://silo:9000')
+        for change in ({'URL':'http://user:secret@silo:9000'}, {'src':'env'}, {'path':'on'}, {'api':'S3v2'}, {'secretKey':'seeded-secret'}):
+            with self.assertRaises(ValueError):probe.alias_projection(json.dumps({**json.loads(self.alias()),**change}))
+        for value in (self.alias()+self.alias(),self.alias()+'secret', '{"status":"success","status":"error"}', '[{}]', 'bad'):
+            with self.assertRaises(ValueError):probe.json_records(value)
+        self.assertEqual(probe.stat_projection(self.stat('owned',7),'owned',7)['size'],7)
+        for key,size in (('foreign',7),('owned',8)):
+            with self.assertRaises(ValueError):probe.stat_projection(self.stat('owned',7),key,size)
+
+    def test_full_correspondence_and_reverse_bytes_refusal(self):
+        nonce='a'*32; key='main-known.txt';client_key=nonce+'-'+key;host_key=nonce+'-host-'+key
+        payload=('client:'+client_key).encode();reverse=('host:'+host_key).encode();calls=[]
+        def shell(label,command,**kwargs):
             calls.append(label)
-            if label == 'alias': return '{"status":"success","alias":"local","URL":"http://silo:9000"}'
-            if label in ('dns', 'server-address'): return '10.0.0.2 silo'
-            if label in ('stat', 'host-stat'): return '{"status":"success","size":39}'
+            if label=='alias':return self.alias()
+            if label=='stat':return self.stat(client_key,len(payload))
+            if label=='server_read_client_write':return payload.decode()
+            if label in ('server_read_host_write','client_read_host_write'):return reverse.decode()
             return ''
-        journal = Mock()
-        request = Mock(return_value=(404, {}, b'<Error><Code>NoSuchKey</Code></Error>'))
-        with self.assertRaisesRegex(RuntimeError, 'disagree'):
-            probe.correlate(shell, request, journal, 8540, 'first-known.txt')
-        self.assertEqual(calls, ['alias', 'dns', 'server-address', 'bucket', 'pipe', 'stat'])
-        self.assertEqual(request.call_count, 1)
-        self.assertIn('NoSuchKey', str(journal.append.call_args_list))
+        request=Mock(side_effect=[(200,{},payload),(200,{},b'')])
+        outcome=probe.correlate(shell,request,Mock(),8140,key,nonce)
+        self.assertEqual(outcome['payloads'],[payload,reverse]);self.assertLess(calls.index('producer'),calls.index('consumer'))
+        request=Mock(return_value=(404,{},b'<Error><Code>NoSuchKey</Code></Error>'))
+        with self.assertRaisesRegex(ValueError,'host_byte'):probe.correlate(shell,request,Mock(),8140,key,nonce)
+        self.assertEqual(request.call_count,1)
+        def stale(label,command,**kwargs):
+            if label=='client_read_host_write':return payload.decode()
+            return shell(label,command,**kwargs)
+        with self.assertRaisesRegex(ValueError,'byte_correspondence'):
+            probe.correlate(stale,Mock(side_effect=[(200,{},payload),(200,{},b'')]),Mock(),8140,key,nonce)
+        def failed(label,command,**kwargs):
+            if label=='producer':raise ValueError('producer_refused')
+            return shell(label,command,**kwargs)
+        calls.clear()
+        with self.assertRaisesRegex(ValueError,'producer_refused'):probe.correlate(failed,Mock(),Mock(),8140,key,nonce)
+        self.assertNotIn('consumer',calls)
 
-    def test_success_and_pipeline_failure_propagate(self):
-        def shell(label, command, **kwargs):
-            if label == 'alias': return '{"status":"success","alias":"local","URL":"http://silo:9000"}'
-            if label in ('dns', 'server-address'): return '10.0.0.2'
-            if label in ('stat', 'host-stat'): return '{"status":"success","size":39}'
-            return ''
-        request = Mock(side_effect=[(200, {}, b'owned-storage-correlation:main-known.txt'), (200, {}, b'')])
-        self.assertEqual(probe.correlate(shell, request, Mock(), 8440, 'main-known.txt')['port'], 8440)
-        def failed(label, command, **kwargs):
-            if label == 'pipe': raise RuntimeError('pipeline exit 1')
-            return shell(label, command, **kwargs)
-        request = Mock()
-        with self.assertRaisesRegex(RuntimeError, 'pipeline exit 1'):
-            probe.correlate(failed, request, Mock(), 8440, 'main-known.txt')
-        request.assert_not_called()
+    def test_cross_scope_requires_own_survival_and_exact_no_such_key(self):
+        own={'port':1,'bucket':'owned','keys':['a','b'],'payloads':[b'one',b'two']}
+        foreign={'keys':['c','d']}
+        for error in ('NoSuchBucket','unknown',None):
+            body=b'generic' if error is None else ('<Error><Code>'+error+'</Code></Error>').encode()
+            with self.assertRaises(ValueError):
+                probe.cross_scope(Mock(side_effect=[(200,{},b'one'),(200,{},b'two'),(404,{},body)]),Mock(),own,foreign)
+        probe.cross_scope(Mock(side_effect=[(200,{},b'one'),(200,{},b'two'),(404,{},b'<Error><Code>NoSuchKey</Code></Error>'),(404,{},b'<Error><Code>NoSuchKey</Code></Error>')]),Mock(),own,foreign)
+
+    def test_presence_guards_and_marker_boundaries(self):
+        import os,subprocess
+        base={k:v for k,v in os.environ.items() if k not in probe.ROUTING_OVERRIDES and k!='MC_HOST_local'}
+        base['HOME']='/root'
+        for name in ('MC_HOST_local',*probe.ROUTING_OVERRIDES):
+            for value in ('','seeded-secret'):
+                result=subprocess.run(['/bin/sh','-c',probe.environment_guard('silo_client')],env={**base,name:value},capture_output=True,timeout=2)
+                self.assertNotEqual(result.returncode,0);self.assertNotIn(b'seeded-secret',result.stdout+result.stderr)
+        marker='UNDERLAY_ABC12345'
+        result=subprocess.run(['/bin/sh','-c',probe.shell_command('printf %s bytes',marker)],capture_output=True,text=True,timeout=2)
+        self.assertEqual(probe.shell_region(result.stdout,marker),('bytes',0))
+        for value in (result.stdout+result.stdout,result.stdout.replace('_END=0','_END=999'),result.stdout.replace('_BEGIN','_OTHER')):
+            with self.assertRaises(ValueError):probe.shell_region(value,marker)
+
+    def test_native_status_identity_live_ports_and_unavailable_cleanup(self):
+        identity={'project':'owned'}
+        status=dict(schema='effigy.container.status.v1',schema_version=1,ok=True,container='hybrid_services',driver='colima',manifest_driver='colima',backend='containerd',profile='effigy',project_name='owned',primary_service='silo',runtime_running=True,services=[{'name':'silo','container_name':'opaque server','status':'Up 1 second','ports':['127.0.0.1:8140->9000/tcp']},{'name':'silo_client','container_name':'opaque client','status':'running','ports':[]}])
+        binding=[('silo',8140,9000)]
+        self.assertEqual(probe.status_projection(status,identity,binding)['port'],8140)
+        for change in ({'runtime_running':False},{'services':None},{'backend':'foreign'},{'project_name':'foreign'},{'services':status['services']*2}):
+            with self.assertRaises(ValueError):probe.status_projection({**status,**change},identity,binding)
+        with self.assertRaises(ValueError):probe.status_projection(status,identity,[('silo',8540,9000)])
+        probe.status_projection({**status,'services':[]},identity,[],after_down=True)
+        with self.assertRaises(ValueError):probe.status_projection({**status,'runtime_running':False,'services':[]},identity,[],after_down=True)
+
+    def test_real_process_caps_timeout_and_nested_capture_counterexample(self):
+        import sys,os
+        result=probe.bounded_run([sys.executable,'-c','import os; os.write(1,b"seeded-secret"*10000)'],cap=64,timeout=2)
+        self.assertEqual(result['outcome'],'truncated');self.assertLessEqual(len(result['stdout']),64)
+        # An inner collector allocates output before emitting. The outer reader
+        # sees zero bytes and cannot demonstrate an inner byte bound.
+        code='import sys,time; value=b"x"*65536; time.sleep(1); sys.stdout.buffer.write(value)'
+        result=probe.bounded_run([sys.executable,'-c',code],cap=4096,timeout=.1)
+        self.assertEqual(result['outcome'],'timeout');self.assertEqual(result['stdout_bytes'],0)
+        evidence=probe.capture_contract(os.environ['UNDERLAY_PROFILE_EFFIGY_SOURCE'])
+        self.assertFalse(evidence['outer_pipe_cap_sufficient']);self.assertFalse(evidence['inner_byte_cap_demonstrated'])
 
     def test_minimal_policy_has_no_apps_dns_or_other_services(self):
         policy = dict(driver='colima', profile='effigy', startup='detached', project_name='owned', working_dir='/', host={'publish_address':'127.0.0.1'}, host_processes=[{'secret':'x'}], dns={'routes':['secret']}, services={'silo':{'catalog':'silo'}, 'silo_client':{'catalog':'silo-mc'}, 'postgres':{}})

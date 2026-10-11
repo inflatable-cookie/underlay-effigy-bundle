@@ -807,7 +807,7 @@ shared-identity overrides refuse. Strict mapping, finite label observations and
 error classifications are retained before rejection. Identity observations grant
 no resource-adoption, signal or cleanup authority.
 
-The latest attempt passed both actual main/worktree native composition/scope/
+The preceding attempt passed both actual main/worktree native composition/scope/
 pre-backend Compose gates, pinned image/executable verification, private TLS/
 gateway and main service up/status. Runtime primary scope correlation passed.
 Alias bootstrap and client environment override checks returned inner/outer zero.
@@ -826,3 +826,38 @@ retirement remains unproven. Prior held resources and packets remain untouched.
 Empty sanitized service logs are a limitation. No MC/S3 correlation PASS or
 historical 404 cause is established; lifecycle/disposable-test and independent
 review/hosted assurance remain incomplete.
+
+### Storage endpoint evidence boundary
+
+The service-only qualification method binds the native selected project, service
+and available runtime identity to unique challenge bytes along the persisted
+client alias name-path, selected server loopback alias, and actual published host
+endpoint. Live published ports must agree uniquely with fresh generated Compose.
+Container names are opaque observations. Numeric DNS/IP addresses, container IDs
+and network inventory are unobserved: object correspondence does not observe a
+DNS address. These observations grant no adoption, signal or cleanup authority.
+
+Each independent producer and consumer must succeed. Reverse host writes use
+different bytes, read exactly by both selected server and client. Foreign keys
+in each scope's existing bucket require an S3 NoSuchKey response; generic 404
+and NoSuchBucket do not prove isolation. Missing or unavailable post-down
+inventory remains unknown. VM/images/volumes and all older residue stay held.
+
+The qualified source `6da2f94bcc1400f9165b954a5343bd0cb14267ac` command-mode
+container shell captures before emitting output: `execute_command_mode_shell`
+requests capture, transport supplies no deadline, and `run_command_capture_until`
+uses `Command.output()` on that branch. The deadline branch also reads streams
+into unbounded vectors. A bounded external pipe reader cannot establish an inner
+container stdout/stderr byte cap. The storage diagnostic therefore refuses before
+VM/gateway/service effects after native main/worktree preflights. This is a
+capture-evidence capability boundary, not evidence of the historical 404 cause
+or a Silo defect. No streaming alternative or in-container bounded producer is
+qualified by this change; the pinned-image and storage correspondence paths
+remain unavailable until that boundary is resolved.
+
+Source anchors: [command-mode capture](https://github.com/inflatable-cookie/effigy/blob/6da2f94bcc1400f9165b954a5343bd0cb14267ac/crates/effigy-runtime/src/shell.rs),
+[execution transport](https://github.com/inflatable-cookie/effigy/blob/6da2f94bcc1400f9165b954a5343bd0cb14267ac/src/runner/exec_command/transport.rs).
+MC alias/stat decoders use the pinned [alias message](https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/cmd/alias-main.go)
+and [stat message](https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/cmd/stat.go)
+structures; local and S3 stat share `parseStat` and indented JSON serialization.
+Source-shaped controls do not certify execution against the published images.

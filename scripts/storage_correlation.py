@@ -1,6 +1,5 @@
 """Finite, secret-free projections for the owned Silo write/read diagnosis."""
 import hashlib
-import ipaddress
 import json
 import re
 from urllib.parse import urlsplit
@@ -40,58 +39,146 @@ def s3_error(body):
     return result
 
 
+CAPTURE_LIMIT = 262144
+
+
+def strict_json(text):
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError('duplicate_json_key')
+            result[key] = value
+        return result
+    try:
+        return json.loads(text, object_pairs_hook=pairs)
+    except (ValueError, TypeError):
+        raise ValueError('malformed_json') from None
+
+
 def json_records(output):
-    """Effigy shell adds human headers; retain only complete JSON records in memory."""
-    records = []
-    for line in output.splitlines():
-        if line.startswith("{"):
-            value = json.loads(line)
-            if not isinstance(value, dict):
-                raise ValueError("invalid MC record")
-            records.append(value)
-    if not records:
-        raise ValueError("missing MC JSON record")
-    return records
+    # Callers pass exactly the unique shell-framed region, never human headers.
+    if len(output.encode()) > CAPTURE_LIMIT:
+        raise ValueError('mc_output_truncated')
+    record = strict_json(output)
+    if not isinstance(record, dict):
+        raise ValueError('invalid_mc_record')
+    return [record]
 
 
 def alias_projection(output):
-    records = json_records(output)
-    if len(records) != 1:
-        raise ValueError("ambiguous MC alias")
-    record = records[0]
-    if record.get("status") != "success" or record.get("alias") != "local":
-        raise ValueError("negative MC alias result")
-    url = urlsplit(record.get("URL", record.get("url", "")))
-    if url.scheme != "http" or url.hostname != "silo" or url.port != 9000 or url.path not in ("", "/"):
-        raise ValueError("unexpected MC endpoint")
-    return {"alias": "local", "endpoint": "http://silo:9000",
-            "config_scope": "client-container:/root/.mc", "credentials_recorded": False}
+    record = json_records(output)[0]
+    allowed = {'status','alias','URL','accessKey','secretKey','api','path','src'}
+    if set(record) != allowed or record.get('status') != 'success' or record.get('alias') != 'local':
+        raise ValueError('alias_shape_refused')
+    if (record['URL'] != 'http://silo:9000' or record['api'] != 'S3v4'
+            or record['path'] != 'auto' or record['src'] != '/root/.mc/config.json'
+            or record['accessKey'] != 'minioadmin' or record['secretKey'] != 'minioadmin'):
+        raise ValueError('alias_config_refused')
+    return {'alias':'local', 'endpoint':'http://silo:9000',
+            'config_scope':'client-container:/root/.mc', 'credentials_recorded':False}
 
 
-def stat_projection(output):
-    records = json_records(output)
-    if len(records) != 1 or records[0].get("status") != "success":
-        raise ValueError("negative or ambiguous MC stat")
-    size = records[0].get("size")
-    if type(size) is not int or not 0 <= size <= 1048576:
-        raise ValueError("invalid MC object size")
-    return {"status": "success", "size": size}
+def stat_projection(output, key=None, size=None):
+    record = json_records(output)[0]
+    allowed = {'status','name','lastModified','size','etag','type','expires',
+               'expiration','expirationRuleID','replicationStatus','metadata',
+               'versionID','deleteMarker','restore','checksum'}
+    if (not set(record) <= allowed or not {'status','name','lastModified','size','etag','type'} <= set(record)
+            or record['status'] != 'success' or record['type'] != 'file'
+            or type(record['size']) is not int or not 0 <= record['size'] <= 1048576
+            or not isinstance(record['name'], str)
+            or (key is not None and record['name'] != key)
+            or (size is not None and record['size'] != size)):
+        raise ValueError('stat_shape_refused')
+    return {'status':'success', 'size':record['size'], 'type':'file'}
 
 
-def address_projection(output):
-    values = []
-    for line in output.splitlines():
-        for field in line.split():
-            try:
-                address = ipaddress.ip_address(field)
-            except ValueError:
-                continue
-            if address.version == 4 and address.is_private:
-                values.append(str(address))
-    values = sorted(set(values))
-    if not values:
-        raise ValueError("missing server/DNS address")
-    return values
+def running(status):
+    if not isinstance(status, str): return False
+    lowered = status.lower()
+    return not any(x in lowered for x in ('exited','created','dead','paused')) and any(x in lowered for x in ('up','running'))
+
+
+def status_projection(status, identity, bindings, after_down=False):
+    expected = {'schema':'effigy.container.status.v1','schema_version':1,'ok':True,
+                'container':'hybrid_services','driver':'colima','manifest_driver':'colima',
+                'backend':'containerd','profile':'effigy','project_name':identity['project'],
+                'primary_service':'silo','runtime_running':True}
+    if any(type(status.get(k)) is not type(v) or status.get(k) != v for k,v in expected.items()):
+        raise ValueError('status_identity_unavailable')
+    rows = status.get('services')
+    if not isinstance(rows,list): raise ValueError('status_inventory_unavailable')
+    if after_down:
+        if rows: raise ValueError('post_down_inventory_not_empty')
+        return {'available':True,'service_count':0}
+    if len(rows) != 2 or {r.get('name') for r in rows if isinstance(r,dict)} != {'silo','silo_client'}:
+        raise ValueError('status_service_ambiguity')
+    names=[]; published=[]
+    for row in rows:
+        if set(row) != {'name','container_name','status','ports'} or not running(row['status']):
+            raise ValueError('status_not_running')
+        name=row['container_name']
+        if not isinstance(name,str) or not 0 < len(name.encode()) <= 256:
+            raise ValueError('status_container_unknown')
+        names.append(name)
+        if not isinstance(row['ports'],list): raise ValueError('status_ports_unknown')
+        for port in row['ports']:
+            # Pinned backend preserves docker/nerdctl .Ports strings; no ranges,
+            # wildcard binds or unknown representations receive credit.
+            match=re.fullmatch(r'127\.0\.0\.1:([0-9]{1,5})->([0-9]{1,5})/tcp',port) if isinstance(port,str) else None
+            if not match: raise ValueError('live_port_representation_unknown')
+            host,target=map(int,match.groups())
+            if not 1 <= host <= 65535 or not 1 <= target <= 65535: raise ValueError('live_port_invalid')
+            published.append((row['name'],host,target))
+    if len(set(names)) != 2 or len(set(published)) != len(published) or sorted(published) != sorted(bindings):
+        raise ValueError('live_compose_disagreement')
+    api=[h for name,h,t in published if name=='silo' and t==9000]
+    if len(api)!=1: raise ValueError('live_api_port_ambiguity')
+    return {'project':identity['project'],'port':api[0],
+            'selected_container_sha256':[hashlib.sha256(x.encode()).hexdigest() for x in names],
+            'dns_addresses_observed':False,'container_ids_observed':False}
+
+
+def bounded_run(args, *, cwd=None, env=None, timeout=180, cap=CAPTURE_LIMIT):
+    # Drain both pipes without retaining beyond the cap. Only our exact child
+    # PID is stopped on a violated diagnostic bound; no pattern signalling.
+    import selectors, subprocess, time, os
+    process=subprocess.Popen(args,cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    streams=selectors.DefaultSelector(); buffers={'stdout':bytearray(),'stderr':bytearray()}; counts=dict.fromkeys(buffers,0)
+    for name,stream in (('stdout',process.stdout),('stderr',process.stderr)):
+        streams.register(stream,selectors.EVENT_READ,name)
+    deadline=time.monotonic()+timeout; outcome='complete'
+    try:
+        while streams.get_map():
+            if time.monotonic() >= deadline:
+                outcome='timeout';process.kill();break
+            for entry,_ in streams.select(min(.1,max(0,deadline-time.monotonic()))):
+                data=os.read(entry.fileobj.fileno(),8192)
+                if not data: streams.unregister(entry.fileobj);continue
+                name=entry.data;counts[name]+=len(data)
+                remaining=cap-len(buffers[name]);buffers[name].extend(data[:max(0,remaining)])
+                if counts[name]>cap:
+                    outcome='truncated';process.kill();break
+            if outcome!='complete':break
+        process.wait(timeout=5)
+    finally:
+        streams.close();process.stdout.close();process.stderr.close()
+    return {'exit':process.returncode,'stdout':bytes(buffers['stdout']),'stderr':bytes(buffers['stderr']),
+            'stdout_bytes':counts['stdout'],'stderr_bytes':counts['stderr'],'outcome':outcome}
+
+
+ROUTING_OVERRIDES = ('MC_RESOLVE','MC_INSECURE','MC_DEBUG','MC_JSON','MC_QUIET','MC_NO_COLOR','MC_DISABLE_PAGER','MC_LIMIT_UPLOAD','MC_LIMIT_DOWNLOAD','MC_PROFILER','MC_ENC_KMS','MC_ENC_S3','MC_CONFIG_DIR','MC_CONFIG_ENV_FILE','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY',
+                     'http_proxy','https_proxy','all_proxy','NO_PROXY','no_proxy')
+
+
+def environment_guard(service):
+    names=ROUTING_OVERRIDES + (() if service=='silo' else ('MC_HOST_local',))
+    checks='; '.join('test "${'+name+'+present}" != present' for name in names)
+    if service=='silo':
+        checks += '; test "${MC_HOST_local+present}" = present; test "$MC_HOST_local" = "http://minioadmin:minioadmin@127.0.0.1:9000"'
+    else: checks += '; test "$HOME" = /root'
+    return 'set -eu; '+checks
 
 
 def minimal_policy(policy):
@@ -244,46 +331,87 @@ def minimal_manifest(policy):
             + '\n'.join(json.dumps(key) + ' = ' + toml_value(value) for key, value in policy.items()) + '\n')
 
 
-def shell_command(command):
-    # Keep the actual inner shell/pipeline exit even when Effigy maps a failed
-    # child to its own generic exit 1. Commands and their output stay in memory.
-    return ('set +e; ( ' + command + ' ); storage_code=$?; '
-            'printf "\\nUNDERLAY_STORAGE_EXIT=%s\\n" "$storage_code"; exit "$storage_code"')
+def shell_command(command, marker='UNDERLAY_STORAGE'):
+    if not re.fullmatch(r'[A-Z0-9_]{8,80}',marker): raise ValueError('invalid_shell_marker')
+    return ('printf "'+marker+'_BEGIN\\n"; set +e; ( '+command+' ); storage_code=$?; '
+            'printf "\\n'+marker+'_END=%s\\n" "$storage_code"; exit "$storage_code"')
+
+
+def shell_region(output, marker):
+    begin=marker+'_BEGIN\n'; end_pattern=r'(?m)^'+re.escape(marker)+r'_END=([0-9]{1,3})$'
+    ends=list(re.finditer(end_pattern,output))
+    if output.count(begin)!=1 or len(ends)!=1 or int(ends[0].group(1))>255:
+        raise ValueError('shell_framing_unknown')
+    start=output.index(begin)+len(begin);end=ends[0].start()
+    if end<start or not output[start:end].endswith('\n'): raise ValueError('shell_framing_unknown')
+    return output[start:end-1], int(ends[0].group(1))
 
 
 def nested_exit(output):
-    values = re.findall(r'(?m)^UNDERLAY_STORAGE_EXIT=([0-9]{1,3})$', output)
-    if len(values) != 1 or int(values[0]) > 255:
-        return {'inner_exit': None, 'inner_exit_evidence': 'unknown'}
-    return {'inner_exit': int(values[0]), 'inner_exit_evidence': 'shell_marker'}
+    try:
+        _,code=shell_region(output,'UNDERLAY_STORAGE')
+        return {'inner_exit':code,'inner_exit_evidence':'shell_marker'}
+    except ValueError: return {'inner_exit':None,'inner_exit_evidence':'unknown'}
 
 
-def correlate(shell, request, journal, port, key):
-    if key not in ("main-known.txt", "first-known.txt"):
-        raise ValueError("unknown correlation object")
-    bucket = "underlay-storage-correlation"
-    payload = ("owned-storage-correlation:" + key).encode()
-    journal.append("mc_alias", **alias_projection(shell("alias", "mc alias list local --json")))
-    dns = address_projection(shell("dns", "getent hosts silo"))
-    server = address_projection(shell("server-address", "hostname -i", service="silo"))
-    journal.append("endpoint_identity", dns_addresses=dns, server_addresses=server, host_address=f"127.0.0.1:{port}")
-    if dns != server:
-        raise RuntimeError("client DNS and selected server address disagree")
-    shell("bucket", f"mc mb local/{bucket} --ignore-existing")
-    journal.append("mc_write", phase="before_pipe", key_template=key, object_sha256=hashlib.sha256(payload).hexdigest())
-    shell("pipe", f"printf %s {json.dumps(payload.decode())} | mc pipe local/{bucket}/{key}")
-    journal.append("mc_stat", **stat_projection(shell("stat", f"mc stat --json local/{bucket}/{key}")))
-    status, _, body = request(port, "GET", f"/{bucket}/{key}", diagnostics=journal,
-                              diagnostic_operation="mc_write_host_get", diagnostic_path_template="/<bucket>/<known-object>")
-    journal.append("host_get", status=status, body_bytes=len(body), bytes_match=body == payload,
-                   **(s3_error(body) if status >= 400 else {}))
-    if status != 200 or body != payload:
-        raise RuntimeError("MC write and host read disagree")
-    # Overwrite the same known object to keep exactly one object per scope.
-    host_key = key
-    status, _, _ = request(port, "PUT", f"/{bucket}/{host_key}", payload, diagnostics=journal,
-                           diagnostic_operation="host_put", diagnostic_path_template="/<bucket>/<host-object>")
-    if status != 200:
-        raise RuntimeError("host signed write failed")
-    journal.append("host_write_mc_stat", **stat_projection(shell("host-stat", f"mc stat --json local/{bucket}/{host_key}")))
-    return {"port": port, "bucket": bucket, "key": key, "payload_sha256": hashlib.sha256(payload).hexdigest()}
+def correlate(shell, request, journal, port, key, nonce):
+    import shlex
+    if key not in ('main-known.txt','first-known.txt') or not re.fullmatch(r'[a-f0-9]{32}',nonce):
+        raise ValueError('unknown_correlation_challenge')
+    bucket='underlay-storage-correlation'
+    client_key=nonce+'-'+key;host_key=nonce+'-host-'+key
+    payload=('client:'+client_key).encode();reverse=('host:'+host_key).encode()
+    journal.append('mc_alias',**alias_projection(shell('alias','mc alias list local --json')))
+    # No ignore-existing: this attempt must own fresh storage.
+    shell('bucket',f'mc mb local/{bucket}')
+    file='/tmp/underlay-correlation-'+nonce+'-'+key
+    shell('producer',"set -eu; set -C; printf %s "+shlex.quote(payload.decode())+' > '+shlex.quote(file))
+    shell('consumer',f'mc pipe local/{bucket}/{client_key} < '+shlex.quote(file))
+    journal.append('mc_stat',**stat_projection(shell('stat',f'mc stat --json local/{bucket}/{client_key}'),client_key,len(payload)))
+    def read_exact(service, alias, object_key, expected, label):
+        value=shell(label,f'mc cat {alias}/{bucket}/{object_key}',service=service).encode()
+        journal.append(label,body_bytes=len(value),bytes_match=value==expected,body_sha256=hashlib.sha256(value).hexdigest())
+        if value!=expected: raise ValueError('byte_correspondence_refused')
+    read_exact('silo','local',client_key,payload,'server_read_client_write')
+    status,_,body=request(port,'GET',f'/{bucket}/{client_key}',diagnostics=journal,
+                          diagnostic_operation='client_write_host_get',diagnostic_path_template='/<bucket>/<known-object>')
+    journal.append('host_get',status=status,body_bytes=len(body),bytes_match=body==payload,**(s3_error(body) if status>=400 else {}))
+    if status!=200 or body!=payload: raise ValueError('host_byte_correspondence_refused')
+    status,_,body=request(port,'PUT',f'/{bucket}/{host_key}',reverse,diagnostics=journal,
+                          diagnostic_operation='host_put',diagnostic_path_template='/<bucket>/<host-object>')
+    if status!=200: raise ValueError('host_write_refused')
+    read_exact('silo','local',host_key,reverse,'server_read_host_write')
+    read_exact('silo_client','local',host_key,reverse,'client_read_host_write')
+    return {'port':port,'bucket':bucket,'keys':[client_key,host_key],
+            'payloads':[payload,reverse]}
+
+
+def cross_scope(request,journal,own,foreign):
+    for key,payload in zip(own['keys'],own['payloads']):
+        status,_,body=request(own['port'],'GET',f"/{own['bucket']}/{key}",diagnostics=journal,
+                             diagnostic_operation='own_key_survival',diagnostic_path_template='/<bucket>/<own-object>')
+        if status!=200 or body!=payload: raise ValueError('own_key_survival_refused')
+    for key in foreign['keys']:
+        status,_,body=request(own['port'],'GET',f"/{own['bucket']}/{key}",diagnostics=journal,
+                             diagnostic_operation='cross_scope_get',diagnostic_path_template='/<bucket>/<foreign-object>')
+        error=s3_error(body);journal.append('cross_scope_result',status=status,**error)
+        if status!=404 or error.get('error_code')!='NoSuchKey':raise ValueError('cross_scope_isolation_unproven')
+
+
+def capture_contract(source):
+    """Exact-source observation; this does not infer a missing API from version."""
+    from pathlib import Path
+    snippets = {
+        'crates/effigy-runtime/src/shell.rs': ('run_exec(policy, &plan, true)', 'emit_captured_output(&output)?'),
+        'src/runner/container_command/lifecycle.rs': ('fn run_runtime_shell_exec(', 'run_compose_exec_plan_with_options(policy, plan, capture, None)'),
+        'src/runner/exec_command/transport.rs': ('run_compose_exec_plan_with_deadline(policy, plan, capture, stdin_file, None)', 'let Some(deadline) = deadline else {', '.output()', 'stdout.read_to_end(&mut bytes)', 'stderr.read_to_end(&mut bytes)'),
+    }
+    digests={}
+    for relative, required in snippets.items():
+        path=Path(source)/relative
+        raw=path.read_bytes();text=raw.decode()
+        if any(part not in text for part in required):raise ValueError('capture_source_unrecognized')
+        digests[relative]=hashlib.sha256(raw).hexdigest()
+    return {'classification':'container_capture_boundary_unqualified',
+            'command_mode_captures_before_emit':True,'inner_byte_cap_demonstrated':False,
+            'outer_pipe_cap_sufficient':False,'source_files_sha256':digests}
