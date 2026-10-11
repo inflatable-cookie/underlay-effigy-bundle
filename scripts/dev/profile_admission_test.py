@@ -10,6 +10,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import shutil
+import importlib.util
 import unittest
 from unittest.mock import patch
 
@@ -631,6 +633,102 @@ class ProfileAdmissionTests(unittest.TestCase):
             with self.assertRaisesRegex(profiles.ProfileError, "bounded test failed"):
                 profiles._test_profile(identity, repo, env, "disposable_test")
         stop.assert_called_once_with(identity, repo, env, "disposable_test")
+
+
+class NestedContextPathTests(unittest.TestCase):
+    def test_process_envelope_adapter_and_durable_receipt(self):
+        scripts = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(scripts))
+        spec = importlib.util.spec_from_file_location("nested_context_qualification", scripts / "qualify-reference-optin.py")
+        qualification = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = qualification
+        spec.loader.exec_module(qualification)
+        seed = "SEEDED_PASSWORD /secret/key?token=SEEDED_TOKEN"
+        missing = "container name omitted but `[containers].default` is not defined for implicit targeting"
+        def envelope(kind, message):
+            return json.dumps({"schema": "effigy.command.v1", "schema_version": 1, "ok": False,
+                               "error": {"kind": kind, "message": message, "details": seed}, "result": seed})
+        cases = [("negative", 7, envelope("RunnerError", missing), "RunnerError", "default_target_missing", "negative_envelope"),
+                 ("negative_zero", 0, envelope("RunnerError", missing), "RunnerError", "default_target_missing", "negative_envelope"),
+                 ("malformed", 3, seed, "unknown", "unclassified", "nonjson"),
+                 ("unknown", 4, envelope(seed, seed), "unknown", "unclassified", "negative_envelope"),
+                 ("unknown_message", 5, envelope("RunnerError", seed), "RunnerError", "unclassified", "negative_envelope"),
+                 ("spawn", None, seed, "unknown", "unclassified", "spawn"),
+                 ("timeout", -15, seed, "unknown", "unclassified", "timeout")]
+        with tempfile.TemporaryDirectory(prefix="underlay-context-path-") as temporary:
+            root = Path(temporary).resolve()
+            for index, (mode, code, payload, kind, reason, outcome) in enumerate(cases):
+                with self.subTest(mode=mode):
+                    fixture = root / str(index)
+                    fixture.mkdir()
+                    (fixture / "effigy.toml").write_text("")
+                    adapter = fixture / "adapter"
+                    adapter.mkdir()
+                    for name in ("managed-vite-listener.mjs", "context-diagnostic.mjs"):
+                        shutil.copyfile(scripts / "dev" / name, adapter / name)
+                    # Replace only the external process boundary. The real launcher
+                    # process/JSON/error code and actual Vite adapter run unchanged.
+                    wrapper = f'''import sys, subprocess
+from pathlib import Path
+sys.path.insert(0, {str(scripts / "dev")!r})
+import profile_launcher as p
+p._CONTEXT_ACTION = True
+p._context_mark("host-inventory", "default.hosts")
+p.verify_unchanged = lambda identity: None
+class Process:
+    pid = 123
+    returncode = {code!r}
+    calls = 0
+    def communicate(self, timeout=None):
+        self.calls += 1
+        if {mode!r} == "timeout" and self.calls == 1:
+            raise subprocess.TimeoutExpired("SEEDED_ARGV", 1)
+        return {payload!r}, {seed!r}
+def spawn(*args, **kwargs):
+    if {mode!r} == "spawn":
+        raise OSError({seed!r})
+    return Process()
+p.subprocess.Popen = spawn
+p._stop_owned_process_group = lambda pid: None
+try:
+    p._json_command(p.BinaryIdentity("source", "/binary", "digest", 1, 2, 3, 4), Path.cwd(), {{}}, "container", "hosts")
+except Exception as error:
+    p._cli_failure(error)
+    sys.exit(1)
+raise AssertionError("negative accepted")
+'''
+                    (adapter / "profile_launcher.py").write_text(wrapper)
+                    env = os.environ.copy()
+                    env.update({"EFFIGY_MANAGED_HOST_LISTENER_BIND": "127.0.0.1:0",
+                                "EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE": str(fixture / "report.json"),
+                                "EFFIGY_MANAGED_HOST_LISTENER_GENERATION": "fixture-generation",
+                                "EFFIGY_PROFILE_CONTAINER_NAME": "hybrid_services",
+                                "EFFIGY_PROFILE_HOST_CONTAINER_NAME": "hybrid_services",
+                                "UNDERLAY_PROFILE_REPO": str(fixture), "PYTHONDONTWRITEBYTECODE": "1"})
+                    result = subprocess.run(["node", str(adapter / "managed-vite-listener.mjs")], cwd=fixture,
+                                            env=env, capture_output=True, text=True, timeout=8)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertNotIn("SEEDED", result.stdout + result.stderr)
+                    self.assertNotIn("/secret", result.stdout + result.stderr)
+                    self.assertFalse((fixture / "report.json").exists())
+                    logs = fixture / ".effigy/runtime/host-processes/hybrid_services/effigy"
+                    logs.mkdir(parents=True)
+                    (logs / "admin.log").write_text(result.stderr)
+                    receipts = root / f"receipts-{index}"
+                    receipts.mkdir(mode=0o700)
+                    journal = qualification.StorageDiagnosticJournal(receipts / "storage-diagnostics.jsonl", fixture)
+                    qualification.capture_profile_context_errors([fixture], journal)
+                    journal.close()
+                    retained = (receipts / "storage-diagnostics.jsonl").read_text()
+                    self.assertNotIn("SEEDED", retained)
+                    records = [json.loads(line) for line in retained.splitlines()]
+                    self.assertEqual(len(records), 1)
+                    diagnostic = records[0]["diagnostic"]
+                    self.assertEqual(diagnostic["phase"], "host-inventory")
+                    self.assertEqual(diagnostic["operation"], "default.hosts")
+                    self.assertEqual(diagnostic["exit_status"], 1)
+                    self.assertEqual(diagnostic["nested"], {"kind": kind, "reason": reason,
+                                                           "outcome": outcome, "exit_status": code})
 
 
 if __name__ == "__main__":

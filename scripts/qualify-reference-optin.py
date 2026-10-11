@@ -121,6 +121,7 @@ def diagnostic_only_recipe_matches(path: str, current: str, baseline: str) -> bo
         return current == baseline
     if not path.endswith("profile_launcher.py"):
         return False
+    current = re.sub(r"(?m)^([ ]*)# BEGIN nested context diagnostic\n.*?^\1# END nested context diagnostic\n", "", current, flags=re.DOTALL)
     current, count = re.subn(r"# BEGIN context-only diagnostic helpers\n.*?# END context-only diagnostic helpers\n\n\n", "", current, count=1, flags=re.DOTALL)
     if count != 1:
         return False

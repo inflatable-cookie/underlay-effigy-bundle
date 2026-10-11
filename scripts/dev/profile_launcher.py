@@ -161,6 +161,60 @@ CONTEXT_PHASES = {"admission", "configuration", "service-status", "compose-bindi
 CONTEXT_OPERATIONS = {"verify", "private-root", "compose", "default.hosts", "gateway.status", "gateway.https", "routes", "postgres", "smtp", "mailpit_http", "silo", "silo_console", "dbgate", "hybrid_services.status", "disposable_test.status", "hybrid_services.hosts", "disposable_test.hosts"}
 CONTEXT_CLASSES = {"ProfileError", "OSError", "FileNotFoundError", "PermissionError", "TimeoutExpired", "JSONDecodeError", "ValueError", "TypeError", "other"}
 CONTEXT_MESSAGES = {"operation_failed", "command_timeout", "invalid_json", "source_or_binary_refused", "private_gateway_unavailable", "loopback_binding_unavailable", "binding_conflict", "effective_route_unavailable", "file_unavailable", "permission_denied"}
+NESTED_KINDS = {"RunnerError", "unknown"}
+NESTED_RESULTS = {"negative_envelope", "nonjson", "invalid_envelope", "nonzero_success", "spawn", "timeout"}
+NESTED_REASONS = {"unclassified", "default_target_missing", "container_not_defined", "working_directory_missing", "project_name_conflict"}
+
+
+def nested_failure(kind: str, reason: str, outcome: str, code: int | None) -> ProfileError:
+    error = ProfileError("nested context command refused")
+    error.nested = {"kind": kind, "reason": reason, "outcome": outcome, "exit_status": code}
+    return error
+
+
+def context_json_result(result: subprocess.CompletedProcess) -> dict:
+    # Source 8ecd64b: cli/output/envelope.rs, cli/entrypoint.rs and
+    # crates/effigy-containers/src/policy/{load,project}.rs. No substitutions emitted.
+    try:
+        envelope = json.loads(result.stdout)
+    except (TypeError, ValueError):
+        raise nested_failure("unknown", "unclassified", "nonjson", result.returncode) from None
+    if (not isinstance(envelope, dict) or envelope.get("schema") != "effigy.command.v1"
+            or envelope.get("schema_version") != 1 or type(envelope.get("ok")) is not bool):
+        raise nested_failure("unknown", "unclassified", "invalid_envelope", result.returncode)
+    if not envelope["ok"]:
+        negative = envelope.get("error")
+        negative = negative if isinstance(negative, dict) else {}
+        kind = negative.get("kind")
+        kind = kind if isinstance(kind, str) and kind in NESTED_KINDS else "unknown"
+        reason = "unclassified"
+        message = negative.get("message")
+        if kind == "RunnerError" and isinstance(message, str) and len(message) <= 16384:
+            if message == "container name omitted but `[containers].default` is not defined for implicit targeting":
+                reason = "default_target_missing"
+            elif re.fullmatch(r"container `[^`\n]+` is not defined in `\[containers\]` \(available: [^\n]*\)", message):
+                reason = "container_not_defined"
+            elif re.fullmatch(r"container `([^`\n]+)` must declare `\[containers\.\1\]\.working_dir` or a repo-root host mount for CWD mapping", message):
+                reason = "working_directory_missing"
+            elif re.fullmatch(r"containers must resolve to unique `project_name` values when more than one container is declared; duplicate effective project names: [^\n]+", message):
+                reason = "project_name_conflict"
+        raise nested_failure(kind, reason, "negative_envelope", result.returncode)
+    if result.returncode != 0:
+        raise nested_failure("unknown", "unclassified", "nonzero_success", result.returncode)
+    value = envelope.get("result")
+    return value if isinstance(value, dict) else {}
+
+
+def validated_nested(value: object) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    fields = {"kind": NESTED_KINDS, "reason": NESTED_REASONS, "outcome": NESTED_RESULTS}
+    if any(not isinstance(value.get(key), str) or value[key] not in allowed for key, allowed in fields.items()):
+        return None
+    code = value.get("exit_status")
+    if code is not None and (type(code) is not int or not -255 <= code <= 255):
+        return None
+    return {"kind": value["kind"], "reason": value["reason"], "outcome": value["outcome"], "exit_status": code}
 
 
 def _context_mark(phase: str, operation: str) -> None:
@@ -193,10 +247,14 @@ def context_error_record(error: Exception) -> dict:
         message = "loopback_binding_unavailable"
     elif "effective" in text and "route" in text:
         message = "effective_route_unavailable"
-    return {"schema": "underlay.profile-context-error.v1",
+    record = {"schema": "underlay.profile-context-error.v1",
             "phase": _CONTEXT_PHASE if _CONTEXT_PHASE in CONTEXT_PHASES else "configuration",
             "operation": _CONTEXT_OPERATION if _CONTEXT_OPERATION in CONTEXT_OPERATIONS else "verify",
             "error_class": error_class, "message": message, "exit_status": 1}
+    nested = validated_nested(getattr(error, "nested", None))
+    if nested is not None:
+        record["nested"] = nested
+    return record
 
 
 def validated_context_record(value: object) -> dict | None:
@@ -209,7 +267,13 @@ def validated_context_record(value: object) -> dict | None:
     code = value.get("exit_status")
     if code is not None and (type(code) is not int or not -255 <= code <= 255):
         return None
-    return {"schema": value["schema"], **{key: value[key] for key in fields}, "exit_status": code}
+    record = {"schema": value["schema"], **{key: value[key] for key in fields}, "exit_status": code}
+    if "nested" in value:
+        nested = validated_nested(value["nested"])
+        if nested is None:
+            return None
+        record["nested"] = nested
+    return record
 
 
 def _cli_failure(error: Exception) -> None:
@@ -323,12 +387,20 @@ def _run_process(
             start_new_session=True,
         )
     except OSError as error:
+        # BEGIN nested context diagnostic
+        if _CONTEXT_ACTION:
+            raise nested_failure("unknown", "unclassified", "spawn", None) from None
+        # END nested context diagnostic
         raise ProfileError(f"could not start the verified Effigy binary: {error}") from error
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as error:
         _stop_owned_process_group(process.pid)
         stdout, stderr = process.communicate()
+        # BEGIN nested context diagnostic
+        if _CONTEXT_ACTION:
+            raise nested_failure("unknown", "unclassified", "timeout", process.returncode) from None
+        # END nested context diagnostic
         raise ProfileError(f"Effigy command exceeded its {timeout}-second bound") from error
     except KeyboardInterrupt:
         _signal_owned_process_group(process.pid, signal.SIGINT)
@@ -346,6 +418,10 @@ def _run_process(
         if result.returncode and result.stderr and emit_stderr:
             print(result.stderr.rstrip(), file=sys.stderr, flush=True)
     if result.returncode != 0:
+        # BEGIN nested context diagnostic
+        if _CONTEXT_ACTION and not emit_stdout:
+            return result
+        # END nested context diagnostic
         detail = _safe_error(result.stderr or result.stdout)
         raise ProfileError(f"Effigy command failed ({result.returncode}): {' '.join(argv[1:])}{detail}")
     return result
@@ -395,6 +471,10 @@ def _json_command(
         emit_stdout=False,
         emit_stderr=not _CONTEXT_ACTION,
     )
+    # BEGIN nested context diagnostic
+    if _CONTEXT_ACTION:
+        return context_json_result(result)
+    # END nested context diagnostic
     try:
         envelope = json.loads(result.stdout)
     except (TypeError, ValueError) as error:

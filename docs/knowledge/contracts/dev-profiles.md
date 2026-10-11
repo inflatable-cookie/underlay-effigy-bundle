@@ -408,6 +408,18 @@ secret payloads into errors, stdout and stderr, and verify their exclusion.
 Successful recipe equivalence is checked separately from the diagnostic code:
 changed timeouts or production behavior invalidate retained acceptance reuse.
 
+The nested command boundary preserves a negative `effigy.command.v1` envelope
+before classifying nonzero exits. It records the nested process exit separately
+from the context/adapter exit, including zero-exit negative envelopes. The
+exact-source allowlist accepts `RunnerError` and maps verified container-policy
+templates to `default_target_missing`, `container_not_defined`,
+`working_directory_missing` or `project_name_conflict`. Dynamic substitutions
+and error details are discarded. Unknown classes/reasons are explicit;
+malformed JSON, invalid envelopes, spawn failures and timeouts remain distinct.
+Hermetic controls exercise the production process/JSON code, actual Vite adapter
+and durable receipt collector together; injected failures do not establish the
+cause of earlier runtime failures.
+
 The instrumented remaining-lifecycle attempt passed the guarded API restart
 and front handoff, but admin failed before listener publication. Its retained
 `profile_context_failed` journal entry identifies `phase = host-inventory`,
