@@ -286,7 +286,11 @@ and source environment used by runtime qualification.
 
 The first service-only setup stopped before Silo startup because the helper
 supplied `--repo` to a gateway command. Pinned Effigy rejects that argument before
-execution; gateway ownership instead uses `--private-state-root`. The corrected
-invocation has a side-effect-free parser control, but has not been exercised in
-another runtime. The new private VM/images remain held. The earlier object 404
-and remaining whole-profile assurance remain unresolved.
+execution; gateway ownership instead uses `--private-state-root`. All four actual setup/up/status/down gateway argument lists pass the pinned
+side-effect-free parser control. The renewed service-only attempt stopped even
+earlier: pinned Effigy rejected the disposable minimal manifest's root field
+`sources`. No new VM, gateway or service started, and no MC/S3 request ran.
+The prior private VM/images remain held. Correcting the fixture through the
+supported composition contract and proving both minimal policies without
+services is the next prerequisite; the earlier object 404 and whole-profile
+assurance remain unresolved.

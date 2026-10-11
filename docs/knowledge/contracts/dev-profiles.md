@@ -774,6 +774,17 @@ incorrectly included `--repo`. Exact-source CLI rejects that global argument for
 Gateway before execution, independently of the valid JSON/private-root flags.
 The corrected helper omits `--repo` only for explicit-private-root gateway calls;
 the maintained parser control verifies exit 2 and an unchanged owned directory
-for the rejected form. No corrected runtime replay was performed. The new VM
-and images remain held, no MC/S3 correlation PASS is claimed, and the historical
-404 cause and outstanding lifecycle/disposable-test proofs remain unknown.
+for the rejected form. A focused control now audits every actual setup/up/status/
+down argument list against the pinned parser before effects.
+
+The one renewed service-only attempt stopped at minimal-policy inspection before
+VM startup: the disposable manifest was rejected with `RunnerError` for unknown
+root field `sources`. A read-only post-failure reproduction retained only the
+finite error classification, message digest and fixture path association; it
+grants no runtime or cleanup credit. No new gateway, service, MC or S3 operation
+ran. Prior held VMs/images and all uncertain resources remain untouched. The
+next prerequisite is a bounded fixture-schema correction using the supported
+composition contract, with exact-source no-service main/worktree composition
+controls before any separately authorized attempt. No product/core defect or
+MC/S3 correlation PASS is established; the historical 404 cause and outstanding
+lifecycle/disposable-test proofs remain unknown.

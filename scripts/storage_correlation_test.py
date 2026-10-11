@@ -29,12 +29,35 @@ class CorrelationTests(unittest.TestCase):
         self.assertEqual(binary, require_effigy_binary())
         with tempfile.TemporaryDirectory(prefix='underlay-storage-cli-') as directory:
             root = Path(directory)
-            process = subprocess.run([binary,'--json','--repo',directory,'gateway','status','--private-state-root',directory], capture_output=True, text=True, timeout=10)
-            self.assertEqual(process.returncode, 2)
-            envelope = json.loads(process.stdout)
-            self.assertEqual(envelope['error']['kind'], 'CliParseError')
-            self.assertIn('--repo', envelope['error']['message'])
-            self.assertEqual(list(root.iterdir()), [])
+            import ast
+            tree = ast.parse(Path(__file__).with_name('qualify-storage-correlation.py').read_text())
+            calls = []
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.List) or not node.elts or not isinstance(node.elts[0], ast.Constant) or node.elts[0].value != 'gateway':
+                    continue
+                values = []
+                for item in node.elts:
+                    if isinstance(item, ast.Constant) and isinstance(item.value, str):
+                        values.append(item.value)
+                    elif isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == 'str' and len(item.args) == 1 and isinstance(item.args[0], ast.Name) and item.args[0].id == 'gateway':
+                        values.append(directory)
+                    else:
+                        self.fail('unclassified gateway argument in actual selector')
+                calls.append(values)
+            self.assertEqual(sorted(call[1] for call in calls), ['down','setup-tls','status','up'])
+            for arguments in calls:
+                actual = probe.invocation(binary, root, arguments)
+                self.assertNotIn('--repo', actual)
+                self.assertEqual(actual[actual.index('--private-state-root') + 1], directory)
+                # All actual arguments must parse successfully before the
+                # deliberate global --repo rejection. No command is executed.
+                refused = [binary, '--repo', directory, *actual[1:]]
+                process = subprocess.run(refused, capture_output=True, text=True, timeout=10)
+                self.assertEqual(process.returncode, 2)
+                envelope = json.loads(process.stdout)
+                self.assertEqual(envelope['error']['kind'], 'CliParseError')
+                self.assertEqual(envelope['error']['message'], 'unknown argument: --repo')
+                self.assertEqual(list(root.iterdir()), [])
 
     def test_secret_free_error_projection_and_unknowns(self):
         body = b'<Error><Code>NoSuchKey</Code><RequestId>ABC-123</RequestId><Message>seeded-secret</Message><Key>secret</Key></Error>'
