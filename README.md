@@ -186,8 +186,15 @@ unestablished. A subsequent assembly-only typed `effigy.config.v1` comparison
 resolved the boundary: the default list contained `api/front/admin`, while
 adding the fixture's local probe array replaced it with `interrupted_probe`.
 The regex agreed with both semantic lists. No parser correction or service
-launch followed this counterexample.
-Pending lifecycle and `dev:test` acceptance are unproven.
+launch followed that diagnostic counterexample. The fixture helper now uses
+`[manifest].extend` for the host-process array, preserving production entries
+field for field and restoring original manifest bytes. Typed assembly and
+hermetic refusal/restoration controls cover both probe injection paths.
+The corrected runtime attempt reached the owned HTTP503 interruption probe and
+SIGINT, then stopped at its teardown assertion: supported down left the probe
+record `failed`, while the helper required `stopped`. The main profile is down;
+both private siblings remain active and held because the runner refused further
+cleanup. Recovery, remaining lifecycle and `dev:test` acceptance are unproven.
 The restart harness requires the canonical configured API catalog cwd, exact
 private executable command/path/digest, its unique executable mapping, recorded
 start/ancestry/generation and sole kernel socket ownership before signaling.

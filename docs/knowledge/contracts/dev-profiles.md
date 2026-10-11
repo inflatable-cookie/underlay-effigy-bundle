@@ -533,6 +533,57 @@ and refusal controls. This is a proposal, not an implemented or qualified
 correction; production composition/defaults and live ownership gates remain
 unchanged.
 
+The disposable fixture helper now applies that documented `[manifest].extend`
+path at the incoming Reference manifest layer. Existing literal extension
+paths are retained; duplicate/conflicting or unsupported settings fail closed.
+Typed inspection verifies exact `api/front/admin/probe` order and fieldwise
+equality of the original three entries in memory. Neither their declarations
+nor their secret fields are copied into fixture output. Only the owned probe
+is declared locally. Inspection failures restore the complete original bytes;
+both interruption and collision/partial-failure callers also restore them on
+success and on thrown errors, including uncertain resource ownership. This
+restoration does not grant cleanup authority or manufacture stopped records.
+
+Actual private export assembly proved the original three entries unchanged
+with one added probe, and the original semantic list and exact manifest bytes
+restored after removal. Hermetic controls cover both injection paths, existing
+extension settings, CRLF bytes, changed/missing/duplicate/unknown declarations,
+wrong types/contracts, seeded-secret exclusion, symlink refusal and restoration
+on inspection error/interruption/uncertain owner state. Product exports and
+legacy default composition remain unchanged.
+
+The corrected remaining-lifecycle attempt established nine fresh ready listeners
+and matched the retained restart/build receipt, without another API restart
+signal or storage acceptance replay. Its actual interruption probe reached
+HTTP503 with an accepted report, exclusive socket ownership and no published
+route. SIGINT was sent only to the recorded launcher group. The subsequent
+supported `dev:hybrid:down` completed, but the probe's durable listener status
+remained `failed`. `_verify_profile_stopped_records` requires `stopped` and
+refused before recovery. This is a new terminal-record expectation boundary;
+it does not by itself establish unsafe core cleanup or a qualified teardown.
+No helper relaxation or second isolated runtime followed.
+
+Read-only held status subsequently showed main services/routes empty, gateway
+down, three production listener records stopped and the probe failed without a
+route owner. Its recorded claimed socket had no listener observed. Both private
+siblings remained active, with five services each, ten gateway routes each and
+six ready application listeners total. Further cleanup was withheld under the
+runner's uncertain-owner rule; all private scopes/VM/residue were preserved.
+Original manifest bytes were restored by the caller's unconditional finalizer;
+post-failure inspection found neither the local probe nor its extension setting.
+Silo log capture reached its five-second budget. Interruption recovery,
+collision/partial failure, uncertainty/foreign-preserving teardown and
+`dev:test` acceptance remain incomplete.
+
+The smallest owning follow-up is a bounded assessment of the supported terminal
+failed-generation/absent supervisor-PID behavior against the helper's stop-record
+expectation. Any correction must prove exact recorded ownership and child/socket/
+route absence plus sibling-preserving cleanup; accepting `failed` alone would
+not establish those invariants. The new counterexample grants no cleanup or
+lifecycle acceptance credit.
+
+
+
 Three final down selectors returned zero. Exact status reported empty services
 and private gateway routes, nine stopped listener records, 21 recorded PIDs
 absent and nine recorded sockets without listeners. These observations do not
