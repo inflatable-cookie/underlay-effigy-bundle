@@ -758,8 +758,8 @@ crediting its persisted alias projection. The retained Compose declaration
 alone cannot establish any of those runtime environment preconditions.
 
 The diagnostic collector retains only selected alias URL/config scope,
-container/DNS/server identities, Compose digest/project/scope and loopback map,
-known object digest, exact pipeline exit and post-write MC stat, signed request
+native selected-service observations, Compose digest/project/scope and reconciled
+live loopback map, challenge digests, separate producer/consumer exits and MC stat, signed request
 phase/status/framing/count, finite S3 `Error.Code` and digested request ID.
 Unknown XML codes/headers remain unclassified; arbitrary messages, XML bodies,
 MC configuration, credentials and signatures are never persisted. A negative

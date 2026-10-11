@@ -278,8 +278,8 @@ not whole-profile acceptance. It derives only the Silo server/client declaration
 from the actual Reference export, retains their catalog pins, and omits app
 listeners and explicit DNS routes in the disposable fixture. The catalog TCP
 alias still requires the reviewed private gateway. It records selected MC
-alias/config scope, client DNS/server addresses, scoped Compose identity,
-MC pipe exit/stat, signed response phases/framing and allowlisted S3 error codes.
+alias/config scope, native selected-service observations, scoped Compose identity,
+separate producer/consumer exits and stat, signed response phases/framing and allowlisted S3 error codes.
 Bodies and credentials stay in memory. Its hermetic controls are selected by
 `proof:dev-profiles:storage-correlation-tests` with the same exact-source binary
 and source environment used by runtime qualification.
