@@ -489,7 +489,7 @@ class LifecycleIdentityTests(unittest.TestCase):
         for index, (role, declared) in enumerate(self.roles.items()):
             state = {"schema": "effigy.managed.host-listener-state.v1", "status": "ready", "generation": "a" * 32,
                      "address": f"127.0.0.1:{41001 + index}", "route_domain": self.mapping[declared],
-                     "public_url": "https://" + self.mapping[declared], "owner": str(self.checkout) + role}
+                     "public_url": "https://" + self.mapping[declared], "owner": "fixture|hybrid_services|effigy|" + role}
             state["route_owner"] = {"address": state["address"]}
             self.states[role] = state
             (directory / f"{role}.listener.json").write_text(json.dumps(state))
@@ -529,7 +529,12 @@ class LifecycleIdentityTests(unittest.TestCase):
         process.poll.side_effect = [None, None, 130, 130]
         process.communicate.return_value = (None, None)
         def launch(*args, **kwargs):
-            probe.write_text("{}")
+            probe.write_text(json.dumps({"status": "starting", "child_pid": 101,
+                "owner": "fixture|hybrid_services|effigy|interrupted_probe",
+                "runtime_generation": "b" * 32, "generation": "c" * 32}))
+            (probe.parent / ("interrupted_probe." + "c" * 32 + ".barrier.json")).write_text(json.dumps({
+                "generation": "c" * 32, "pid": 101, "report_file": str(probe.parent / (
+                    "interrupted_probe." + "c" * 32 + ".listener-report.json"))}))
             order.append("launch")
             return process
         def verify_stopped_records(checkout, snapshots, env, **kwargs):
@@ -547,6 +552,11 @@ class LifecycleIdentityTests(unittest.TestCase):
                 (optin.os, "getpgid", {"return_value": 100}),
                 (optin.os, "killpg", {"return_value": None}),
                 (optin, "_profile_listener_snapshots", {"return_value": {}}),
+                (optin.pending_start_identity, "capture_starting", {"return_value": {
+                    "generation": "c" * 32, "owner": "fixture|hybrid_services|effigy|interrupted_probe",
+                    "runtime_generation": "b" * 32, "child": {"pgid": 101}}}),
+                (optin.pending_start_identity, "group_members", {"return_value": [101]}),
+                (optin.pending_start_identity, "cleared_terminal", {}),
                 (optin, "_profile_probe_diagnostic", {"return_value": {"http_status": 503, "route": "not_reached", "ownership": "exclusive_owner_observed", "status": "failed", "route_owner_present": False}}),
                 (optin, "_verify_profile_stopped_records", {"side_effect": verify_stopped_records}),
                 (optin, "listener_state", {"wraps": optin.listener_state}),
@@ -564,6 +574,24 @@ class LifecycleIdentityTests(unittest.TestCase):
         self.assertLess(order.index("hosts"), order.index("dev:hybrid:down"))
         self.assertLess(order.index("append"), order.index("launch"))
         self.assertIn("cleanup", order)
+
+    def test_completed_probe_refuses_before_launcher_signal(self):
+        from unittest.mock import Mock
+        probe = self.directory / "interrupted_probe.listener.json"
+        probe.write_text(json.dumps({"status": "failed"}))
+        process = Mock(pid=100)
+        process.poll.return_value = None
+        with patch.object(optin, "_capture_lifecycle_probe_domain", return_value="probe.fixture.test"), \
+             patch.object(optin, "selector"), patch.object(optin, "_verify_stopped"), \
+             patch.object(optin, "_append_profile_lifecycle_probe", return_value=b"original"), \
+             patch.object(optin.subprocess, "Popen", return_value=process), \
+             patch.object(optin.os, "getpgid", return_value=100), \
+             patch.object(optin.os, "killpg") as signal, \
+             self.assertRaises(optin.UncertainProfileOwnership):
+            optin._run_interruptible_profile_start(self.checkout, self.env, Mock(), [], self.fixture, 8443, self.states)
+        # Finally may terminate its own still-live launcher, but cannot credit SIGINT.
+        self.assertTrue(all(call.args[1] != optin.signal.SIGINT for call in signal.call_args_list))
+        self.assertEqual((self.checkout / "effigy.toml").read_bytes(), b"original")
 
     def test_missing_conflicting_or_foreign_identity_refuses_before_down(self):
         for mapping in ({"routes": []}, {"routes": self.hosts["routes"] + [{"declared": "api.acme.test", "effective": "api.foreign.test"}]}):
@@ -754,6 +782,120 @@ class ListenerSnapshotTests(unittest.TestCase):
         self.assertNotIn("--follow", run.call_args.args[0])
         self.assertEqual(self.rows()[-1]["exception_type"], "TimeoutExpired")
 
+
+
+class PendingIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.module = optin.pending_start_identity
+        self.boot = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
+        self.start = {"platform": "macos", "start_seconds": 10, "start_microseconds": 123456}
+        self.state = {"schema": "effigy.managed.host-listener-state.v1", "status": "starting",
+            "owner": "fixture|hybrid_services|effigy|interrupted_probe", "runtime_generation": "a" * 32,
+            "generation": "b" * 32, "route_domain": "interrupted.api.fixture.test",
+            "supervisor_pid": 100, "supervisor_boot_identity": self.boot,
+            "supervisor_start_identity": self.start, "child_pid": 101,
+            "child_boot_identity": self.boot, "child_start_identity": self.start}
+    def live(self, pid):
+        return {"pid": pid, "ppid": 100 if pid == 101 else 1, "pgid": pid,
+                "uid": __import__("os").geteuid(), "boot_identity": self.boot, "start_identity": self.start}
+    def capture(self, state=None):
+        with patch.object(self.module, "kernel_identity", side_effect=self.live), \
+             patch.object(self.module, "group_members", return_value=[101]):
+            return self.module.capture_starting(state or self.state, self.state["owner"],
+                self.state["runtime_generation"], self.state["route_domain"])
+    def test_pending_receipt_retains_microseconds_and_group(self):
+        receipt = self.capture()
+        self.assertEqual(receipt["child"]["start_identity"]["start_microseconds"], 123456)
+        self.assertEqual(receipt["members"][0]["pid"], 101)
+    def test_completed_or_published_or_foreign_refuses(self):
+        for key, value in (("status", "failed"), ("status", "ready"), ("owner", "foreign"),
+                           ("runtime_generation", "unknown"), ("route_domain", "foreign.test"),
+                           ("address", "127.0.0.1:1"), ("public_url", "https://foreign.test"),
+                           ("route_owner", {}), ("listener_pid", 102)):
+            with self.subTest(key=key), self.assertRaises(self.module.IdentityUnknown):
+                self.capture({**self.state, key: value})
+    def test_missing_microseconds_boot_group_or_reused_identity_refuses(self):
+        for key, value in (("child_boot_identity", None), ("child_pid", None),
+                           ("child_start_identity", {"platform": "macos", "start_seconds": 10}),
+                           ("supervisor_start_identity", {**self.start, "start_microseconds": 123457})):
+            with self.subTest(key=key), self.assertRaises(self.module.IdentityUnknown):
+                self.capture({**self.state, key: value})
+        for change in ({"pgid": 99}, {"ppid": 99}, {"boot_identity": "foreign"}):
+            with patch.object(self.module, "kernel_identity", side_effect=lambda pid: {**self.live(pid), **change}), \
+                 self.assertRaises(self.module.IdentityUnknown):
+                self.module.capture_starting(self.state, self.state["owner"], "a" * 32, self.state["route_domain"])
+    def test_cleared_failed_or_stopped_requires_independent_absence(self):
+        receipt = self.capture()
+        terminal = {**self.state, "child_pid": None, "child_boot_identity": None, "child_start_identity": None}
+        for status in ("failed", "stopped"):
+            with patch.object(self.module, "kernel_identity", return_value=None), \
+                 patch.object(self.module, "boot_identity", return_value=self.boot), \
+                 patch.object(self.module, "group_members", return_value=[]):
+                self.module.cleared_terminal({**terminal, "status": status}, receipt)
+            for key, value in (("child_pid", 101), ("route_owner", {}), ("address", "127.0.0.1:1"),
+                               ("generation", "c" * 32), ("internal_url", "http://127.0.0.1:1")):
+                with self.assertRaises(self.module.IdentityUnknown):
+                    self.module.cleared_terminal({**terminal, "status": status, key: value}, receipt)
+        for live, members in ((self.live(101), []), (None, [102])):
+            with patch.object(self.module, "kernel_identity", return_value=live), \
+                 patch.object(self.module, "boot_identity", return_value=self.boot), \
+                 patch.object(self.module, "group_members", return_value=members), \
+                 self.assertRaises(self.module.IdentityUnknown):
+                self.module.cleared_terminal({**terminal, "status": "failed"}, receipt)
+    def test_profile_absence_does_not_accept_seconds_only_or_reused_pid(self):
+        snapshot = {"child_pid": 101, "child_boot_identity": self.boot,
+                    "child_start_identity": self.start}
+        with patch.object(self.module, "boot_identity", return_value=self.boot), \
+             patch.object(self.module, "kernel_identity", return_value=None), \
+             patch.object(self.module, "group_members", return_value=[]):
+            optin._assert_profile_processes_absent({"api": snapshot})
+            with self.assertRaises(optin.UncertainProfileOwnership):
+                optin._assert_profile_processes_absent({"api": {**snapshot,
+                    "child_start_identity": {"platform": "macos", "start_seconds": 10}}})
+        with patch.object(self.module, "boot_identity", return_value=self.boot), \
+             patch.object(self.module, "kernel_identity", return_value=self.live(101)), \
+             self.assertRaises(optin.UncertainProfileOwnership):
+            optin._assert_profile_processes_absent({"api": snapshot})
+
+    def test_native_identity_surface_before_services(self):
+        import os, sys
+        if sys.platform != "darwin": self.skipTest("macOS opt-in only")
+        identity = self.module.kernel_identity(os.getpid())
+        self.assertEqual(identity["pid"], os.getpid())
+        self.assertEqual(identity["pgid"], os.getpgid(os.getpid()))
+        self.assertIn("start_microseconds", identity["start_identity"])
+
+
+class PendingBarrierTests(unittest.TestCase):
+    def test_confinement_generation_timeout_and_cleanup(self):
+        import os
+        from unittest.mock import Mock
+        module = optin.load_module("pending_probe_test", Path(__file__).parent / "qualification/managed-listener-probe.py")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            parent = root / ".effigy/runtime/host-processes/hybrid_services/effigy"
+            parent.mkdir(parents=True)
+            generation = "a" * 32
+            report = parent / f"interrupted_probe.{generation}.listener-report.json"
+            env = {"EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE": str(report),
+                   "EFFIGY_MANAGED_HOST_LISTENER_GENERATION": generation}
+            for stopped in (True, False):
+                event = Mock()
+                event.wait.return_value = stopped
+                with patch.dict(os.environ, env), patch.object(module.Path, "cwd", return_value=root):
+                    self.assertEqual(module.pending_barrier(event), 0 if stopped else 1)
+                event.wait.assert_called_once_with(45)
+                self.assertFalse(list(parent.glob("*.barrier.json")))
+                self.assertFalse(report.exists())
+            event = Mock()
+            event.wait.side_effect = RuntimeError("injected")
+            with patch.dict(os.environ, env), patch.object(module.Path, "cwd", return_value=root), self.assertRaises(RuntimeError):
+                module.pending_barrier(event)
+            self.assertFalse(list(parent.glob("*.barrier.json")))
+            for bad in ("../escape", "b" * 32):
+                with patch.dict(os.environ, {**env, "EFFIGY_MANAGED_HOST_LISTENER_GENERATION": bad}), \
+                     patch.object(module.Path, "cwd", return_value=root), self.assertRaises(RuntimeError):
+                    module.pending_barrier(Mock())
 
 if __name__ == "__main__":
     unittest.main()

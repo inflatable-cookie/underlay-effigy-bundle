@@ -195,6 +195,10 @@ SIGINT, then stopped at its teardown assertion: supported down left the probe
 record `failed`, while the helper required `stopped`. The main profile is down;
 both private siblings remain active and held because the runner refused further
 cleanup. Recovery, remaining lifecycle and `dev:test` acceptance are unproven.
+The revised fixture waits in actual pending startup before bind/report and
+records kernel boot/start identities with microseconds and the detached child
+group. Launcher SIGINT and scoped child cleanup are separate proof steps;
+a historic cleared `failed` record alone supplies neither proof.
 The restart harness requires the canonical configured API catalog cwd, exact
 private executable command/path/digest, its unique executable mapping, recorded
 start/ancestry/generation and sole kernel socket ownership before signaling.

@@ -601,6 +601,37 @@ and `dev:test` acceptance require their own complete receipt. Earlier held
 private runtime residue is preserved; empty routes, missing PIDs or a successful
 down command alone do not prove retirement or authorize broad cleanup.
 
+## Pending-start interruption and terminal records
+
+At the qualified Effigy source, managed startup first writes a `starting`
+record without a child and then writes `starting` with the spawned child's
+boot and precise start identity. A macOS identity retains both seconds and
+microseconds. The child starts its own process group with PGID equal to its
+root PID; the supervisor is detached from the selector launcher.
+
+A readiness failure reaps that child group and clears active child/listener
+identities, addresses, URLs and route owner in a historic `failed` record.
+Scoped down can skip an absent supervisor PID file without rewriting this
+record. Neither `failed`, an absent PID file nor diagnostic PIDs prove cleanup.
+
+The disposable interruption probe uses a bounded generation-bound private
+barrier before binding or reporting a listener. It exits failure after 45
+seconds without publication; the core's readiness deadline is unchanged.
+Before cancellation, qualification requires the actual `starting` state,
+matching kernel boot/start identities including microseconds, exact child
+PGID, supervisor ancestry and every recorded group member's ancestry. The
+read-only macOS kernel reader uses `proc_pidinfo(PROC_PIDTBSDINFO)`, matching
+the pinned core and SDK layout; unknown/denied reads refuse proof.
+
+SIGINT cancels only the owned selector launcher. Scoped production down is a
+separate action for detached managed processes. A cleared `failed` or
+`stopped` probe can qualify only against its captured pretermination receipt,
+with independent exact-process/group absence, private route/publication
+absence, main service/gateway shutdown and unchanged sibling generations.
+Reused PIDs, incomplete precision or surviving group members remain held.
+Existing historic failed packets cannot be upgraded to interruption or cleanup
+proof. The same pretermination requirement applies to the occupied-bind probe.
+
 ## Qualification selectors
 
 Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and

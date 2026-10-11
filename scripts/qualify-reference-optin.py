@@ -46,6 +46,7 @@ RUNTIME = load_module("reference_runtime_helpers", SCRIPTS / "qualify-reference-
 from silo_fixture import CLIENT_IMAGE, IMAGE, RELEASE, prepare_published_images  # noqa: E402
 from reference_storage_probe import StorageDiagnosticJournal  # noqa: E402
 import listener_snapshot  # noqa: E402
+import pending_start_identity  # noqa: E402
 from listener_snapshot import observed, read_document  # noqa: E402
 
 
@@ -1003,7 +1004,9 @@ def _append_profile_lifecycle_probe(checkout: Path, name: str, route: str, bind:
         f"run = {json.dumps(command)}\n"
         'cwd = "."\nrestart = "never"\n'
         f"env = {{ EFFIGY_PROFILE_PROBE_HTTP_STATUS = {json.dumps(str(http_status))}, "
-        'EFFIGY_PROFILE_WAIT_ON_EADDRINUSE = "1" }\n'
+        'EFFIGY_PROFILE_WAIT_ON_EADDRINUSE = "1"'
+        + (', EFFIGY_PROFILE_PENDING_BARRIER = "1"' if name == "interrupted_probe" else '')
+        + ' }\n'
         "[containers.hybrid_services.host_processes.listener]\n"
         f"bind = {json.dumps(bind)}\n"
         "[containers.hybrid_services.host_processes.listener.readiness]\n"
@@ -1106,27 +1109,27 @@ def _profile_listener_snapshots(checkout: Path, names: tuple[str, ...],
 
 
 def _assert_profile_processes_absent(snapshots: dict[str, dict]) -> None:
-    for name, state in snapshots.items():
-        for role in ("supervisor", "child", "listener"):
-            pid = state.get(f"{role}_pid")
-            identity = state.get(f"{role}_start_identity")
-            if pid is None:
-                continue
-            if not isinstance(identity, dict) or not isinstance(identity.get("start_seconds"), int):
-                raise UncertainProfileOwnership(f"production profile {name} {role} lacks a recorded process identity")
-            observed = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "pid=,lstart="],
-                capture_output=True, text=True, timeout=15, check=False,
-            )
-            if observed.returncode not in (0, 1):
-                raise UncertainProfileOwnership(f"production profile {name} {role} identity could not be checked")
-            if observed.stdout.strip():
-                fields = observed.stdout.strip().split(None, 1)
-                if len(fields) != 2 or fields[0] != str(pid):
-                    raise UncertainProfileOwnership(f"production profile {name} {role} PID could not be reconciled")
-                current_start = int(datetime.strptime(fields[1], "%a %b %d %H:%M:%S %Y").timestamp())
-                if current_start == identity["start_seconds"]:
-                    raise RuntimeError(f"recorded production profile {name} {role} process remains after down")
+    try:
+        for name, state in snapshots.items():
+            for role in ("supervisor", "child", "listener"):
+                pid = state.get(f"{role}_pid")
+                if pid is None:
+                    continue
+                identity = state.get(f"{role}_start_identity")
+                boot = state.get(f"{role}_boot_identity")
+                if (type(pid) is not int or not isinstance(identity, dict)
+                        or identity.get("platform") != "macos"
+                        or type(identity.get("start_seconds")) is not int or identity["start_seconds"] <= 0
+                        or type(identity.get("start_microseconds")) is not int
+                        or not 0 <= identity["start_microseconds"] < 1_000_000
+                        or not isinstance(boot, str) or pending_start_identity.boot_identity() != boot.upper()):
+                    raise pending_start_identity.IdentityUnknown("incomplete precise absence identity")
+                if pending_start_identity.kernel_identity(pid) is not None:
+                    raise pending_start_identity.IdentityUnknown("recorded or reused process remains")
+                if role == "child" and pending_start_identity.group_members(pid):
+                    raise pending_start_identity.IdentityUnknown("recorded child group remains")
+    except pending_start_identity.IdentityUnknown as error:
+        raise UncertainProfileOwnership("profile process or group absence is unproven") from error
 
 
 def _verify_profile_stopped_records(checkout: Path, snapshots: dict[str, dict], env: dict[str, str],
@@ -1215,11 +1218,33 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
         observed = None
         while time.monotonic() < deadline and process.poll() is None:
             if probe_path.is_file():
-                candidate = _profile_probe_diagnostic(probe_path)
-                if (candidate.get("http_status") == 503
-                        and candidate.get("route") == "not_reached"
-                        and candidate.get("ownership") == "exclusive_owner_observed"):
-                    observed = candidate
+                raw_bytes = probe_path.read_bytes()
+                raw_state = json.loads(raw_bytes)
+                if raw_state.get("status") in ("failed", "ready", "stopped"):
+                    raise UncertainProfileOwnership("probe completed before pending-start interruption")
+                if raw_state.get("status") == "starting" and raw_state.get("child_pid"):
+                    # Core writes the child identity after spawn. Read it again after
+                    # kernel verification to reject a concurrent generation change.
+                    receipt = pending_start_identity.capture_starting(
+                        raw_state, before_states["api"]["owner"].rsplit("|", 1)[0] + "|interrupted_probe",
+                        raw_state["runtime_generation"], probe_domain)
+                    marker_path = probe_path.parent / ("interrupted_probe." + raw_state["generation"] + ".barrier.json")
+                    if not marker_path.is_file():
+                        time.sleep(0.1)
+                        continue
+                    marker = json.loads(marker_path.read_bytes())
+                    if (marker.get("generation") != receipt["generation"]
+                            or marker.get("report_file") != str(probe_path.parent / (
+                                "interrupted_probe." + receipt["generation"] + ".listener-report.json"))
+                            or marker.get("pid") not in pending_start_identity.group_members(receipt["child"]["pgid"])):
+                        raise UncertainProfileOwnership("pending barrier generation or group mismatch")
+                    if json.loads(probe_path.read_bytes()) != raw_state:
+                        raise UncertainProfileOwnership("pending generation changed during capture")
+                    observed = receipt
+                    diagnostics.append("pending_start_pretermination", checkout=str(checkout),
+                                       selector="dev:hybrid", receipt=receipt,
+                                       state_sha256=hashlib.sha256(raw_bytes).hexdigest(),
+                                       barrier_generation=marker["generation"], signal_sent=False)
                     break
             time.sleep(0.1)
         if observed is None:
@@ -1236,6 +1261,11 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
                                launcher_pid=process.pid, observed_pgid=pgid,
                                signal_sent=False, probe_state=observed)
             raise RuntimeError("production dev:hybrid startup was no longer an owned interruptible process group")
+        current_pending = json.loads(probe_path.read_bytes())
+        current_receipt = pending_start_identity.capture_starting(
+            current_pending, observed["owner"], observed["runtime_generation"], probe_domain)
+        if current_receipt != observed:
+            raise UncertainProfileOwnership("pending generation changed before launcher cancellation")
         os.killpg(pgid, signal.SIGINT)
         try:
             stdout, stderr = process.communicate(timeout=30)
@@ -1258,23 +1288,22 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
             probe_state=observed,
         )
         if not probe_path.is_file():
-            raise UncertainProfileOwnership("interrupted production profile startup removed its managed probe owner record")
-        state = _profile_probe_diagnostic(probe_path)
-        if (state.get("status") not in {"failed", "stopped"} or state.get("route_owner_present")
-                or state.get("http_status") != 503 or state.get("route") != "not_reached"
-                or state.get("ownership") != "exclusive_owner_observed"):
-            raise RuntimeError("interrupted production profile did not retain a terminal unpublished probe state")
-        snapshots = _profile_listener_snapshots(
-            checkout, ("api", "front", "admin", "interrupted_probe"), env)
+            raise UncertainProfileOwnership("pending probe state disappeared")
+        # SIGINT only cancels the launcher. The detached child is stopped by
+        # the supported scoped down selector, never by signalling its PID here.
+        snapshots = _profile_listener_snapshots(checkout, ("api", "front", "admin"), env)
+        for sibling, states in foreign:
+            _verify_live(sibling, states, env)
         selector(checkout, "dev:hybrid:down", env)
+        terminal = json.loads(probe_path.read_bytes())
+        pending_start_identity.cleared_terminal(terminal, observed)
         diagnostics.append("interrupted_profile_scope_down", checkout=str(checkout), selector="dev:hybrid:down",
-                           probe_state=_profile_probe_diagnostic(probe_path))
-        claimed = state.get("claimed_address")
-        _verify_profile_stopped_records(
-            checkout, snapshots, env,
-            extra_routes=(probe_domain,),
-            owned_failed_addresses=(claimed,) if isinstance(claimed, str) else (),
-        )
+                           probe_state=_profile_probe_diagnostic(probe_path),
+                           child_group=observed["child"]["pgid"], independent_group_absent=True,
+                           cancellation="launcher_only", detached_child_cleanup="scoped_down")
+        _verify_profile_stopped_records(checkout, snapshots, env, extra_routes=(probe_domain,))
+        for sibling, states in foreign:
+            _verify_live(sibling, states, env)
         scope_reconciled = True
         (checkout / "effigy.toml").write_bytes(original_manifest)
         for sibling, states in foreign:
@@ -1290,6 +1319,11 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
                                              ("generation", "address", "route_domain")}
                                       for name, value in recovered.items()})
         return recovered
+    except pending_start_identity.IdentityUnknown as error:
+        diagnostics.append("pending_start_identity_refused", checkout=str(checkout),
+                           exception_type="IdentityUnknown", reason=str(error),
+                           cleanup_authorized=False)
+        raise UncertainProfileOwnership("pending child identity or terminal absence is uncertain") from error
     except UncertainProfileOwnership:
         raise
     except BaseException as error:
@@ -1352,10 +1386,31 @@ def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_state
     )
     collision_path = _profile_probe_state_path(checkout, "collision_probe")
     safe_failure = False
+    process = None
     try:
-        result = RUNTIME.run([EFFIGY, "--repo", str(checkout), "dev:hybrid"],
-                             cwd=checkout, env=env, timeout=1800,
-                             expected=None, print_output=False)
+        process = subprocess.Popen([EFFIGY, "--repo", str(checkout), "dev:hybrid"],
+                                   cwd=checkout, env=env, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, start_new_session=True)
+        pending = None
+        deadline = time.monotonic() + 180
+        while process.poll() is None and time.monotonic() < deadline:
+            if collision_path.is_file():
+                candidate = json.loads(collision_path.read_bytes())
+                if candidate.get("status") == "starting" and candidate.get("child_pid"):
+                    pending = pending_start_identity.capture_starting(
+                        candidate, before_states["api"]["owner"].rsplit("|", 1)[0] + "|collision_probe",
+                        candidate["runtime_generation"], collision_domain)
+                    if json.loads(collision_path.read_bytes()) != candidate:
+                        raise UncertainProfileOwnership("collision pending generation changed during capture")
+                    diagnostics.append("collision_pretermination", checkout=str(checkout), receipt=pending)
+                    break
+                if candidate.get("status") in ("failed", "ready", "stopped"):
+                    break
+            time.sleep(0.1)
+        if pending is None:
+            raise UncertainProfileOwnership("collision lacks a precise pretermination child receipt")
+        process.wait(timeout=max(1, 1800 - (180 - max(0, deadline - time.monotonic()))))
+        result = subprocess.CompletedProcess(process.args, process.returncode, "", "")
         diagnostics.append("occupied_port_profile_start", checkout=str(checkout), selector="dev:hybrid",
                            exit=result.returncode, stdout_bytes=len(result.stdout.encode()),
                            stderr_bytes=len(result.stderr.encode()),
@@ -1400,12 +1455,11 @@ def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_state
                   REFERENCE.private_gateway_status(checkout, gateway_root).get("routes", [])}
         if collision_domain in routes:
             raise RuntimeError("failed occupied-port production selector published a collision route")
-        snapshots = _profile_listener_snapshots(checkout, ("api", "front", "admin", "collision_probe"), env)
+        snapshots = _profile_listener_snapshots(checkout, ("api", "front", "admin"), env)
         selector(checkout, "dev:hybrid:down", env)
         _verify_profile_stopped_records(checkout, snapshots, env,
                                         extra_routes=(collision_domain,))
-        if _profile_probe_diagnostic(collision_path).get("status") != "stopped":
-            raise RuntimeError("exact production profile down did not reconcile the failed collision child")
+        pending_start_identity.cleared_terminal(json.loads(collision_path.read_bytes()), pending)
         if RUNTIME.address_accepts_connection(foreign_api["address"]) is not True:
             raise RuntimeError("exact production profile down stopped the foreign occupied API listener")
         _verify_live(foreign_checkout, foreign_states, env)
@@ -1418,6 +1472,10 @@ def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_state
                            foreign_api_generation=foreign_api["generation"],
                            collision_state=_profile_probe_diagnostic(collision_path),
                            safe_child_errors=safe_errors[:8], collision_route_absent=True)
+    except pending_start_identity.IdentityUnknown as error:
+        diagnostics.append("collision_identity_refused", checkout=str(checkout),
+                           exception_type="IdentityUnknown", reason=str(error), cleanup_authorized=False)
+        raise UncertainProfileOwnership("collision generation or absence is uncertain") from error
     except UncertainProfileOwnership:
         raise
     except BaseException as error:
@@ -1437,6 +1495,15 @@ def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_state
         raise RuntimeError("occupied-port failure was safely reconciled but did not meet its proof gate") from error
     finally:
         (checkout / "effigy.toml").write_bytes(original_manifest)
+        if process is not None and process.poll() is None:
+            if os.getpgid(process.pid) != process.pid:
+                raise UncertainProfileOwnership("collision launcher group identity changed")
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=10)
     if not safe_failure:
         raise RuntimeError("occupied-port profile lifecycle attempt did not reach a safe reconciled failure")
     selector(checkout, "dev:hybrid", env, timeout=1800)
@@ -1948,27 +2015,7 @@ def _verify_stopped(checkout: Path, states: dict[str, dict], env: dict[str, str]
         after = json.loads(state_path.read_text(encoding="utf-8"))
         if after.get("status") != "stopped" or after.get("route_owner"):
             raise RuntimeError(f"profile listener {name} did not retain a stopped owner record")
-        for role in ("supervisor", "child", "listener"):
-            pid = before.get(f"{role}_pid")
-            identity = before.get(f"{role}_start_identity")
-            if pid is None:
-                continue
-            if (not isinstance(pid, int) or not isinstance(identity, dict)
-                    or not isinstance(identity.get("start_seconds"), int)):
-                raise RuntimeError(f"profile listener {name} has incomplete {role} identity after down")
-            observed = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "pid=,lstart="],
-                capture_output=True, text=True, timeout=15, check=False,
-            )
-            if observed.returncode not in (0, 1):
-                raise RuntimeError(f"profile listener {name} {role} process identity could not be checked")
-            if observed.stdout.strip():
-                fields = observed.stdout.strip().split(None, 1)
-                if len(fields) != 2 or fields[0] != str(pid):
-                    raise RuntimeError(f"profile listener {name} {role} PID could not be reconciled")
-                start_seconds = int(datetime.strptime(fields[1], "%a %b %d %H:%M:%S %Y").timestamp())
-                if start_seconds == identity["start_seconds"]:
-                    raise RuntimeError(f"recorded profile listener {name} {role} process remains after down")
+        _assert_profile_processes_absent({name: before})
         if RUNTIME.address_accepts_connection(before["address"]):
             raise RuntimeError(f"profile listener socket remains open after selector down: {before['address']}")
     root = profile_root(checkout)

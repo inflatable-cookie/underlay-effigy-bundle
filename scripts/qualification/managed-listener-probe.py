@@ -20,6 +20,28 @@ def required(name: str) -> str:
     return value
 
 
+def pending_barrier(stopping) -> int:
+    # Fixture-only: no socket/report yet. Core's unchanged readiness deadline
+    # remains in force, and escape exits failure without publishing anything.
+    report = Path(required("EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE"))
+    generation = required("EFFIGY_MANAGED_HOST_LISTENER_GENERATION")
+    expected = Path.cwd().resolve() / ".effigy/runtime/host-processes/hybrid_services/effigy"
+    if (report.parent.resolve(strict=True) != expected or report.parent.is_symlink()
+            or report.name != f"interrupted_probe.{generation}.listener-report.json"
+            or len(generation) != 32 or any(c not in "0123456789abcdef" for c in generation)):
+        raise RuntimeError("pending barrier confinement mismatch")
+    marker = report.with_name(f"interrupted_probe.{generation}.barrier.json")
+    descriptor = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "w") as output:
+        json.dump({"generation": generation, "report_file": str(report), "pid": os.getpid()}, output)
+        output.flush()
+        os.fsync(output.fileno())
+    try:
+        return 0 if stopping.wait(45) else 1
+    finally:
+        marker.unlink()
+
+
 def main() -> int:
     raw_bind = required("EFFIGY_MANAGED_HOST_LISTENER_BIND")
     host, separator, raw_port = raw_bind.rpartition(":")
@@ -36,6 +58,9 @@ def main() -> int:
 
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, request_stop)
+
+    if os.environ.get("EFFIGY_PROFILE_PENDING_BARRIER") == "1":
+        return pending_barrier(stopping)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
