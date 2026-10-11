@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 _sink = None
 _root = None
+_owners = {}
 EVENTS = {'successor_launched', 'child_exited', 'shutdown', 'dependency_unavailable',
           'dependency_tuple_changed', 'inspection_error', 'retention_limit'}
 PREDICATES = {'state_file_missing', 'state_file_unreadable', 'state_file_unsafe',
@@ -24,6 +25,7 @@ MAX_BYTES = 256 * 1024
 def configure(sink, root):
     global _sink, _root
     _sink, _root = sink, Path(root).resolve(strict=True)
+    _owners.clear()
 
 
 def _require(ok):
@@ -137,6 +139,12 @@ def _object(pairs):
     return result
 
 
+def collect_known(checkout, reason):
+    for (path, name), owner in list(_owners.items()):
+        if path == str(checkout):
+            collect(checkout, name, owner, reason)
+
+
 def collect(checkout, name, owner, reason):
     """Snapshot exact receipt bytes before cleanup/rejection; gaps remain UNKNOWN."""
     if _sink is None:
@@ -148,6 +156,8 @@ def collect(checkout, name, owner, reason):
         checkout = Path(checkout)
         _require(checkout.is_absolute() and '..' not in checkout.parts and name in NAMES)
         relative = checkout.relative_to(_root)
+        if isinstance(owner, str):
+            _owners[(str(checkout), name)] = owner
         fd = os.open(_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         fds.append(fd)
         for component in (*relative.parts, '.effigy', 'runtime', 'host-processes', 'hybrid_services', 'effigy'):

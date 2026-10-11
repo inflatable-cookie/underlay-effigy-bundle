@@ -242,7 +242,7 @@ class DiagnosticRecipeMatchTests(unittest.TestCase):
                 current = (optin.ROOT / relative).read_text()
                 baseline = subprocess.check_output(
                     ["git", "-C", str(optin.ROOT), "show", f"{optin.RETAINED_LIFECYCLE_HEAD}:{relative}"], text=True)
-                self.assertTrue(optin.diagnostic_only_recipe_matches(relative, current, baseline))
+                self.assertEqual(optin.diagnostic_only_recipe_matches(relative, current, baseline), relative.endswith(".mjs"))
                 changed = current.replace('timeout: 300_000', 'timeout: 900_000') if relative.endswith('.mjs') else current.replace('timeout: int = 180', 'timeout: int = 900')
                 self.assertNotEqual(changed, current)
                 self.assertFalse(optin.diagnostic_only_recipe_matches(relative, changed, baseline))

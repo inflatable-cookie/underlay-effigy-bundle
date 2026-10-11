@@ -58,6 +58,8 @@ RETAINED_LIFECYCLE_TASK = "b3ae8bae-190d-42f4-8132-430253bb02fe"
 
 
 def selector(checkout: Path, name: str, env: dict[str, str], timeout: int = 5400) -> subprocess.CompletedProcess[str]:
+    if name == "dev:hybrid:down":
+        transition_snapshot.collect_known(checkout, "before_cleanup")
     return RUNTIME.run([EFFIGY, "--repo", str(checkout), name], cwd=checkout,
                         env=env, timeout=timeout, print_output=False)
 
@@ -1737,7 +1739,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                     main, Path(receipts["instances"][0]["gateway_root"]), before,
                     expected_api_binary=api_build_identity,
                     diagnostic_sink=diagnostics.append if diagnostics is not None else None,
-                    require_durable_preflight=remaining_lifecycle)
+                    require_durable_preflight=diagnostics is not None)
                 if not restarted:
                     raise RuntimeError(f"Reference API restart/dependent endpoint handoff was not proven: {REFERENCE.LAST_API_RESTART_DIAGNOSTIC}")
                 _, after_api = listener_state(main, "api", env)
