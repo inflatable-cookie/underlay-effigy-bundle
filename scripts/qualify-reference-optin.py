@@ -110,6 +110,51 @@ def _retained_file_sha256(path: str, reference: str) -> tuple[str, str]:
     return current_digest, baseline_digest
 
 
+def diagnostic_only_recipe_matches(path: str, current: str, baseline: str) -> bool:
+    """Compare success recipes after removing only the explicit diagnostic additions."""
+    if path.endswith("managed-vite-listener.mjs"):
+        current = current.replace('import { decodeContext } from "./context-diagnostic.mjs";\n', '', 1)
+        current = current.replace('  const context = decodeContext(contextResult);',
+            '  if (contextResult.error || contextResult.status !== 0) {\n'
+            '    throw new Error(`qualified profile context lookup failed (status ${contextResult.status ?? "spawn"})`);\n'
+            '  }\n  const context = JSON.parse(contextResult.stdout);', 1)
+        return current == baseline
+    if not path.endswith("profile_launcher.py"):
+        return False
+    current, count = re.subn(r"# BEGIN context-only diagnostic helpers\n.*?# END context-only diagnostic helpers\n\n\n", "", current, count=1, flags=re.DOTALL)
+    if count != 1:
+        return False
+    current = current.replace('    global _CONTEXT_ACTION\n', '', 1)
+    current = current.replace('    _CONTEXT_ACTION = args.action == "context"\n', '', 1)
+    current = current.replace('        emit_stderr=not _CONTEXT_ACTION,\n', '')
+    diagnostic_tail = ('        _cli_failure(error)\n        raise SystemExit(1)\n'
+                       '    except Exception as error:\n        if not _CONTEXT_ACTION:\n            raise\n'
+                       '        _cli_failure(error)\n        raise SystemExit(1)')
+    if diagnostic_tail not in current:
+        return False
+    current = current.replace(diagnostic_tail,
+        '        print(f"PROFILE REFUSED/FAILED: {error}", file=sys.stderr, flush=True)\n        raise SystemExit(1)', 1)
+
+    class RemovePhaseMarks(ast.NodeTransformer):
+        def visit_Expr(self, node):
+            if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "_context_mark":
+                return None
+            return self.generic_visit(node)
+
+        def visit_Subscript(self, node):
+            node = self.generic_visit(node)
+            if (isinstance(node.value, ast.Tuple) and len(node.value.elts) == 2
+                    and isinstance(node.value.elts[0], ast.Call)
+                    and isinstance(node.value.elts[0].func, ast.Name)
+                    and node.value.elts[0].func.id == "_context_mark"
+                    and isinstance(node.slice, ast.Constant) and node.slice.value == 1):
+                return node.value.elts[1]
+            return node
+
+    normalized = RemovePhaseMarks().visit(ast.parse(current))
+    return ast.dump(normalized, include_attributes=False) == ast.dump(ast.parse(baseline), include_attributes=False)
+
+
 def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) -> dict:
     """Match accepted auth/storage/assembly inputs without replaying their proofs."""
     prior_diagnostics = prior_diagnostics.resolve(strict=True)
@@ -216,7 +261,6 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
         "bundle.toml", "export.toml", "scripts/qualify-reference-runtime.py",
         "scripts/reference_storage_probe.py", "scripts/silo_fixture.py",
         "scripts/qualification_runtime.py", "scripts/dev/managed-rust-listener.py",
-        "scripts/dev/managed-vite-listener.mjs", "scripts/dev/profile_launcher.py",
         "scripts/dev/sveltekit-public-origin.mjs", "scripts/dev/ui-setup.rhai",
         "scripts/dev/catalog/silo/service.toml", "scripts/dev/catalog/silo/compose.fragment.yml",
         "scripts/dev/catalog/silo-mc/service.toml", "scripts/dev/catalog/silo-mc/compose.fragment.yml",
@@ -225,6 +269,18 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
     for path in stable_files:
         current_digest, _ = _retained_file_sha256(path, RETAINED_LIFECYCLE_HEAD)
         file_hashes[path] = current_digest
+    diagnostic_recipe_hashes = {}
+    for path in ("scripts/dev/managed-vite-listener.mjs", "scripts/dev/profile_launcher.py"):
+        current = (ROOT / path).read_text(encoding="utf-8")
+        baseline = subprocess.run(
+            ["git", "-C", str(ROOT), "show", f"{RETAINED_LIFECYCLE_HEAD}:{path}"],
+            check=True, capture_output=True, text=True, timeout=15,
+        ).stdout
+        if not diagnostic_only_recipe_matches(path, current, baseline):
+            raise RuntimeError(f"retained production success recipe changed beyond approved diagnostics: {path}")
+        diagnostic_recipe_hashes[path] = {"current_sha256": _sha256_bytes(current.encode()),
+                                        "accepted_sha256": _sha256_bytes(baseline.encode()),
+                                        "success_recipe_matches": True}
     function_inputs = {
         "scripts/qualify-reference-optin.py": (
             "enable_profiles", "install_reference_silo_fixture", "install_reference_auth_trace_fixture",
@@ -297,6 +353,7 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
             "silo_client_image": CLIENT_IMAGE,
             "silo_release": RELEASE,
             "stable_bundle_file_hashes": file_hashes,
+            "diagnostic_only_recipe_hashes": diagnostic_recipe_hashes,
             "retained_bundle_function_hashes": function_hashes,
             "build_identity_harness_adjustment": {
                 "function": identity_function,
@@ -317,6 +374,33 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
             "dev:test bounded execution and cleanup",
         ],
     }
+
+
+def capture_profile_context_errors(checkouts: list[Path], diagnostics: StorageDiagnosticJournal) -> None:
+    launcher = load_module("profile_context_diagnostic_helpers", SCRIPTS / "dev/profile_launcher.py")
+    for checkout in checkouts:
+        for role in ("front", "admin"):
+            path = checkout / ".effigy/runtime/host-processes/hybrid_services/effigy" / f"{role}.log"
+            if not path.is_file() or path.is_symlink():
+                continue
+            with path.open("rb") as stream:
+                stream.seek(max(0, path.stat().st_size - 256 * 1024))
+                lines = stream.read(256 * 1024).decode("utf-8", errors="replace").splitlines()
+            count = 0
+            for line in lines:
+                marker = "UNDERLAY_CONTEXT_ERROR "
+                offset = line.find(marker)
+                if offset < 0 or len(line[offset:]) > 1024:
+                    continue
+                try:
+                    record = launcher.validated_context_record(json.loads(line[offset + len(marker):]))
+                except ValueError:
+                    continue
+                if record is not None:
+                    diagnostics.append("profile_context_failed", checkout=str(checkout), role=role, diagnostic=record)
+                    count += 1
+                    if count >= 24:
+                        break
 
 
 def enable_profiles(checkout: Path, source: Path) -> None:
@@ -1590,6 +1674,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
     finally:
         if diagnostics is not None:
             try:
+                capture_profile_context_errors(checkouts, diagnostics)
                 diagnostics.append("service_log_capture_started", checkout=str(checkouts[0]))
                 capture_storage_service_logs(checkouts[0], env, diagnostics)
             except BaseException as error:

@@ -17,6 +17,49 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import profile_launcher as profiles  # noqa: E402
 
 
+class ContextDiagnosticTests(unittest.TestCase):
+    def tearDown(self):
+        profiles._CONTEXT_ACTION = False
+        profiles._context_mark("admission", "verify")
+
+    def test_injected_status_failure_retains_phase_without_secret_message(self):
+        profiles._CONTEXT_ACTION = True
+        with patch.object(profiles, "_json_command", side_effect=profiles.ProfileError("SEEDED_PASSWORD /secret/key?token=SEEDED_TOKEN")):
+            with self.assertRaises(profiles.ProfileError) as caught:
+                profiles.profile_context(None, Path("/fixture"), {"EFFIGY_GATEWAY_PRIVATE_STATE_ROOT": "/private"}, "hybrid_services")
+        record = profiles.context_error_record(caught.exception)
+        self.assertEqual(record["phase"], "service-status")
+        self.assertEqual(record["operation"], "hybrid_services.status")
+        self.assertNotIn("SEEDED", json.dumps(record))
+        self.assertNotIn("/secret", json.dumps(record))
+
+    def test_injected_gateway_and_port_failures_identify_suboperation(self):
+        for phase, operation, target in [("gateway-status", "gateway.status", "_gateway_json"),
+                                          ("service-port", "postgres", "_service_port")]:
+            with self.subTest(phase=phase), patch.object(profiles, "_json_command", return_value={}), \
+                 patch.object(profiles, "_compose_loopback_port_bindings", return_value=[]), \
+                 patch.object(profiles, "_gateway_json", return_value={}), \
+                 patch.object(profiles, "_gateway_https_port", return_value=8443), \
+                 patch.object(profiles, target, side_effect=profiles.ProfileError("binding conflict SEEDED_CREDENTIAL")):
+                with self.assertRaises(profiles.ProfileError) as caught:
+                    profiles.profile_context(None, Path("/fixture"), {"EFFIGY_GATEWAY_PRIVATE_STATE_ROOT": "/private"}, "hybrid_services")
+                record = profiles.context_error_record(caught.exception)
+                self.assertEqual((record["phase"], record["operation"]), (phase, operation))
+                self.assertNotIn("SEEDED", json.dumps(record))
+
+    def test_context_command_suppresses_raw_stderr_and_validates_record(self):
+        profiles._CONTEXT_ACTION = True
+        identity = profiles.BinaryIdentity("source", "/binary", "digest", 1, 2, 3, 4)
+        with patch.object(profiles, "_run_process", return_value=subprocess.CompletedProcess([], 1, '{"ok":false,"error":{"message":"SEEDED_SECRET"}}', "SEEDED_STDERR")) as run:
+            with self.assertRaises(profiles.ProfileError):
+                profiles._json_command(identity, Path("/fixture"), {}, "container", "hybrid_services", "status")
+            self.assertFalse(run.call_args.kwargs["emit_stderr"])
+            self.assertFalse(run.call_args.kwargs["emit_stdout"])
+        record = profiles.context_error_record(profiles.ProfileError("SEEDED"))
+        self.assertEqual(profiles.validated_context_record({**record, "body": "SEEDED"}), record)
+        self.assertIsNone(profiles.validated_context_record({**record, "message": "SEEDED"}))
+
+
 class ProfileAdmissionTests(unittest.TestCase):
     def _write_compose_ports(self, repo: Path, postgres_binding: str) -> dict:
         compose = repo / ".effigy/runtime/compose/.effigy-compose.generated.yml"

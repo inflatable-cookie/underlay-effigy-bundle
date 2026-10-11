@@ -153,6 +153,73 @@ def verify_binary(
     )
 
 
+# BEGIN context-only diagnostic helpers
+_CONTEXT_ACTION = False
+_CONTEXT_PHASE = "admission"
+_CONTEXT_OPERATION = "verify"
+CONTEXT_PHASES = {"admission", "configuration", "service-status", "compose-bindings", "host-inventory", "gateway-status", "gateway-port", "route-validation", "service-port"}
+CONTEXT_OPERATIONS = {"verify", "private-root", "compose", "default.hosts", "gateway.status", "gateway.https", "routes", "postgres", "smtp", "mailpit_http", "silo", "silo_console", "dbgate", "hybrid_services.status", "disposable_test.status", "hybrid_services.hosts", "disposable_test.hosts"}
+CONTEXT_CLASSES = {"ProfileError", "OSError", "FileNotFoundError", "PermissionError", "TimeoutExpired", "JSONDecodeError", "ValueError", "TypeError", "other"}
+CONTEXT_MESSAGES = {"operation_failed", "command_timeout", "invalid_json", "source_or_binary_refused", "private_gateway_unavailable", "loopback_binding_unavailable", "binding_conflict", "effective_route_unavailable", "file_unavailable", "permission_denied"}
+
+
+def _context_mark(phase: str, operation: str) -> None:
+    global _CONTEXT_PHASE, _CONTEXT_OPERATION
+    _CONTEXT_PHASE, _CONTEXT_OPERATION = phase, operation
+
+
+def context_error_record(error: Exception) -> dict:
+    error_class = type(error).__name__
+    if error_class not in CONTEXT_CLASSES:
+        error_class = "other"
+    # Only fixed classifications are emitted; exception text stays in memory.
+    message = "operation_failed"
+    text = str(error)
+    if isinstance(error, subprocess.TimeoutExpired) or "exceeded its" in text:
+        message = "command_timeout"
+    elif isinstance(error, json.JSONDecodeError) or "did not return JSON" in text:
+        message = "invalid_json"
+    elif isinstance(error, PermissionError):
+        message = "permission_denied"
+    elif isinstance(error, FileNotFoundError):
+        message = "file_unavailable"
+    elif _CONTEXT_PHASE == "admission":
+        message = "source_or_binary_refused"
+    elif "private gateway" in text:
+        message = "private_gateway_unavailable"
+    elif "conflict" in text:
+        message = "binding_conflict"
+    elif "loopback" in text:
+        message = "loopback_binding_unavailable"
+    elif "effective" in text and "route" in text:
+        message = "effective_route_unavailable"
+    return {"schema": "underlay.profile-context-error.v1",
+            "phase": _CONTEXT_PHASE if _CONTEXT_PHASE in CONTEXT_PHASES else "configuration",
+            "operation": _CONTEXT_OPERATION if _CONTEXT_OPERATION in CONTEXT_OPERATIONS else "verify",
+            "error_class": error_class, "message": message, "exit_status": 1}
+
+
+def validated_context_record(value: object) -> dict | None:
+    if not isinstance(value, dict) or value.get("schema") != "underlay.profile-context-error.v1":
+        return None
+    fields = {"phase": CONTEXT_PHASES, "operation": CONTEXT_OPERATIONS,
+              "error_class": CONTEXT_CLASSES, "message": CONTEXT_MESSAGES}
+    if any(not isinstance(value.get(key), str) or value[key] not in allowed for key, allowed in fields.items()):
+        return None
+    code = value.get("exit_status")
+    if code is not None and (type(code) is not int or not -255 <= code <= 255):
+        return None
+    return {"schema": value["schema"], **{key: value[key] for key in fields}, "exit_status": code}
+
+
+def _cli_failure(error: Exception) -> None:
+    if _CONTEXT_ACTION:
+        print("UNDERLAY_CONTEXT_ERROR " + json.dumps(context_error_record(error), separators=(",", ":")), file=sys.stderr, flush=True)
+    else:
+        print(f"PROFILE REFUSED/FAILED: {error}", file=sys.stderr, flush=True)
+# END context-only diagnostic helpers
+
+
 def verify_unchanged(identity: BinaryIdentity) -> None:
     current = verify_binary(identity.source, identity.binary)
     if current != identity:
@@ -326,6 +393,7 @@ def _json_command(
         env=command_env,
         timeout=timeout,
         emit_stdout=False,
+        emit_stderr=not _CONTEXT_ACTION,
     )
     try:
         envelope = json.loads(result.stdout)
@@ -354,6 +422,7 @@ def _gateway_json(
         env=gateway_env,
         timeout=timeout,
         emit_stdout=False,
+        emit_stderr=not _CONTEXT_ACTION,
     )
     try:
         envelope = json.loads(result.stdout)
@@ -523,24 +592,30 @@ def profile_for_containers(service_container: str, host_container: str) -> str:
 
 
 def profile_context(identity: BinaryIdentity, repo: Path, env: dict[str, str], container: str) -> dict:
+    _context_mark("configuration", "private-root")
     private_root = env.get("EFFIGY_GATEWAY_PRIVATE_STATE_ROOT")
     if not private_root:
         raise ProfileError("private gateway state root was not provided to the profile child")
+    _context_mark("service-status", container + ".status")
     status = _json_command(identity, repo, env, "container", container, "status")
     # `container hosts` may render another container composition and refresh
     # Effigy's generated Compose snapshot. Keep the exact service bindings that
     # accompanied this status response for any unqualified port mappings.
+    _context_mark("compose-bindings", "compose")
     compose_bindings = _compose_loopback_port_bindings(repo, status)
     host_container = env.get("EFFIGY_PROFILE_HOST_CONTAINER_NAME", container)
     host_results = [
-        _json_command(identity, repo, env, "container", name, "hosts")
+        (_context_mark("host-inventory", name + ".hosts"),
+         _json_command(identity, repo, env, "container", name, "hosts"))[1]
         for name in dict.fromkeys((container, host_container))
     ]
     # Container-scoped hosts contains service routes but can omit app domains
     # owned by managed host listeners until they have passed readiness. The
     # checkout's default host map supplies their collision-free effective
     # names; the managed listener still owns publication of those routes.
+    _context_mark("host-inventory", "default.hosts")
     host_results.append(_json_command(identity, repo, env, "container", "hosts"))
+    _context_mark("gateway-status", "gateway.status")
     gateway = _gateway_json(
         identity,
         repo,
@@ -549,8 +624,10 @@ def profile_context(identity: BinaryIdentity, repo: Path, env: dict[str, str], c
         "--private-state-root",
         private_root,
     )
+    _context_mark("gateway-port", "gateway.https")
     https_port = _gateway_https_port(gateway)
 
+    _context_mark("route-validation", "routes")
     declared_names = {
         "api": env.get("EFFIGY_PROFILE_API_DECLARED", ""),
         "front": env.get("EFFIGY_PROFILE_FRONT_DECLARED", ""),
@@ -576,12 +653,12 @@ def profile_context(identity: BinaryIdentity, repo: Path, env: dict[str, str], c
         raise ProfileError(f"Effigy did not report effective profile routes: {sorted(missing_routes)}")
 
     ports = {
-        "postgres": _service_port(status, "postgres", 5432, repo, compose_bindings=compose_bindings),
-        "smtp": _service_port(status, "mailpit", 1025, repo, compose_bindings=compose_bindings),
-        "mailpit_http": _service_port(status, "mailpit", 8025, repo, compose_bindings=compose_bindings),
-        "silo": _service_port(status, "silo", 9000, repo, compose_bindings=compose_bindings),
-        "silo_console": _service_port(status, "silo", 9001, repo, compose_bindings=compose_bindings),
-        "dbgate": _service_port(status, "dbgate", 3000, repo, compose_bindings=compose_bindings),
+        "postgres": (_context_mark("service-port", "postgres"), _service_port(status, "postgres", 5432, repo, compose_bindings=compose_bindings))[1],
+        "smtp": (_context_mark("service-port", "smtp"), _service_port(status, "mailpit", 1025, repo, compose_bindings=compose_bindings))[1],
+        "mailpit_http": (_context_mark("service-port", "mailpit_http"), _service_port(status, "mailpit", 8025, repo, compose_bindings=compose_bindings))[1],
+        "silo": (_context_mark("service-port", "silo"), _service_port(status, "silo", 9000, repo, compose_bindings=compose_bindings))[1],
+        "silo_console": (_context_mark("service-port", "silo_console"), _service_port(status, "silo", 9001, repo, compose_bindings=compose_bindings))[1],
+        "dbgate": (_context_mark("service-port", "dbgate"), _service_port(status, "dbgate", 3000, repo, compose_bindings=compose_bindings))[1],
     }
     return {"https_port": https_port, "routes": routes, "ports": ports, "status": status}
 
@@ -1118,6 +1195,7 @@ def _test_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], pro
 
 
 def _context(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: str) -> dict:
+    _context_mark("configuration", "private-root")
     service_container, _ = PROFILE_CONTAINERS[profile]
     root = _profile_root(repo, profile)
     return profile_context(identity, repo, _profile_env(repo, root, env, profile), service_container)
@@ -1137,11 +1215,13 @@ def _status(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: 
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _CONTEXT_ACTION
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("start", "status", "down", "test", "context"))
     parser.add_argument("container", choices=("hybrid", "disposable_test"))
     parser.add_argument("--repo", required=True)
     args = parser.parse_args(argv)
+    _CONTEXT_ACTION = args.action == "context"
 
     env = os.environ.copy()
     identity = verify_binary(
@@ -1173,5 +1253,10 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (OSError, ProfileError, subprocess.SubprocessError) as error:
-        print(f"PROFILE REFUSED/FAILED: {error}", file=sys.stderr, flush=True)
+        _cli_failure(error)
+        raise SystemExit(1)
+    except Exception as error:
+        if not _CONTEXT_ACTION:
+            raise
+        _cli_failure(error)
         raise SystemExit(1)

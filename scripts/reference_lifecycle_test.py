@@ -234,6 +234,20 @@ class ReferenceTaskCwdTests(unittest.TestCase):
             self.assertFalse(matched)
 
 
+class DiagnosticRecipeMatchTests(unittest.TestCase):
+    def test_only_diagnostics_can_differ_from_retained_success_recipe(self):
+        import subprocess
+        for relative in ("scripts/dev/profile_launcher.py", "scripts/dev/managed-vite-listener.mjs"):
+            with self.subTest(path=relative):
+                current = (optin.ROOT / relative).read_text()
+                baseline = subprocess.check_output(
+                    ["git", "-C", str(optin.ROOT), "show", f"{optin.RETAINED_LIFECYCLE_HEAD}:{relative}"], text=True)
+                self.assertTrue(optin.diagnostic_only_recipe_matches(relative, current, baseline))
+                changed = current.replace('timeout: 300_000', 'timeout: 900_000') if relative.endswith('.mjs') else current.replace('timeout: int = 180', 'timeout: int = 900')
+                self.assertNotEqual(changed, current)
+                self.assertFalse(optin.diagnostic_only_recipe_matches(relative, changed, baseline))
+
+
 class ExclusiveSocketTests(unittest.TestCase):
     def test_exact_single_kernel_owner_passes(self):
         matched, rows = reference.exclusive_listener_socket(

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { decodeContext } from "./context-diagnostic.mjs";
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -55,10 +56,7 @@ async function main() {
     [join(adapterDirectory, "profile_launcher.py"), "context", selected.profile, "--repo", repo],
     { cwd: repo, env: process.env, encoding: "utf8", timeout: 300_000 },
   );
-  if (contextResult.error || contextResult.status !== 0) {
-    throw new Error(`qualified profile context lookup failed (status ${contextResult.status ?? "spawn"})`);
-  }
-  const context = JSON.parse(contextResult.stdout);
+  const context = decodeContext(contextResult);
   const hmrPort = Number(context.https_port);
   if (!Number.isInteger(hmrPort) || hmrPort < 1 || hmrPort > 65535) {
     throw new Error("qualified profile context has no actual gateway HTTPS port");
