@@ -431,6 +431,15 @@ established. The attempt stopped before interruption/collision and `dev:test`,
 with scoped down followed by preserved private runtime residue. No retry or
 complete dependent-handoff acceptance is inferred.
 
+With nested-envelope diagnostics enabled, the next bounded attempt reached the
+post-restart front listener check and refused because the listener was not owned
+and ready. It captured no context-error record. The rejected probe-time listener
+snapshot was not retained, so this does not establish a nested rejection,
+concurrency defect or generic core cause. The attempt stopped; later lifecycle
+and `dev:test` acceptance remain unproven. Scoped down selectors returned zero,
+and private runtime residue was preserved. Silo log capture timed out, which
+limits correlated service evidence.
+
 The separate exact-source container-only selector passed assembly, published
 Silo/MC executable checks and build/start with the workspace image unchanged,
 then verified exact cleanup and private-profile purge. Remaining exported

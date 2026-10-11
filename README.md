@@ -167,12 +167,17 @@ handoff passed, while admin context failed at `host-inventory / default.hosts`
 with exit 1 and class `ProfileError`. The underlying rejection reason remains
 unestablished. Interruption/collision and actual `dev:test` execution were not
 reached; complete profile readiness remains unproven.
+The subsequent nested-envelope diagnostic attempt failed closed at front's
+post-restart ownership/readiness check without capturing a context-error record.
+Its probe-time listener snapshot was not retained; the cause remains unknown.
 The restart harness requires the canonical configured API catalog cwd, exact
 private executable command/path/digest, its unique executable mapping, recorded
 start/ancestry/generation and sole kernel socket ownership before signaling.
 Unrelated `lsof txt` mappings do not substitute for any identity gate.
 Context failures now retain fixed phase, container-operation, exit status and
 allowlisted error class/message, without captured stdout or arbitrary stderr.
+Nested negative envelopes also retain a fixed source reason and their actual
+process exit separately; unknown reasons remain explicitly unclassified.
 The qualification harness copies these records outside the fixture before
 teardown. Diagnostic-only changes must preserve the accepted successful recipes
 before auth/storage receipts can be reused.
