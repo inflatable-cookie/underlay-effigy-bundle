@@ -512,6 +512,27 @@ unestablished, and no generic core defect is certified. A further owning
 correction must establish additive probe configuration and supported effective
 host inspection without replacing production declarations or weakening gates.
 
+Assembly-only diagnosis subsequently compared the supported versioned
+`effigy.config.v1` selected value at
+`containers.hybrid_services.host_processes` with the existing text regex in a
+fresh private Reference/bundle archive fixture, preserving `sources.siblings =
+false`. Before probe injection, both semantic and regex names were `api`,
+`front`, `admin`; afterward both were only `interrupted_probe`. The outer
+`effigy.command.v1` envelope and inner selected path/schema were verified;
+both configuration commands exited zero. Only names/types/count, source
+ownership and manifest digest were retained; full configuration remained in
+memory. Thus this reproduction establishes effective local-array replacement,
+not a regex defect. No parser edit or replacement runtime attempt followed.
+
+The exact pinned bundle composition source treats non-table incoming values
+as replacements. Its separate bundle-extension path supports combining default
+and local arrays when explicitly selected. The smallest owning proposal is a
+fixture-only supported array-extension declaration for this path, proved to
+preserve the production hosts plus the probe with strict names/order/duplicate
+and refusal controls. This is a proposal, not an implemented or qualified
+correction; production composition/defaults and live ownership gates remain
+unchanged.
+
 Three final down selectors returned zero. Exact status reported empty services
 and private gateway routes, nine stopped listener records, 21 recorded PIDs
 absent and nine recorded sockets without listeners. These observations do not

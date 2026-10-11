@@ -181,7 +181,12 @@ A subsequent attempt reused the input-matched restart/origin proof and passed
 that setup boundary, then refused before interruption launch: the fixture
 manifest inspector recognized only `interrupted_probe`, rather than the three
 production hosts plus the probe. Configuration inspection exited zero; whether
-composition or the inspection parser caused the mismatch remains unestablished.
+composition or the inspection parser caused that historical mismatch was then
+unestablished. A subsequent assembly-only typed `effigy.config.v1` comparison
+resolved the boundary: the default list contained `api/front/admin`, while
+adding the fixture's local probe array replaced it with `interrupted_probe`.
+The regex agreed with both semantic lists. No parser correction or service
+launch followed this counterexample.
 Pending lifecycle and `dev:test` acceptance are unproven.
 The restart harness requires the canonical configured API catalog cwd, exact
 private executable command/path/digest, its unique executable mapping, recorded
