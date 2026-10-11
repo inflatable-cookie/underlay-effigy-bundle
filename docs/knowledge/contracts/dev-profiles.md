@@ -420,6 +420,25 @@ Hermetic controls exercise the production process/JSON code, actual Vite adapter
 and durable receipt collector together; injected failures do not establish the
 cause of earlier runtime failures.
 
+Restart observers now retain typed, nonauthoritative listener snapshots before
+validation in both listener helpers and immediately on rejection. The private
+external journal records a monotonic sequence, checkout/profile identity,
+current and previous generations, byte count/digest/file identity, report
+schema/generation/address, recorded process identities, finite ownership and
+readiness phase values, and the effective route/current target. Unrecorded PGID
+or dependent endpoint fields stay unavailable. Rejection records reuse the
+same observed bytes instead of rereading after cleanup. Missing, malformed,
+permission-denied and unknown fields are explicit; arbitrary state/report
+extras, environment, credentials and URL queries are excluded.
+
+Hermetic controls cover both production collection paths, including a ready
+observation followed by an unready generation, and seeded-secret exclusion.
+The retained-proof comparison normalizes only these exact diagnostic read and
+decorator substitutions; readiness, ownership, report and route predicates
+still participate in the comparison. Diagnostics grant no readiness credit.
+API log capture reads at most 64 KiB, and the supported non-following Silo log
+command has a five-second capture budget independent of readiness deadlines.
+
 The instrumented remaining-lifecycle attempt passed the guarded API restart
 and front handoff, but admin failed before listener publication. Its retained
 `profile_context_failed` journal entry identifies `phase = host-inventory`,
@@ -439,6 +458,28 @@ concurrency defect or generic core cause. The attempt stopped; later lifecycle
 and `dev:test` acceptance remain unproven. Scoped down selectors returned zero,
 and private runtime residue was preserved. Silo log capture timed out, which
 limits correlated service evidence.
+
+With probe-time capture, the subsequent attempt passed the guarded API and
+dependent restarts, current private HTTPS routes, origins and HMR. It then
+stopped during interruption fixture preparation. The interruption helper calls
+`dev:hybrid:down`, verifies stopped records and live sibling identities, then
+calls `route_domains`; that route helper calls the ready-only `listener_state`
+validator. The captured main front observation changed from ready with its new
+owned endpoint to `stopped`, with generation/address/owner cleared, before this
+rejection. The identical rejected observation was preserved before cleanup.
+
+This demonstrates a bundle qualification precondition conflict, not a generic
+core defect or a cause for the historical failures. The smallest owning follow-up
+is to establish the supported effective route identity while the profile is
+ready, before interruption setup's down, retaining all readiness, stopped-state
+and foreign-survivor checks. No correction or second runtime was performed in
+this diagnostic attempt. Interruption/recovery, collision/partial failure,
+uncertain-owner and foreign-preserving teardown, and `dev:test` acceptance remain
+incomplete. Three final down selectors returned zero; exact post-cleanup status
+reported no services and private gateways down with empty routes. Recorded
+processes and sockets were checked separately; the private VM and residue remain
+held, without a retirement or purge claim. Non-following Silo log capture reached
+its five-second budget and was skipped with a classified timeout.
 
 The separate exact-source container-only selector passed assembly, published
 Silo/MC executable checks and build/start with the workspace image unchanged,
