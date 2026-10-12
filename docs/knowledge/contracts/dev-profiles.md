@@ -1043,3 +1043,37 @@ The required absent-config/present-alias contract remains enforced pending an
 owner ruling and separately authorized observation; no override removal,
 guard relaxation, image repin or runtime retry is implied. Storage/full-profile
 proof remains incomplete, and every held resource remains protected.
+
+
+The owning service-specific rule now replaces only server MC_CONFIG_DIR
+absence with PRESENT and exact `/tmp/.mc`. This value agrees in memory with
+the digest-verified arm64 server config and immutable
+[Dockerfile default](https://github.com/pgsty/silo/blob/2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c/Dockerfile.goreleaser).
+MC_CONFIG_ENV_FILE remains absent even when empty; every other routing/proxy
+predicate is unchanged. Server MC_HOST_local must still match the independent
+bundle-provided loopback alias/fixture credential contract in private memory.
+Client MC_CONFIG_DIR, MC_CONFIG_ENV_FILE and MC_HOST_local remain strictly
+absent; HOME `/root` and persisted alias source `/root/.mc/config.json` remain
+required. No environment unset, Compose/image/catalog mutation or alias fallback
+is used to manufacture agreement. Intended server mounts cover only `/data`,
+with no foreign/host mount covering `/tmp/.mc`; client mounts do not cover its
+config root. Baseline controls reject config-root/ancestor mount coverage.
+
+Both image-default/Compose/native input matrices must agree before effects.
+The digest-pinned client config declares no HOME, and unchanged rendered
+Compose supplies none. Pinned secondary-service native exec has no workspace
+identity/HOME handoff; nerdctl's selected exec inherits the process environment
+and applies explicit exec flags. Its login-shell initialization remains an
+unqualified source of a possible HOME default. A missing declared HOME is
+therefore `unknown_shell_default`, not a claim that actual exec HOME is absent.
+The pre-effect gate refuses this unknown. Qualifying the pinned client shell's
+root/home initialization (or an explicitly owned supported contract decision)
+is required before a new runtime can be justified; arbitrary HOME injection or
+client guard relaxation is not authorized. No historical predicate/404 cause
+is inferred and the conditional runtime budget has not begun.
+
+Pinned MC source binds config-dir flags/environment before using the default
+HOME-derived `.mc` path, and environment aliases take precedence over persisted
+aliases. The effective selected-exec guard is still required before bootstrap
+or object writes even after static defaults qualify. Static metadata and private
+shell/envelope controls are not runtime/namespace/ownership proof.

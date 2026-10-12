@@ -9,7 +9,7 @@ from storage_correlation import (ROUTING_OVERRIDES, bounded_arguments, bounded_p
 def predicates(service):
     if service not in ('silo','silo_client'):
         raise ValueError('guard_service_refused')
-    result=[(name,'absent') for name in ROUTING_OVERRIDES]
+    result=[(name,'expected_server_configdir' if service=='silo' and name=='MC_CONFIG_DIR' else 'absent') for name in ROUTING_OVERRIDES]
     result.append(('MC_HOST_local','expected_loopback_alias' if service=='silo' else 'absent'))
     if service=='silo_client':result.append(('HOME','expected_home'))
     return result
@@ -22,7 +22,7 @@ def guard_command(service):
                         'elif test -z "$'+name+'"; then underlay_guard_state=empty; else underlay_guard_state=present; fi')
         condition=('test "${'+name+'+present}" != present' if rule=='absent' else
                    'test "${'+name+'+present}" = present && test "$'+name+'" = "'+
-                   ('http://minioadmin:minioadmin@127.0.0.1:9000' if rule=='expected_loopback_alias' else '/root')+'"')
+                   ('http://minioadmin:minioadmin@127.0.0.1:9000' if rule=='expected_loopback_alias' else '/tmp/.mc' if rule=='expected_server_configdir' else '/root')+'"')
         commands.append('if '+condition+'; then underlay_guard_match=1; else underlay_guard_match=0; fi')
         commands.append("printf 'GUARD|"+name+"|%s|%s\\n' \"$underlay_guard_state\" \"$underlay_guard_match\"")
     # This finite diagnostic transport succeeds only to preserve all predicate

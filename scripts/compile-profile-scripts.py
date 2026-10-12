@@ -7,7 +7,7 @@ for relative in ("scripts/dev/profile_launcher.py", "scripts/dev/profile_admissi
                  "scripts/qualify-reference-optin.py", "scripts/qualify-reference-runtime.py", "scripts/qualify-reference-profiles.py",
                  "scripts/pending_start_identity.py", "scripts/qualification/managed-listener-probe.py",
                  "scripts/listener_snapshot.py", "scripts/transition_snapshot.py", "scripts/qualification_runtime.py", "scripts/reference_lifecycle_test.py",
-                 "scripts/qualification/formatter_cases.py", "scripts/formatter_provenance.py", "scripts/formatter_provenance_test.py", "scripts/silo_fixture.py", "scripts/routing_guard.py", "scripts/routing_guard_test.py", "scripts/storage_correlation.py", "scripts/storage_correlation_test.py", "scripts/qualify-storage-correlation.py"):
+                 "scripts/qualification/formatter_cases.py", "scripts/formatter_provenance.py", "scripts/formatter_provenance_test.py", "scripts/silo_fixture.py", "scripts/service_defaults.py", "scripts/routing_guard.py", "scripts/routing_guard_test.py", "scripts/storage_correlation.py", "scripts/storage_correlation_test.py", "scripts/qualify-storage-correlation.py"):
     compile((root / relative).read_text(), relative, "exec")
 for relative in ("scripts/dev/managed-vite-listener.mjs", "scripts/dev/context-diagnostic.mjs",
                  "scripts/dev/profile-admission.test.mjs"):

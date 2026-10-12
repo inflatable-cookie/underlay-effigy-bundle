@@ -15,7 +15,9 @@ from reference_storage_probe import StorageDiagnosticJournal
 class GuardTests(unittest.TestCase):
     def base(self,service):
         env={'PATH':'/usr/bin:/bin','HOME':'/root'}
-        if service=='silo':env['MC_HOST_local']='http://minioadmin:minioadmin@127.0.0.1:9000'
+        if service=='silo':
+            env['MC_HOST_local']='http://minioadmin:minioadmin@127.0.0.1:9000'
+            env['MC_CONFIG_DIR']='/tmp/.mc'
         return env
 
     def transport(self,env,mode='complete'):
@@ -57,7 +59,7 @@ class GuardTests(unittest.TestCase):
                 for value in ('','seeded-secret'):
                     changed={**env,name:value};journal=Mock()
                     original=subprocess.run(['/bin/sh','-c',native.environment_guard(service)],env=changed,capture_output=True,timeout=3)
-                    self.assertNotEqual(original.returncode,0)
+                    self.assertNotEqual(original.returncode,0)  # Older guard remains a historical refusal control.
                     with self.assertRaisesRegex(ValueError,'routing_guard_refused'):self.invoke(service,changed,journal)
                     projection=journal.append.call_args.kwargs
                     record=next(r for r in projection['predicates'] if r['predicate']==name)
@@ -67,6 +69,38 @@ class GuardTests(unittest.TestCase):
                 changed=dict(env);changed.pop('MC_HOST_local');journal=Mock()
                 with self.assertRaises(ValueError):self.invoke(service,changed,journal)
                 self.assertEqual(journal.append.call_args.kwargs['predicates'][-1]['presence'],'absent')
+
+    def test_server_exact_default_replaces_absence_without_other_exceptions(self):
+        for value in (None,'','relative','.mc','/tmp/.mc/','/other','seeded-secret'):
+            env=self.base('silo')
+            if value is None:env.pop('MC_CONFIG_DIR')
+            else:env['MC_CONFIG_DIR']=value
+            journal=Mock()
+            with self.assertRaisesRegex(ValueError,'routing_guard_refused'):self.invoke('silo',env,journal)
+            self.assertNotIn('seeded-secret',str(journal.mock_calls))
+        self.assertEqual(dict(guard.predicates('silo'))['MC_CONFIG_DIR'],'expected_server_configdir')
+        self.assertEqual(dict(guard.predicates('silo_client'))['MC_CONFIG_DIR'],'absent')
+        effects=[];journal=Mock()
+        def observe_then_bootstrap(env):
+            self.invoke('silo',env,journal)
+            effects.append('alias_bootstrap')
+        with self.assertRaises(ValueError):observe_then_bootstrap({**self.base('silo'),'MC_CONFIG_ENV_FILE':''})
+        self.assertEqual(effects,[])
+
+    def test_source_image_compose_native_layering_and_mount_boundary(self):
+        from service_defaults import baseline
+        image={'MC_CONFIG_DIR':'/tmp/.mc','HOME':'/tmp'}
+        compose={'MC_HOST_local':'http://minioadmin:minioadmin@127.0.0.1:9000'}
+        self.assertTrue(baseline(image,compose,'silo',('/data',))['baseline_passed'])
+        self.assertFalse(baseline(image,{**compose,'MC_CONFIG_DIR':'relative'},'silo')['baseline_passed'])
+        client=baseline({}, {}, 'silo_client')
+        self.assertFalse(client['baseline_passed'])
+        self.assertEqual(client['predicates'][-1]['resolution'],'unknown_shell_default')
+        self.assertTrue(baseline({}, {}, 'silo_client',native_home='/root')['baseline_passed'])
+        self.assertFalse(baseline({'MC_CONFIG_DIR':''},{},'silo_client',native_home='/root')['baseline_passed'])
+        for path in ('/','/tmp','/tmp/.mc','/tmp/../other','relative'):
+            with self.assertRaises(ValueError):baseline(image,compose,'silo',(path,))
+        self.assertNotIn('minioadmin',json.dumps(baseline(image,compose,'silo')))
 
     def test_full_path_refusal_markers_native_negative_and_secret_exclusion(self):
         for mode,classification in (('duplicate_marker','marker_refused'),('negative','inner_command_failed'),

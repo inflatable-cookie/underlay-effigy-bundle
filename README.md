@@ -380,3 +380,16 @@ alias/bootstrap. Transport completion is not guard acceptance. Native negative
 results omit command bytes, so dispatch/native/marker failure classes preserve
 explicit unavailable evidence rather than guessing a predicate or logging raw
 environment values. No new runtime proof accompanies this diagnostic change.
+
+The current server guard requires MC_CONFIG_DIR present and exactly `/tmp/.mc`,
+matching the digest-pinned image and immutable Dockerfile default. Env-file,
+proxy/routing and client override absence checks remain intact; server alias
+agreement is still checked privately against the independent Compose input.
+Missing, empty, relative or other server config paths refuse.
+
+Both service-default baselines now run before VM effects. The pinned client
+image and unchanged Compose declare no HOME, and pinned secondary native exec
+does not inject one. Login-shell initialization has not been qualified to
+establish `/root`; this is unknown default evidence, not a proved runtime HOME
+failure. The preflight refuses that unknown without starting a VM. The strict
+client HOME/config-source guard remains unchanged pending source qualification.
