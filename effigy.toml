@@ -53,3 +53,7 @@ run_in = "host"
 [tasks."proof:dev-profiles:storage-gateway-call-tests"]
 run = "python3 scripts/storage_correlation_test.py CorrelationTests.test_exact_gateway_invocation_and_rejected_repo_have_no_effect"
 run_in = "host"
+
+[tasks."proof:dev-profiles:formatter-contract-tests"]
+run = "python3 scripts/formatter_provenance_test.py"
+run_in = "host"

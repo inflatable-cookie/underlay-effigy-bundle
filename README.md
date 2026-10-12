@@ -338,5 +338,17 @@ Exposure grants no host-binding credit: complete, unique loopback mappings must
 match configured service targets exactly. Safe field/token projections precede
 refusal in both checkout paths. File-only native-parser controls cover the
 correction; they do not identify the missing historical token or deployed guest
-formatter version. No new runtime or cleanup was performed. Storage and full
-profile acceptance remain pending.
+formatter version. Before services, the service-only proof now observes the
+new private guest through supported `colima nerdctl --profile effigy -- version
+--format` passthrough. It bounds capture, records finite client metadata and
+checks the formatter source at the reported full commit. Unknown output or
+source disagreement stops before images/services; metadata is not binary source
+attestation. The absolute host Colima identity is retained and rechecked without
+backend fallback. Storage and full profile acceptance remain pending.
+
+The bounded Darwin pilot observed nerdctl `v2.3.1` at reported commit
+`04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860`. That source groups mappings and
+compresses contiguous ranges, unlike the qualified reference formatter. The
+strict source gate refused before images/services; no storage correspondence
+was claimed. Supporting that formatter needs source-based controls first, with
+range/ambiguous representations still refusing. The new private VM remains held.

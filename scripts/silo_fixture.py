@@ -32,6 +32,9 @@ PINS = {
 
 def command(args: list[str], *, env: dict[str, str], cwd: Path | None = None, timeout: int = 3600) -> str:
     from storage_correlation import bounded_run
+    if args[0] == 'colima' and 'UNDERLAY_CORRELATION_COLIMA_BIN' in env:
+        from formatter_provenance import bound_colima
+        args = [bound_colima(env), *args[1:]]
     result = bounded_run(args, cwd=cwd, env=env, timeout=timeout)
     print(f"IMAGE COMMAND: exit={result['exit']} outcome={result['outcome']} stdout_bytes={result['stdout_bytes']} stderr_bytes={result['stderr_bytes']}", flush=True)
     if result['exit'] or result['outcome'] != 'complete':

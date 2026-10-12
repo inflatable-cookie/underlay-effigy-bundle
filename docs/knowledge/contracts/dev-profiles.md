@@ -931,6 +931,35 @@ No immutable receipt establishes that version or recovers the prior rejected
 value. Private file-only backend doubles exercise the actual pinned native
 parser/serializer for main and worktree without contacting a runtime. Their
 results are control evidence, not new runtime or historical failure credit.
-Storage correspondence and the historical 404 cause remain unknown. A future
-owner-authorized diagnostic would need current pre-validation projections and
-backend-version provenance before any object operation; none is authorized here.
+Storage correspondence and the historical 404 cause remain unknown. The
+service-only diagnostic observes client version, full Git commit, OS and
+architecture after starting its new private VM and before image/service starts.
+The supported [nerdctl version command](https://github.com/containerd/nerdctl/blob/59253e9931873e79b92fe3400f14e69d6be34025/cmd/nerdctl/version.go)
+accepts a Go template over Client.Version/GitCommit/Os/Arch. Its explicit Colima
+passthrough targets only the newly owned COLIMA_HOME and effigy profile, with a
+retained absolute host executable/checksum and no backend fallback. Capture has
+a 15-second deadline and 16384-byte limit per stream; unexpected stderr, partial
+capture, unknown metadata or changed executable refuses before services.
+The immutable public formatter source at the reported full commit must match
+the reviewed CNI mapping implementation. A version/commit reported by the guest
+is metadata, not cryptographic binary/source attestation. Neither this source
+relationship nor a new port observation reconstructs the discarded historical
+token. Safe current field/token projections still precede validation in both
+checkouts, and exposure still grants no host mapping credit. Host-client
+settlement does not prove remote cancellation or retirement; unknown effects
+and VM/images/volumes remain held.
+
+
+The bounded private Darwin observation reported nerdctl `v2.3.1`, Linux arm64,
+at commit `04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860`. Its
+[formatter source](https://github.com/containerd/nerdctl/blob/04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860/pkg/formatter/formatter.go)
+groups mappings by address/protocol, sorts ports and compresses contiguous
+ranges. It differs from the qualified reference function, so the source gate
+stopped before images, services, gateway or object operations. This is a
+source qualification boundary, not a demonstrated live port or storage defect.
+Supporting this reported formatter requires no-effect source/native controls
+for the actual scalar and grouped spellings, preserving exact unique loopback
+inventory equality and rejection of ranges, ambiguity, foreign/wildcard binds
+and unknown tokens. A later runtime proof needs separate bounded authorization;
+the held private VM does not grant a retry or cleanup authority. Historical
+rejected values and the historical 404 cause remain unobserved/unknown.

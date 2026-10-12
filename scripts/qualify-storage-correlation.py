@@ -13,6 +13,7 @@ from qualification_runtime import require_effigy_binary, SUPPORTED_EFFIGY_SOURCE
 from reference_storage_probe import StorageDiagnosticJournal
 from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity, bounded_run, shell_region, status_projection, environment_guard, cross_scope, strict_json, capture_contract, bounded_arguments, bounded_payload, file_producer, native_identity_observation, native_status_observation
 from silo_fixture import prepare_published_images
+from formatter_provenance import bind_host, bound_colima, version_arguments, observe
 import importlib.util
 
 
@@ -28,7 +29,7 @@ OPT = load('storage_optin', 'qualify-reference-optin.py')
 DEV = load('storage_launcher', 'dev/profile_launcher.py')
 
 
-SAFE_REASONS = {'status_projection_truncated','live_port_duplicate','unexpected_exposed_port','live_port_not_owned_loopback','native_bounded_refusal','bounded_envelope_refused','bounded_schema_refused','bounded_status_refused','bounded_selection_refused','bounded_limits_refused','bounded_accounting_refused','bounded_phase_refused','container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused'}
+SAFE_REASONS = {'status_projection_truncated','live_port_duplicate','unexpected_exposed_port','live_port_not_owned_loopback','native_bounded_refusal','bounded_envelope_refused','bounded_schema_refused','bounded_status_refused','bounded_selection_refused','bounded_limits_refused','bounded_accounting_refused','bounded_phase_refused','container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused','formatter_host_identity_refused','formatter_private_scope_refused','formatter_version_unknown','formatter_source_unknown','formatter_capture_refused','formatter_source_unavailable'}
 
 def image_interfaces(env,journal,nonce):
     from silo_fixture import IMAGE,CLIENT_IMAGE
@@ -38,7 +39,7 @@ def image_interfaces(env,journal,nonce):
     for image in (IMAGE,CLIENT_IMAGE):
         marker='UNDERLAY_'+secrets.token_hex(16).upper()
         command=shell_command('set -eu; command -v mc >/dev/null; command -v sh >/dev/null; '+file_producer('/root/underlay-'+nonce,b'challenge')+'; mc stat --json /root/underlay-'+nonce,marker)
-        capture=bounded_run(['colima','nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c',command],env=env,timeout=60)
+        capture=bounded_run([bound_colima(env),'nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c',command],env=env,timeout=60)
         journal.append('image_interface',exit=capture['exit'],outcome=capture['outcome'],stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'],network='none')
         if capture['exit'] or capture['outcome']!='complete':raise ValueError('image_interface_refused')
         region,inner=shell_region(capture['stdout'].decode(),marker)
@@ -46,7 +47,7 @@ def image_interfaces(env,journal,nonce):
         stat_projection(region, 'underlay-'+nonce,9)
         # Help exercises genuine flags/builtins without alias signature probes.
         for operation in ('alias list','pipe','cat','mb','stat'):
-            capture=bounded_run(['colima','nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c','mc '+operation+' --help'],env=env,timeout=10)
+            capture=bounded_run([bound_colima(env),'nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c','mc '+operation+' --help'],env=env,timeout=10)
             journal.append('image_flag_interface',operation=operation.replace(' ','_'),exit=capture['exit'],outcome=capture['outcome'],stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'],network='none')
             if capture['exit'] or capture['outcome']!='complete':raise ValueError('image_interface_refused')
 
@@ -73,6 +74,8 @@ def main():
     def call(label, checkout, args, timeout=180):
         if require_effigy_binary() != binary:
             raise RuntimeError('verified executable changed')
+        if 'UNDERLAY_CORRELATION_COLIMA_BIN' in env:
+            bound_colima(env)
         journal.append('command', operation=label, phase='before_process')
         try:
             captured = bounded_run(invocation(binary, checkout, args), cwd=checkout, env=env, timeout=timeout)
@@ -108,6 +111,7 @@ def main():
         return value
 
     failure = None
+    formatter = None
     vm_started = False
     gateway_started = False
     nonce=secrets.token_hex(16)
@@ -183,12 +187,17 @@ def main():
         journal.append('capture_contract_gate',**evidence,runtime_effects=False)
 
 
+        host = bind_host(env)
+        version_arguments(env, fixture)  # Pure private-root/argv gate before effects.
+        journal.append('formatter_host_gate', **host, runtime_effects=False)
+
         # No service starts until both typed production/minimal compositions agree.
         journal.append('start_intents', fixture=str(fixture), gateway=str(gateway), checkouts=[str(main_checkout),str(first)], private_vm_held=True)
-        process = bounded_run(['colima', 'start', '--profile', 'effigy', '--runtime', 'containerd', '--cpu', '2', '--memory', '4', '--disk', '32'], env=env, timeout=1200)
+        process = bounded_run([bound_colima(env), 'start', '--profile', 'effigy', '--runtime', 'containerd', '--cpu', '2', '--memory', '4', '--disk', '32'], env=env, timeout=1200)
         journal.append('private_vm_start', exit=process['exit'], outcome=process['outcome'])
         if process['exit'] or process['outcome']!='complete': raise ValueError('private_vm_start_unknown')
         vm_started = True
+        formatter = observe(env, fixture, journal)
         prepare_published_images(fixture, env)
         image_interfaces(env, journal, nonce)
         # The production Silo catalog declares a TCP alias; pinned core starts
@@ -282,7 +291,7 @@ def main():
                 failure = failure or 'CleanupUnknown'
         journal.append('disposition', private_vm_started=vm_started, private_vm_held=vm_started, volume_retirement_proven=False, old_resources_touched=False)
         journal.close()
-        summary = {'source':SUPPORTED_EFFIGY_SOURCE, 'binary_sha256':SUPPORTED_EFFIGY_SHA256, 'failure_class':failure, 'results':[{k:v for k,v in r.items() if k!='payloads'} for r in results], 'whole_profile_acceptance':False, 'old_resources_touched':False}
+        summary = {'source':SUPPORTED_EFFIGY_SOURCE, 'binary_sha256':SUPPORTED_EFFIGY_SHA256, 'failure_class':failure, 'formatter':formatter, 'results':[{k:v for k,v in r.items() if k!='payloads'} for r in results], 'whole_profile_acceptance':False, 'old_resources_touched':False}
         path = packet / 'result.json'
         path.write_text(json.dumps(summary, indent=2)+'\n')
         path.chmod(0o600)
