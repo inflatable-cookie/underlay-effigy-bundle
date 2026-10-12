@@ -352,3 +352,22 @@ compresses contiguous ranges, unlike the qualified reference formatter. The
 strict source gate refused before images/services; no storage correspondence
 was claimed. Supporting that formatter needs source-based controls first, with
 range/ambiguous representations still refusing. The new private VM remains held.
+
+The port diagnostic now qualifies only the exact v2.3.1 reported version/commit
+and full immutable formatter digest. It preserves address/protocol context
+across native comma splitting and expands canonical equal-span compression
+only up to the independently declared inventory, with a 16-mapping cap. Every
+expanded tuple must match a unique declared loopback TCP binding; malformed,
+ambiguous, foreign, overlapping, duplicate or extra mappings refuse. Exposure
+still grants no host credit. Maintained source/test cases and the real native
+parser are covered by no-effect controls; reported metadata does not attest the
+guest binary. This qualification does not reconstruct historical failures.
+
+The fresh service-only pilot reobserved that exact formatter metadata/source and
+validated the main scope's compressed loopback API/console pair against its
+independent Compose inventory. It stopped at the first server routing guard:
+native bounded execution reported `inner_command_failed`, inner code 1. The
+precise failed predicate or shell cause is unobserved; no alias/bootstrap or
+object request was reached and worktree services were not started. Available
+post-down main inventory was empty and the private gateway was stopped; these
+observations do not prove retirement. New VM/images/volumes remain held.

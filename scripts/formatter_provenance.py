@@ -9,14 +9,9 @@ from storage_correlation import bounded_run
 
 VERSION_TEMPLATE = '{{.Client.Version}}|{{.Client.GitCommit}}|{{.Client.Os}}|{{.Client.Arch}}'
 REFERENCE_COMMIT = '59253e9931873e79b92fe3400f14e69d6be34025'
-FORMAT_PORTS = '''func FormatPorts(ports []cni.PortMapping) string {
- if len(ports) == 0 { return "" }
- strs := make([]string, len(ports))
- for i, p := range ports {
-  strs[i] = fmt.Sprintf("%s:%d->%d/%s", p.HostIP, p.HostPort, p.ContainerPort, p.Protocol)
- }
- return strings.Join(strs, ", ")
-}'''
+QUALIFIED_VERSION = 'v2.3.1'
+QUALIFIED_COMMIT = '04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860'
+QUALIFIED_FORMATTER_SHA256 = 'fdb45765534a00d4b75a910f24bf540b8ca6adf5934ddbcec6d63d562bcb38dc'
 
 
 def host_identity(executable):
@@ -70,6 +65,8 @@ def version_projection(raw):
     if not match:
         raise ValueError('formatter_version_unknown')
     version, commit, arch = (item.decode('ascii') for item in match.groups())
+    if (version, commit, arch) != (QUALIFIED_VERSION, QUALIFIED_COMMIT, 'arm64'):
+        raise ValueError('formatter_version_unknown')
     return {'version': version, 'git_commit': commit, 'os': 'linux', 'arch': arch,
             'evidence': 'reported_metadata_not_cryptographic_attestation'}
 
@@ -77,22 +74,10 @@ def version_projection(raw):
 def formatter_projection(source):
     if len(source) > 262144:
         raise ValueError('formatter_source_unknown')
-    try:
-        text = source.decode('utf-8')
-        start = text.index('func FormatPorts(ports []cni.PortMapping) string {')
-        position = start + text[start:].index('{')
-        depth = 1
-        end = position + 1
-        while depth and end < len(text):
-            depth += (text[end] == '{') - (text[end] == '}')
-            end += 1
-        actual = text[start:end]
-        if depth or re.sub(r'\s+', '', actual) != re.sub(r'\s+', '', FORMAT_PORTS):
-            raise ValueError('formatter_source_unknown')
-    except (UnicodeDecodeError, ValueError):
-        raise ValueError('formatter_source_unknown') from None
+    if hashlib.sha256(source).hexdigest() != QUALIFIED_FORMATTER_SHA256:
+        raise ValueError('formatter_source_unknown')
     return {'formatter_sha256': hashlib.sha256(source).hexdigest(),
-            'relationship': 'reported_commit_source_matches_reviewed_CNI_mapping_formatter',
+            'relationship': 'exact_qualified_231_commit_and_full_formatter_digest',
             'binary_source_attestation': False}
 
 
@@ -118,6 +103,7 @@ def observe(env, fixture, journal):
             source = response.read(262145)
     except Exception:
         raise ValueError('formatter_source_unavailable') from None
+    journal.append('formatter_source_input', input_bytes=len(source), input_sha256=hashlib.sha256(source).hexdigest(), evidence='current_input_before_validation')
     projection = formatter_projection(source)
     journal.append('formatter_source', git_commit=metadata['git_commit'], **projection)
     return {**metadata, **projection}

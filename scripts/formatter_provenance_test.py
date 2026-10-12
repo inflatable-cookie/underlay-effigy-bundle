@@ -40,26 +40,26 @@ class FormatterTests(unittest.TestCase):
             with self.assertRaises(ValueError): probe.version_arguments({**env, 'PATH': '/missing'}, fixture)
 
     def test_metadata_source_and_unknown_secret_refusals(self):
-        valid = ('2.1.6|' + probe.REFERENCE_COMMIT + '|linux|arm64\n').encode()
-        self.assertEqual(probe.version_projection(valid)['git_commit'], probe.REFERENCE_COMMIT)
-        for value in (valid * 2, b'seeded-secret', valid.replace(b'linux', b'darwin'), valid.replace(b'arm64', b'unknown'), b'x' * 513):
+        valid = (probe.QUALIFIED_VERSION + '|' + probe.QUALIFIED_COMMIT + '|linux|arm64\n').encode()
+        self.assertEqual(probe.version_projection(valid)['git_commit'], probe.QUALIFIED_COMMIT)
+        for value in (valid * 2, b'seeded-secret', valid.replace(b'linux', b'darwin'), valid.replace(b'arm64', b'unknown'), valid.replace(b'arm64', b'amd64'), valid.replace(b'v2.3.1',b'v2.1.6'), valid.replace(probe.QUALIFIED_COMMIT.encode(),b'0'*40), b'x' * 513):
             with self.assertRaises(ValueError): probe.version_projection(value)
-        self.assertFalse(probe.formatter_projection(probe.FORMAT_PORTS.encode())['binary_source_attestation'])
-        for value in (b'seeded-secret', probe.FORMAT_PORTS.replace('%s:%d->%d/%s', '%s:%d').encode(), b'x' * 262145):
+        self.assertFalse(probe.formatter_projection((Path(__file__).parent/'qualification/fixtures/nerdctl-231-formatter.go').read_bytes())['binary_source_attestation'])
+        for value in (b'seeded-secret', b'changed-source', b'x' * 262145):
             with self.assertRaises(ValueError): probe.formatter_projection(value)
 
     def test_complete_capture_and_secret_failure_projection(self):
         with tempfile.TemporaryDirectory(prefix='ur.005-storage.', dir=Path.home()) as temporary:
             fixture, env, executable = self.fixture(Path(temporary))
-            valid = ('2.1.6|' + probe.REFERENCE_COMMIT + '|linux|arm64\n').encode()
+            valid = (probe.QUALIFIED_VERSION + '|' + probe.QUALIFIED_COMMIT + '|linux|arm64\n').encode()
             journal = Mock()
             response = Mock()
             response.__enter__ = Mock(return_value=response)
             response.__exit__ = Mock(return_value=False)
-            response.read.return_value = probe.FORMAT_PORTS.encode()
+            response.read.return_value = (Path(__file__).parent/'qualification/fixtures/nerdctl-231-formatter.go').read_bytes()
             capture = dict(stdout=valid, stderr=b'', stdout_bytes=len(valid), stderr_bytes=0, exit=0, outcome='complete')
             with patch.object(probe, 'bounded_run', return_value=capture) as run, patch.object(probe.urllib.request, 'urlopen', return_value=response):
-                self.assertEqual(probe.observe(env, fixture, journal)['version'], '2.1.6')
+                self.assertEqual(probe.observe(env, fixture, journal)['version'], probe.QUALIFIED_VERSION)
                 self.assertEqual(run.call_args.kwargs['timeout'], 15)
                 self.assertEqual(run.call_args.kwargs['cap'], 16384)
             for outcome in ('timeout', 'truncated', 'complete'):

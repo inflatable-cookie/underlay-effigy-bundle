@@ -963,3 +963,51 @@ inventory equality and rejection of ranges, ambiguity, foreign/wildcard binds
 and unknown tokens. A later runtime proof needs separate bounded authorization;
 the held private VM does not grant a retry or cleanup authority. Historical
 rejected values and the historical 404 cause remain unobserved/unknown.
+
+
+Current diagnostic admission is restricted to reported nerdctl `v2.3.1`, full
+commit `04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860`, Linux arm64, and the entire
+immutable formatter file SHA256
+`fdb45765534a00d4b75a910f24bf540b8ca6adf5934ddbcec6d63d562bcb38dc`.
+Unknown versions/commits, source mutations and platform differences refuse;
+matching a function fragment never admits arbitrary remote source. The older
+v2.1.6 source remains a reference, not deployed provenance.
+
+Source-qualified equal-span ranges may be normalized only with exact prefix
+address and terminal protocol context retained across native comma splitting.
+The first fragment establishes `127.0.0.1`; the last establishes TCP. Missing,
+conflicting or unresolvable context refuses. Canonical positive ports, sorted
+segments and equal-span increasing ranges expand only within the independent
+service inventory and a fixed maximum of 16 mappings. Every tuple must match
+one unique independently declared host/target binding; complete inventory
+comparison remains mandatory. Zero/out-of-range/decreasing/unequal/noncanonical
+ranges, overlaps, duplicate/extra/incomplete mappings, wildcard/foreign binds
+and non-TCP values refuse. Exposed tokens remain distinct and confer no host
+mapping credit. Normalization grants no ownership, signal or cleanup authority.
+
+Immutable maintained formatter tests exercise scalar, adjacent compression,
+wildcard and mixed-protocol outputs. The source-derived control model is
+checked against those goldens before its grouped Silo cases pass through the
+actual Effigy0412 parser/serializer and helper in both real Git checkout
+identities using private backend doubles. Go is unavailable on this host, so
+these controls do not claim execution of the Go implementation or guest binary
+attestation. Safe numeric shape/count/digest evidence precedes every rejection;
+source qualification and no-effect controls are not service/storage proof.
+
+
+The fresh private pilot reobserved the exact qualified formatter metadata and
+full source digest. Its main service inventory exposed the canonical compressed
+loopback mapping with host range 8140–8141 and target range 9000–9001, TCP. Safe
+current fields were retained before validation; bounded expansion and complete
+independent generated-Compose equality passed. This is current main-scope port
+evidence, not a recovery of the discarded historical token or worktree proof.
+The first server routing guard then returned native `inner_command_failed`,
+inner code 1. No per-predicate evidence or shell cause survived the safe native
+failure projection, so the exact cause remains unknown. No alias/bootstrap or
+object operation was reached. Further diagnostic work needs finite guarded
+presence/expected-alias boolean evidence and full-path refusal controls, never
+raw environment values or weakened routing/credential checks. Main post-down
+inventory was available and empty, and the exact new private gateway stopped;
+remote cancellation and volume/VM retirement remain unproven. New resources
+remain held and prior held resources are untouched. Storage/full-profile
+acceptance remains incomplete; this observation does not authorize a retry.

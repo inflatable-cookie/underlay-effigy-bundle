@@ -263,7 +263,65 @@ class CorrelationTests(unittest.TestCase):
                 self.assertEqual(server['ports'],[f'127.0.0.1:{port}->9000/tcp','9000/tcp'])
                 self.assertEqual(probe.status_projection(native,identity,[('silo',port,9000)],diagnostics=Mock())['port'],port)
                 with self.assertRaises(ValueError):probe.status_projection(native,{**identity,'project':'foreign'},[('silo',8140,9000)],diagnostics=Mock())
+                from qualification.formatter_cases import format_ports,maintained_cases
+                variants=[
+                    ([('127.0.0.1',port,9000,'tcp'),('127.0.0.1',port+1,9001,'tcp')],[('silo',port,9000),('silo',port+1,9001)],True),
+                    ([('127.0.0.1',port+30,9001,'tcp'),('127.0.0.1',port,9000,'tcp')],[('silo',port,9000),('silo',port+30,9001)],True),
+                    ([('0.0.0.0',port+1,9001,'udp'),('127.0.0.1',port,9000,'tcp')],[('silo',port,9000)],False)]
+                for _,mappings,expected in maintained_cases():
+                    variants.append((mappings,[('silo',port,9000)],False))
+                for mappings,declared,accepted in variants:
+                    rendered=format_ports(mappings)
+                    rows=f'opaque-server-{kind}\tUp 1 second\t{rendered}\t{project}\t{checkout}\tsilo\tFalse\nopaque-client-{kind}\trunning\t\t{project}\t{checkout}\tsilo_client\tFalse\n'
+                    captured=probe.bounded_run(probe.invocation(binary,checkout,['container','hybrid_services','status','--json']),env={**env,'FAKE_PORT_ROWS':rows},timeout=10)
+                    self.assertEqual(captured['exit'],0)
+                    native=probe.strict_json(captured['stdout'].decode())['result']
+                    journal=Mock()
+                    if accepted:self.assertEqual(probe.status_projection(native,identity,declared,diagnostics=journal)['port'],port)
+                    else:
+                        with self.assertRaises(ValueError):probe.status_projection(native,identity,declared,diagnostics=journal)
+                    self.assertEqual(journal.append.call_args.kwargs['evidence'],'current_input_before_validation')
+
+                for rendered in (f'127.0.0.1:{port}-{port+2}->9000-9001/tcp',
+                                 f'127.0.0.1:{port}-{port+1}->9000-9001/udp',
+                                 f'127.0.0.1:{port}->9000, {port}->9001/tcp',
+                                 f'127.0.0.1:{port}->9000, 9001/tcp',
+                                 f'{port}->9000/tcp', 'seeded-secret-http://password@foreign'):
+                    rows=f'opaque-server-{kind}\tUp 1 second\t{rendered}\t{project}\t{checkout}\tsilo\tFalse\nopaque-client-{kind}\trunning\t\t{project}\t{checkout}\tsilo_client\tFalse\n'
+                    captured=probe.bounded_run(probe.invocation(binary,checkout,['container','hybrid_services','status','--json']),env={**env,'FAKE_PORT_ROWS':rows},timeout=10)
+                    self.assertEqual(captured['exit'],0)
+                    native=probe.strict_json(captured['stdout'].decode())['result'];journal=Mock()
+                    with self.assertRaises(ValueError):probe.status_projection(native,identity,[('silo',port,9000),('silo',port+1,9001)],diagnostics=journal)
+                    self.assertNotIn('seeded-secret',str(journal.mock_calls));self.assertNotIn('password',str(journal.mock_calls))
+                    self.assertEqual(journal.append.call_args.kwargs['evidence'],'current_input_before_validation')
             self.assertEqual(len(set(projects)),2)
+
+    def test_231_maintained_source_goldens_and_complete_group_refusals(self):
+        from qualification.formatter_cases import format_ports, maintained_cases
+        from formatter_provenance import formatter_projection
+        from pathlib import Path
+        formatter_projection((Path(__file__).parent/'qualification/fixtures/nerdctl-231-formatter.go').read_bytes())
+        for name,mappings,expected in maintained_cases():
+            self.assertEqual(format_ports(mappings),expected,name)
+        bindings=[('silo',8140,9000),('silo',8141,9001)]
+        text=format_ports([('127.0.0.1',8141,9001,'tcp'),('127.0.0.1',8140,9000,'tcp')])
+        self.assertEqual(text,'127.0.0.1:8140-8141->9000-9001/tcp')
+        self.assertEqual(probe.grouped_published(text.split(', '),'silo',bindings),bindings)
+        nonadj=[('silo',8140,9000),('silo',8170,9001)]
+        grouped=format_ports([('127.0.0.1',8170,9001,'tcp'),('127.0.0.1',8140,9000,'tcp')])
+        self.assertEqual(probe.grouped_published(grouped.split(', '),'silo',nonadj),nonadj)
+        for text in ('127.0.0.1:8140-8142->9000-9001/tcp','127.0.0.1:8141-8140->9001-9000/tcp',
+                     '127.0.0.1:0-1->9000-9001/tcp','127.0.0.1:65535-65536->9000-9001/tcp',
+                     '127.0.0.1:08140-8141->9000-9001/tcp','127.0.0.1:8140-8140->9000-9000/tcp',
+                     '127.0.0.1:1-65535->1-65535/tcp','127.0.0.1:8140->9000, 8141->9001/tcp',
+                     '127.0.0.1:8140-8141->9000-9001/udp','0.0.0.0:8140-8141->9000-9001/tcp',
+                     '127.0.0.2:8140-8141->9000-9001/tcp','8140-8141->9000-9001/tcp',
+                     '127.0.0.1:8140->9000, 9001/tcp','127.0.0.1:8140->9000',
+                     '127.0.0.1:8140->9000/tcp, 127.0.0.1:8141->9001/tcp',
+                     '127.0.0.1:8140-8141->9000-9001/tcp, 127.0.0.1:8140->9000/tcp',
+                     'seeded-secret', '127.0.0.1:8140->9000/unknown'):
+            with self.assertRaises(ValueError,msg=text):probe.grouped_published(text.split(', '),'silo',bindings)
+        with self.assertRaises(ValueError):probe.grouped_published([text],'silo',bindings*9)
 
     def test_bounded_native_accounting_and_secret_projection(self):
         import copy

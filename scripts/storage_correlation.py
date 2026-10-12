@@ -128,9 +128,61 @@ def port_facts(value):
         if not (1<=host<=65535 and 1<=target<=65535 and str(host)==published[2] and str(target)==published[3]):return {**facts,'class':'malformed_numeric'}
         kind='loopback_exact' if str(address)=='127.0.0.1' else 'wildcard' if address.is_unspecified else 'other_loopback' if address.is_loopback else 'foreign'
         return {**facts,'class':'published','host_port':host,'target':target,'protocol':published[4],'address_kind':kind}
+    grouped=re.fullmatch(r'(127\.0\.0\.1:)?([0-9]{1,5})(?:-([0-9]{1,5}))?->([0-9]{1,5})(?:-([0-9]{1,5}))?(/tcp)?',value)
+    if grouped:
+        return {**facts,'class':'grouped_numeric_fragment','loopback_prefix_present':bool(grouped[1]),
+                'host_start':int(grouped[2]),'host_end':int(grouped[3] or grouped[2]),
+                'target_start':int(grouped[4]),'target_end':int(grouped[5] or grouped[4]),
+                'tcp_suffix_present':bool(grouped[6])}
     if re.fullmatch(r'[0-9a-fA-F:.\[\]>/tcpudsh-]{1,128}',value) and '-' in value:
         return {**facts,'class':'range_or_malformed'}
     return {**facts,'class':'unknown'}
+
+
+MAX_PUBLISHED_MAPPINGS = 16
+
+
+def grouped_published(tokens, service, bindings):
+    """Decode only source-qualified 2.3.1 grouping; declarations cap expansion."""
+    if (not isinstance(bindings,list) or len(bindings)>MAX_PUBLISHED_MAPPINGS
+            or any(not isinstance(item,tuple) or len(item)!=3 or item[0] not in ('silo','silo_client')
+                   or type(item[1]) is not int or type(item[2]) is not int
+                   or not 1<=item[1]<=65535 or not 1<=item[2]<=65535 for item in bindings)
+            or len({h for n,h,t in bindings}) != len(bindings)):
+        raise ValueError('live_compose_disagreement')
+    expected = {(h,t) for n,h,t in bindings if n == service}
+    result=[]; group=[]; seen=set()
+    for token in tokens:
+        facts=port_facts(token)
+        if facts['input_sha256'] in seen:raise ValueError('live_port_duplicate')
+        seen.add(facts['input_sha256'])
+        if facts['class']=='exposed_only':
+            if group or facts['protocol']!='tcp' or facts['target'] not in {t for h,t in expected}:
+                raise ValueError('unexpected_exposed_port')
+            continue
+        if not isinstance(token,str) or len(token.encode())>128:
+            raise ValueError('live_port_representation_unknown')
+        # Only exact loopback can establish group context. No context is inferred
+        # from a later fragment, exposure, or independent declaration.
+        match=re.fullmatch(r'(127\.0\.0\.1:)?([1-9][0-9]{0,4})(?:-([1-9][0-9]{0,4}))?->([1-9][0-9]{0,4})(?:-([1-9][0-9]{0,4}))?(/tcp)?',token)
+        if not match or bool(match[1]) == bool(group) or (match[1] and result):
+            raise ValueError('live_port_representation_unknown')
+        hs,he,ts,te=int(match[2]),int(match[3] or match[2]),int(match[4]),int(match[5] or match[4])
+        if (any(v>65535 for v in (hs,he,ts,te)) or he<hs or te<ts or he-hs!=te-ts
+                or bool(match[3])!=bool(match[5]) or (match[3] and he==hs)
+                or he-hs+1>len(expected) or len(result)+len(group)+he-hs+1>len(expected)):
+            raise ValueError('live_port_invalid')
+        expanded=[(h,ts+h-hs) for h in range(hs,he+1)]
+        if any(item not in expected for item in expanded):raise ValueError('live_compose_disagreement')
+        if group and (hs<=group[-1][0] or (hs==group[-1][0]+1 and ts==group[-1][1]+1)):
+            # The source sorts and would compress adjacent equalspan segments.
+            raise ValueError('live_port_invalid')
+        group.extend(expanded)
+        if match[6]:
+            result.extend(group);group=[]
+    if group:raise ValueError('live_port_representation_unknown')
+    if len(set(result))!=len(result):raise ValueError('live_port_duplicate')
+    return [(service,h,t) for h,t in result]
 
 
 def native_identity_observation(value):
@@ -195,21 +247,7 @@ def status_projection(status, identity, bindings, after_down=False, diagnostics=
             raise ValueError('status_container_unknown')
         names.append(name)
         if not isinstance(row['ports'],list): raise ValueError('status_ports_unknown')
-        seen=set()
-        for token in row['ports']:
-            facts=port_facts(token)
-            digest=facts['input_sha256']
-            if digest in seen:raise ValueError('live_port_duplicate')
-            seen.add(digest)
-            if facts['class']=='exposed_only':
-                if facts['protocol']!='tcp' or (row['name'],facts['target']) not in {(n,t) for n,h,t in bindings}:
-                    raise ValueError('unexpected_exposed_port')
-                # Exposure conveys no host binding; require all real mappings
-                # independently and exactly below.
-                continue
-            if facts['class']!='published':raise ValueError('live_port_representation_unknown')
-            if facts['address_kind']!='loopback_exact' or facts['protocol']!='tcp':raise ValueError('live_port_not_owned_loopback')
-            published.append((row['name'],facts['host_port'],facts['target']))
+        published.extend(grouped_published(row['ports'],row['name'],bindings))
     if len(set(names)) != 2 or len(set(published)) != len(published) or sorted(published) != sorted(bindings):
         raise ValueError('live_compose_disagreement')
     api=[h for name,h,t in published if name=='silo' and t==9000]
