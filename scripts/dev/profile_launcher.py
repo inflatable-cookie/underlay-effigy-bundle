@@ -14,10 +14,15 @@ import platform
 import re
 import shlex
 import signal
+import secrets
 import stat
 import subprocess
 import sys
 import time
+
+# Exported sibling asset; never import qualification scripts into production.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import silo_client
 
 
 SUPPORTED_SOURCE = "0412cc7b17f4aab3905e6853a08985270d1454d0"
@@ -983,47 +988,61 @@ def _bootstrap_silo(
             "</CORSRule></CORSConfiguration>",
         )
     )
-    def run_client_stage(command: str) -> None:
-        command_env = dict(env)
-        command_env.pop("EFFIGY_INTERNAL_SUPPRESS_HEADER", None)
-        _run_process(
-            identity,
-            [
-                identity.binary,
-                "--repo",
-                str(repo),
-                "container",
-                container,
-                "shell",
-                "--service",
-                "silo_client",
-                "--command",
-                command,
-            ],
-            cwd=repo,
-            env=command_env,
-            timeout=300,
-            emit_stdout=False,
-            emit_stderr=False,
-        )
-
-    # Keep the independently idempotent bootstrap operations in short shell
-    # calls. Besides making a retry safe after partial setup, this preserves
-    # the actual client error in Effigy's bounded managed-listener diagnostic.
-    run_client_stage(
-        "set -eu; "
-        f"mc alias set local http://silo:9000 {SILO_USER} {SILO_PASSWORD} >/dev/null 2>&1; "
-        "until mc ready local >/dev/null 2>&1; do sleep 1; done"
-    )
-    run_client_stage(
-        f"set -eu; mc mb local/{bucket} --ignore-existing >/dev/null; "
-        f"mc anonymous set download local/{bucket} >/dev/null"
-    )
-    run_client_stage(
-        "set -eu; cors_file=$(mktemp); trap 'rm -f \"$cors_file\"' EXIT; "
-        f"printf %s {shlex.quote(cors)} > \"$cors_file\"; "
-        f"mc cors set local/{bucket} \"$cors_file\" >/dev/null"
-    )
+    if container not in ('hybrid_services','disposable_test'):
+        raise ProfileError('Silo bootstrap container refused')
+    # Catalog override preparation has already refused foreign/mutated assets.
+    # Fresh catalog declares only server /data; client has no mounts.
+    root=_safe_repo_path(repo,repo/'.effigy'/'runtime'/'dev-profiles'/container)
+    root.mkdir(mode=0o700,parents=True,exist_ok=True)
+    path=root/'silo-bootstrap.jsonl'
+    class Journal:
+        def append(self,event,**record):
+            flags=os.O_WRONLY|os.O_CREAT|os.O_APPEND|os.O_NOFOLLOW
+            fd=os.open(path,flags,0o600)
+            try:
+                info=os.fstat(fd)
+                if info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o600 or not stat.S_ISREG(info.st_mode):
+                    raise ProfileError('Silo bootstrap journal boundary refused')
+                os.write(fd,(json.dumps({'event':event,**record},separators=(',',':'))+'\n').encode())
+            finally:os.close(fd)
+    journal=Journal()
+    def call(label,unused,args,timeout):
+        verify_unchanged(identity)
+        command_env=dict(env);command_env.pop('EFFIGY_INTERNAL_SUPPRESS_HEADER',None)
+        # Never use _run_process's argument-bearing failure text or unbounded
+        # communicate buffer for credential-bearing finite commands.
+        capture=silo_client.bounded_run([identity.binary,'--repo',str(repo),*args],
+                                      cwd=repo,env=command_env,timeout=timeout)
+        journal.append('host_capture',operation=label,outcome=capture['outcome'],
+                       exit=capture['exit'],stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'])
+        if capture['outcome']!='complete':raise ValueError('command_capture_'+capture['outcome'])
+        return capture['stdout'].decode(),capture['exit']
+    def shell(label,command,service='silo_client'):
+        try:return silo_client.finite_shell(call,journal,label,command,service,container)
+        except Exception:
+            raise ProfileError('Silo bootstrap finite stage refused: '+label) from None
+    # Readonly guards precede every possible mutation; diagnostic completion
+    # never grants semantic acceptance of a false predicate.
+    try:
+        for service in ('silo','silo_client'):
+            silo_client.evaluate_guard(shell,journal,service)
+    except Exception:
+        raise ProfileError('Silo bootstrap readonly guard refused') from None
+    mc=silo_client.mc_command
+    shell('alias',mc(['alias','set','local','http://silo:9000',SILO_USER,SILO_PASSWORD,
+                      '--api','S3v4','--path','auto']))
+    # One native absolute deadline bounds the client's own readonly readiness
+    # operation. No infinite shell loop and no repeated remote mutation.
+    shell('ready',mc(['ready','local']))
+    shell('bucket',mc(['mb','local/'+bucket,'--ignore-existing']))
+    shell('anonymous',mc(['anonymous','set','download','local/'+bucket]))
+    # Qualified rm is checked before file creation. Noclobber and a fresh nonce
+    # give this exact file exclusive ownership; trap only removes that file.
+    cors_file='/tmp/underlay-profile-cors-'+secrets.token_hex(16)
+    shell('cors',"set -eu; command -v rm >/dev/null; set -C; "+
+          'printf %s '+shlex.quote(cors)+' > '+shlex.quote(cors_file)+'; '+
+          'trap '+shlex.quote('rm -f '+shlex.quote(cors_file))+' EXIT; '+
+          mc(['cors','set','local/'+bucket,cors_file]))
 
 
 def _check_test_task(env: dict[str, str]) -> tuple[str, int]:

@@ -8,7 +8,7 @@ from routing_guard import predicates, OWNER_CLIENT_COMMAND_INPUT
 
 CONFIG_DIGESTS={'pgsty/silo':'sha256:a9590da2668a2589dee6e1f8754c755074695794aaba389b6c7e78199688e2d5',
                 'pgsty/mc':'sha256:37a94867c70839fe649c7ecfff0adad3b8d30fbdba35cdd33bf409cf27d01378'}
-EXPECTED={'expected_server_configdir':'/tmp/.mc','expected_home':'/root',
+EXPECTED={'expected_server_configdir':'/tmp/.mc','expected_home':'/root','expected_server_home':'/tmp',
           'expected_loopback_alias':'http://minioadmin:minioadmin@127.0.0.1:9000'}
 
 

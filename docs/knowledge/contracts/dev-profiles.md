@@ -358,249 +358,14 @@ coverage. Review/CI and any consumer migration remain separate gates.
 
 ### Current-source proof boundary
 
-Current-source production-selector receipts establish three concurrent actual
-Reference API/front/admin stacks with distinct effective routes, verified
-HTTPS origins/HMR and genuine pinned Silo. Reference registration/login and
-media initiation, presigned upload, finalisation (`ready`), signed retrieval
-and deletion passed under unchanged security and eight-second request bounds.
-The earlier auth timeouts remain unexplained; a later pass does not establish
-their cause or a product repair.
-
-Remaining-lifecycle verification reuses that acceptance only after checking
-the source/binary, Reference commit/auth fixture patch/lock/build identity,
-production recipe files and relevant helper functions against the retained
-receipt. The bundle head must descend from the retained head; changed
-production inputs still refuse reuse. It performs necessary owned setup but
-issues no repeated successful auth/storage requests.
-
-Before a targeted restart signal, the harness requires the exact configured
-API catalog task cwd and canonical checkout cwd for its adapter. It checks the
-private API executable command/path/digest, exactly one matching canonical
-executable mapping among `lsof txt` entries, recorded start identity, current
-supervisor/adapter/listener ancestry, generation/report/current route and sole
-kernel ownership of the exact loopback listener. Other mapped files are not
-executable ownership evidence. Missing, ambiguous, foreign or changed identity
-refuses before signaling; the signal decision and observations are durably
-recorded outside the fixture. No basename or directory-prefix ownership test
-is accepted.
-
-The earlier uninstrumented guarded restart passed all pre-signal checks and changed the API address
-and generation while preserving its current route. Admin restarted, but front
-entered a failed, unpublished listener generation. Its adapter reported
-`qualified profile context lookup failed (status 1)`; the managed diagnostic
-retained `report = absent`, `ownership = child_unavailable`, and
-`route = not_reached`. The context subprocess stderr was not retained, so the
-underlying context failure is unestablished and is not attributed to generic
-Effigy or Reference behavior. The assertion stopped before the pending
-interruption/collision and `dev:test` proofs. No retry or readiness certification
-is inferred from the partial restart.
-
-The context diagnostic boundary records only a fixed schema, phase,
-container-operation, exit status and allowlisted error class/message. Phases
-cover admission, configuration, service status, Compose bindings, host inventory,
-gateway status/port, effective route validation and service-port resolution.
-Captured stdout, arbitrary stderr, exception text, commands, environment values,
-credentials, secret paths and response bodies are never included. The Vite
-adapter preserves approved records on nonzero exit, spawn/timeout and decode
-failure; unknown errors retain a fixed failure class rather than raw text.
-The qualification harness collects bounded validated front/admin records into
-its private external journal before scoped teardown. Redaction controls inject
-secret payloads into errors, stdout and stderr, and verify their exclusion.
-Successful recipe equivalence is checked separately from the diagnostic code:
-changed timeouts or production behavior invalidate retained acceptance reuse.
-
-The nested command boundary preserves a negative `effigy.command.v1` envelope
-before classifying nonzero exits. It records the nested process exit separately
-from the context/adapter exit, including zero-exit negative envelopes. The
-exact-source allowlist accepts `RunnerError` and maps verified container-policy
-templates to `default_target_missing`, `container_not_defined`,
-`working_directory_missing` or `project_name_conflict`. Dynamic substitutions
-and error details are discarded. Unknown classes/reasons are explicit;
-malformed JSON, invalid envelopes, spawn failures and timeouts remain distinct.
-Hermetic controls exercise the production process/JSON code, actual Vite adapter
-and durable receipt collector together; injected failures do not establish the
-cause of earlier runtime failures.
-
-Restart observers now retain typed, nonauthoritative listener snapshots before
-validation in both listener helpers and immediately on rejection. The private
-external journal records a monotonic sequence, checkout/profile identity,
-current and previous generations, byte count/digest/file identity, report
-schema/generation/address, recorded process identities, finite ownership and
-readiness phase values, and the effective route/current target. Unrecorded PGID
-or dependent endpoint fields stay unavailable. Rejection records reuse the
-same observed bytes instead of rereading after cleanup. Missing, malformed,
-permission-denied and unknown fields are explicit; arbitrary state/report
-extras, environment, credentials and URL queries are excluded.
-
-Hermetic controls cover both production collection paths, including a ready
-observation followed by an unready generation, and seeded-secret exclusion.
-The retained-proof comparison normalizes only these exact diagnostic read and
-decorator substitutions; readiness, ownership, report and route predicates
-still participate in the comparison. Diagnostics grant no readiness credit.
-API log capture reads at most 64 KiB, and the supported non-following Silo log
-command has a five-second capture budget independent of readiness deadlines.
-
-The instrumented remaining-lifecycle attempt passed the guarded API restart
-and front handoff, but admin failed before listener publication. Its retained
-`profile_context_failed` journal entry identifies `phase = host-inventory`,
-`operation = default.hosts`, `error_class = ProfileError`, `exit_status = 1`,
-and the fixed message `operation_failed`. This is the context lookup's supported
-unqualified `container hosts` suboperation. The nested rejection reason is not
-retained by that classification; no generic core or concurrency defect is
-established. The attempt stopped before interruption/collision and `dev:test`,
-with scoped down followed by preserved private runtime residue. No retry or
-complete dependent-handoff acceptance is inferred.
-
-With nested-envelope diagnostics enabled, the next bounded attempt reached the
-post-restart front listener check and refused because the listener was not owned
-and ready. It captured no context-error record. The rejected probe-time listener
-snapshot was not retained, so this does not establish a nested rejection,
-concurrency defect or generic core cause. The attempt stopped; later lifecycle
-and `dev:test` acceptance remain unproven. Scoped down selectors returned zero,
-and private runtime residue was preserved. Silo log capture timed out, which
-limits correlated service evidence.
-
-With probe-time capture, the subsequent attempt passed the guarded API and
-dependent restarts, current private HTTPS routes, origins and HMR. It then
-stopped during interruption fixture preparation. The interruption helper calls
-`dev:hybrid:down`, verifies stopped records and live sibling identities, then
-calls `route_domains`; that route helper calls the ready-only `listener_state`
-validator. The captured main front observation changed from ready with its new
-owned endpoint to `stopped`, with generation/address/owner cleared, before this
-rejection. The identical rejected observation was preserved before cleanup.
-
-This demonstrates a bundle qualification precondition conflict, not a generic
-core defect or a cause for the historical failures. The smallest owning follow-up
-is to establish the supported effective route identity while the profile is
-ready, before interruption setup's down, retaining all readiness, stopped-state
-and foreign-survivor checks. No correction or second runtime was performed in
-this diagnostic attempt. Interruption/recovery, collision/partial failure,
-uncertain-owner and foreign-preserving teardown, and `dev:test` acceptance remain
-incomplete. Three final down selectors returned zero; exact post-cleanup status
-reported no services and private gateways down with empty routes. Recorded
-processes and sockets were checked separately; the private VM and residue remain
-held, without a retirement or purge claim. Non-following Silo log capture reached
-its five-second budget and was skipped with a classified timeout.
-
-Lifecycle probe setup now captures its canonical effective domain while the
-profile is live. The existing host-map and ready listener checks remain, and
-current live owners must match the caller's current checkout states before any
-down action. Interruption setup and stopped cleanup reuse that exact immutable
-domain. Collision setup uses the same validated capture. Missing/conflicting
-mapping, foreign identity or an unready live listener still refuses before
-launch; stopped records do not serve as publication evidence. No additional
-ready-only route lookup is performed after down.
-
-Remaining-lifecycle execution can consume the completed restart/origin packet
-only after matching its bound source revision, journal digest, success records,
-validation function source and Reference source/patch/lock/build-selector
-inputs. Fresh setup readiness and current owner checks remain mandatory.
-The receipt retains completed acceptance, without transferring any old runtime
-owner, process, endpoint or generation, or reporting a skipped proof as a new
-pass. Auth/storage reuse retains its existing exact-input admission.
-
-The next bounded attempt matched the retained restart/origin receipt against
-fresh build inputs, without repeating the API restart signal or completed
-storage operations. Current setup still established nine ready listeners and
-live owner identities. It passed the corrected pre-stop domain capture, then
-refused during interruption-probe manifest inspection, before launching the
-interrupted selector. The supported `config --inspect` command exited zero,
-but `_profile_manifest_hosts` recognized only `interrupted_probe`, where the
-helper required `api`, `front`, `admin` and that probe. The failure branch
-restored the original fixture manifest. This is an observed bundle fixture
-inspection/declaration mismatch; parser versus composition cause remains
-unestablished, and no generic core defect is certified. A further owning
-correction must establish additive probe configuration and supported effective
-host inspection without replacing production declarations or weakening gates.
-
-Assembly-only diagnosis subsequently compared the supported versioned
-`effigy.config.v1` selected value at
-`containers.hybrid_services.host_processes` with the existing text regex in a
-fresh private Reference/bundle archive fixture, preserving `sources.siblings =
-false`. Before probe injection, both semantic and regex names were `api`,
-`front`, `admin`; afterward both were only `interrupted_probe`. The outer
-`effigy.command.v1` envelope and inner selected path/schema were verified;
-both configuration commands exited zero. Only names/types/count, source
-ownership and manifest digest were retained; full configuration remained in
-memory. Thus this reproduction establishes effective local-array replacement,
-not a regex defect. No parser edit or replacement runtime attempt followed.
-
-The exact pinned bundle composition source treats non-table incoming values
-as replacements. Its separate bundle-extension path supports combining default
-and local arrays when explicitly selected. The smallest owning proposal is a
-fixture-only supported array-extension declaration for this path, proved to
-preserve the production hosts plus the probe with strict names/order/duplicate
-and refusal controls. This is a proposal, not an implemented or qualified
-correction; production composition/defaults and live ownership gates remain
-unchanged.
-
-The disposable fixture helper now applies that documented `[manifest].extend`
-path at the incoming Reference manifest layer. Existing literal extension
-paths are retained; duplicate/conflicting or unsupported settings fail closed.
-Typed inspection verifies exact `api/front/admin/probe` order and fieldwise
-equality of the original three entries in memory. Neither their declarations
-nor their secret fields are copied into fixture output. Only the owned probe
-is declared locally. Inspection failures restore the complete original bytes;
-both interruption and collision/partial-failure callers also restore them on
-success and on thrown errors, including uncertain resource ownership. This
-restoration does not grant cleanup authority or manufacture stopped records.
-
-Actual private export assembly proved the original three entries unchanged
-with one added probe, and the original semantic list and exact manifest bytes
-restored after removal. Hermetic controls cover both injection paths, existing
-extension settings, CRLF bytes, changed/missing/duplicate/unknown declarations,
-wrong types/contracts, seeded-secret exclusion, symlink refusal and restoration
-on inspection error/interruption/uncertain owner state. Product exports and
-legacy default composition remain unchanged.
-
-The corrected remaining-lifecycle attempt established nine fresh ready listeners
-and matched the retained restart/build receipt, without another API restart
-signal or storage acceptance replay. Its actual interruption probe reached
-HTTP503 with an accepted report, exclusive socket ownership and no published
-route. SIGINT was sent only to the recorded launcher group. The subsequent
-supported `dev:hybrid:down` completed, but the probe's durable listener status
-remained `failed`. `_verify_profile_stopped_records` requires `stopped` and
-refused before recovery. This is a new terminal-record expectation boundary;
-it does not by itself establish unsafe core cleanup or a qualified teardown.
-No helper relaxation or second isolated runtime followed.
-
-Read-only held status subsequently showed main services/routes empty, gateway
-down, three production listener records stopped and the probe failed without a
-route owner. Its recorded claimed socket had no listener observed. Both private
-siblings remained active, with five services each, ten gateway routes each and
-six ready application listeners total. Further cleanup was withheld under the
-runner's uncertain-owner rule; all private scopes/VM/residue were preserved.
-Original manifest bytes were restored by the caller's unconditional finalizer;
-post-failure inspection found neither the local probe nor its extension setting.
-Silo log capture reached its five-second budget. Interruption recovery,
-collision/partial failure, uncertainty/foreign-preserving teardown and
-`dev:test` acceptance remain incomplete.
-
-The smallest owning follow-up is a bounded assessment of the supported terminal
-failed-generation/absent supervisor-PID behavior against the helper's stop-record
-expectation. Any correction must prove exact recorded ownership and child/socket/
-route absence plus sibling-preserving cleanup; accepting `failed` alone would
-not establish those invariants. The new counterexample grants no cleanup or
-lifecycle acceptance credit.
-
-
-
-Three final down selectors returned zero. Exact status reported empty services
-and private gateway routes, nine stopped listener records, 21 recorded PIDs
-absent and nine recorded sockets without listeners. These observations do not
-prove retirement; the private VM and residue remain held. Silo log capture
-reached its separate five-second budget. Remaining interruption/recovery,
-collision/partial failure, uncertain-owner/foreign-preserving teardown and
-`dev:test` acceptance remain incomplete; no second attempt was performed.
-
-
-The separate exact-source container-only selector passed assembly, published
-Silo/MC executable checks and build/start with the workspace image unchanged,
-then verified exact cleanup and private-profile purge. Remaining exported
-restart/dependent handoff, interruption/collision, foreign-preserving teardown
-and `dev:test` acceptance require their own complete receipt. Earlier held
-private runtime residue is preserved; empty routes, missing PIDs or a successful
-down command alone do not prove retirement or authorize broad cleanup.
+Current admission is0412/be6, as specified below. Historical pilot and earlier
+runtime source labels/receipts remain immutable external evidence; they do not
+certify current bootstrap inputs or new ownership/generation. Receipt reuse
+requires explicit exact source/binary/Reference fixture/lock/build/recipe/helper
+input matching. Storage bytes do not prove current app publication, origins,
+CORS, restarts, interruption, teardown or Reference finalisation. No runtime
+owner/group identity transfers across instances. Safe snapshots/transition
+receipts are observations only; missing/truncated/unknown evidence refuses.
 
 ## Pending-start interruption and terminal records
 
@@ -666,7 +431,7 @@ Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
 - `proof:dev-profiles:lifecycle-contract-tests`: hermetic survivor identity
   checks, including a recycled child under an unchanged supervisor.
 - `proof:dev-profiles:reference-container`: independent container-only
-  assembly/build/start with the disclosed published Silo override.
+  assembly/build/start preserving genuine legacy images; no Silo substitution.
 - `proof:dev-profiles:silo-contract-tests`: hermetic digest/config/source and
   attestation mismatch controls.
 - `proof:dev-profiles:silo-artifacts`: anonymous pinned registry metadata proof
@@ -904,251 +669,59 @@ whole-profile/independent assurance remain unproven.
 
 ### Port representation and pre-validation diagnostics
 
-Effigy at `0412cc7b` requests backend `.Ports`, splits comma-separated entries
-and trims each token. Its maintained port-recovery control distinguishes a
-published host mapping from exposed-only `9000/tcp`. The storage helper now
-classifies these separately: exposed-only TCP for an independently declared
-service target receives no host-binding credit. Every actual published mapping
-must still equal the unique configured loopback host/target inventory. Unknown,
-ranged, duplicate, conflicting, wildcard, other-address and other-protocol
-mappings refuse; exposure alone cannot satisfy a required mapping.
+Qualified nerdctl2.3.1 commit04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860
+formatter SHA256fdb45765534a00d4b75a910f24bf540b8ca6adf5934ddbcec6d63d562bcb38dc
+groups HostIP/protocol and compresses equal-span adjacent host/container ports.
+Bounded expansion requires exact unique full independently declared loopbackTCP
+inventory equality; at most16 entries and never more than declared inventory.
+Exposure-only target tokens have zero host credit. Wildcard/foreign/unknown/
+malformed/duplicate/conflicting/nonTCP/oversize/noncanonical mappings refuse.
+Safe field shape/count/digest projections precede validation in both checkouts.
+Guest version/commit is reported metadata, not cryptographic binary attestation.
 
-Before native identity/status validation, both checkout paths retain finite
-field/service/index classes, presence/type, byte counts and digests, plus
-recognized numeric port/protocol/address-kind facts. Arbitrary strings, field
-names, credentials and envelopes never enter the journal. Row/token projection
-limits refuse explicitly rather than granting credit to a clipped inventory.
-The same observation boundary covers scope, hosts, Compose provenance and
-post-down status; diagnostics are nonauthoritative and do not permit cleanup.
+### Opt-in production Silo bootstrap
 
-Source references: [pinned Effigy backend parser](https://github.com/inflatable-cookie/effigy/blob/0412cc7b17f4aab3905e6853a08985270d1454d0/crates/effigy-containers/src/exec/parse.rs),
-[Docker CLI v28.0.1 formatter](https://github.com/docker/cli/blob/068a01ea9470df6494cc92d9e64e240805ae47a7/cli/command/formatter/container.go)
-and [nerdctl v2.1.6 formatter](https://github.com/containerd/nerdctl/blob/59253e9931873e79b92fe3400f14e69d6be34025/pkg/formatter/formatter.go).
-Docker's formatter includes exposure and publication; the referenced nerdctl
-formatter emits CNI mappings. These exact reference versions establish
-representative formatter shapes, not the deployed guest formatter version.
-No immutable receipt establishes that version or recovers the prior rejected
-value. Private file-only backend doubles exercise the actual pinned native
-parser/serializer for main and worktree without contacting a runtime. Their
-results are control evidence, not new runtime or historical failure credit.
-Storage correspondence and the historical 404 cause remain unknown. The
-service-only diagnostic observes client version, full Git commit, OS and
-architecture after starting its new private VM and before image/service starts.
-The supported [nerdctl version command](https://github.com/containerd/nerdctl/blob/59253e9931873e79b92fe3400f14e69d6be34025/cmd/nerdctl/version.go)
-accepts a Go template over Client.Version/GitCommit/Os/Arch. Its explicit Colima
-passthrough targets only the newly owned COLIMA_HOME and effigy profile, with a
-retained absolute host executable/checksum and no backend fallback. Capture has
-a 15-second deadline and 16384-byte limit per stream; unexpected stderr, partial
-capture, unknown metadata or changed executable refuses before services.
-The immutable public formatter source at the reported full commit must match
-the reviewed CNI mapping implementation. A version/commit reported by the guest
-is metadata, not cryptographic binary/source attestation. Neither this source
-relationship nor a new port observation reconstructs the discarded historical
-token. Safe current field/token projections still precede validation in both
-checkouts, and exposure still grants no host mapping credit. Host-client
-settlement does not prove remote cancellation or retirement; unknown effects
-and VM/images/volumes remain held.
+The exported production-owned `scripts/dev/silo_client.py` supplies client
+command-local HOME `/root` before initialization, global `--config-dir /root/.mc`
+and alias API `S3v4` / path `auto`. Qualification shares this asset; production
+imports no qualification script. Client MC_CONFIG_DIR/MC_CONFIG_ENV_FILE/
+MC_HOST_local and proxy/routing overrides remain absent even empty. Server
+HOME `/tmp`, config-dir `/tmp/.mc`, env-file/proxy absence and exact independent
+Compose loopback alias remain required. No legacy catalog/service/default/image
+or global environment changes follow from opt-in bootstrap.
 
+Readonly guards precede every mutation. Alias, readiness, idempotent bucket,
+anonymous-download and exact two-browser-origin CORS stages execute once through
+native bounded shell: absolute8000ms, cumulative65536stdout/16384stderr budgets,
+separate preparation/command accounting and unique inner/outer completion.
+No unbounded shell fallback or infinite shell readiness loop. Mutating failure
+leaves uncertain effects held, with no automatic retry. CORS uses a noclobber
+nonce file and exact-path trap cleanup; no foreign file cleanup is inferred.
+Stage records use owner0600 no-follow files and finite labels/reasons/counts;
+raw credentials/environment/argv/config/output/envelopes never persist. Native
+negative command bytes remain unavailable. Host client settlement is not remote
+cancellation/rollback, and synchronous filesystem operations have midcall limits.
 
-The bounded private Darwin observation reported nerdctl `v2.3.1`, Linux arm64,
-at commit `04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860`. Its
-[formatter source](https://github.com/containerd/nerdctl/blob/04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860/pkg/formatter/formatter.go)
-groups mappings by address/protocol, sorts ports and compresses contiguous
-ranges. It differs from the qualified reference function, so the source gate
-stopped before images, services, gateway or object operations. This is a
-source qualification boundary, not a demonstrated live port or storage defect.
-Supporting this reported formatter requires no-effect source/native controls
-for the actual scalar and grouped spellings, preserving exact unique loopback
-inventory equality and rejection of ranges, ambiguity, foreign/wildcard binds
-and unknown tokens. A later runtime proof needs separate bounded authorization;
-the held private VM does not grant a retry or cleanup authority. Historical
-rejected values and the historical 404 cause remain unobserved/unknown.
+Pinned MC emits pretty typed JSON. Alias set omits src; nondeprecated alias list
+requires exact `/root/.mc/config.json`, exact endpoint/API/path/credentials in
+private memory. Stat name/type/size and bucket/pipe success fields are separately
+validated; malformed/duplicate/extra/foreign records refuse with known-field
+presence/type/agreement before rejection. Genuine pinned network-none image
+output controls complement source and shell doubles before services. Diagnostic
+main/worktree storage correspondence has passed: client->server-loopback->host
+exact bytes, distinct hostPUT->server/client bytes, own survival and foreign
+known-bucket404/NoSuchKey. Numeric DNS/IP/container IDs remain unobserved; no
+historical cause is inferred and original production default HOME/autoprobe is
+not qualified by explicit recipe proof.
 
+### Container parity and current acceptance limit
 
-Current diagnostic admission is restricted to reported nerdctl `v2.3.1`, full
-commit `04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860`, Linux arm64, and the entire
-immutable formatter file SHA256
-`fdb45765534a00d4b75a910f24bf540b8ca6adf5934ddbcec6d63d562bcb38dc`.
-Unknown versions/commits, source mutations and platform differences refuse;
-matching a function fragment never admits arbitrary remote source. The older
-v2.1.6 source remains a reference, not deployed provenance.
-
-Source-qualified equal-span ranges may be normalized only with exact prefix
-address and terminal protocol context retained across native comma splitting.
-The first fragment establishes `127.0.0.1`; the last establishes TCP. Missing,
-conflicting or unresolvable context refuses. Canonical positive ports, sorted
-segments and equal-span increasing ranges expand only within the independent
-service inventory and a fixed maximum of 16 mappings. Every tuple must match
-one unique independently declared host/target binding; complete inventory
-comparison remains mandatory. Zero/out-of-range/decreasing/unequal/noncanonical
-ranges, overlaps, duplicate/extra/incomplete mappings, wildcard/foreign binds
-and non-TCP values refuse. Exposed tokens remain distinct and confer no host
-mapping credit. Normalization grants no ownership, signal or cleanup authority.
-
-Immutable maintained formatter tests exercise scalar, adjacent compression,
-wildcard and mixed-protocol outputs. The source-derived control model is
-checked against those goldens before its grouped Silo cases pass through the
-actual Effigy0412 parser/serializer and helper in both real Git checkout
-identities using private backend doubles. Go is unavailable on this host, so
-these controls do not claim execution of the Go implementation or guest binary
-attestation. Safe numeric shape/count/digest evidence precedes every rejection;
-source qualification and no-effect controls are not service/storage proof.
-
-
-The fresh private pilot reobserved the exact qualified formatter metadata and
-full source digest. Its main service inventory exposed the canonical compressed
-loopback mapping with host range 8140–8141 and target range 9000–9001, TCP. Safe
-current fields were retained before validation; bounded expansion and complete
-independent generated-Compose equality passed. This is current main-scope port
-evidence, not a recovery of the discarded historical token or worktree proof.
-The first server routing guard then returned native `inner_command_failed`,
-inner code 1. No per-predicate evidence or shell cause survived the safe native
-failure projection, so the exact cause remains unknown. No alias/bootstrap or
-object operation was reached. Further diagnostic work needs finite guarded
-presence/expected-alias boolean evidence and full-path refusal controls, never
-raw environment values or weakened routing/credential checks. Main post-down
-inventory was available and empty, and the exact new private gateway stopped;
-remote cancellation and volume/VM retirement remain unproven. New resources
-remain held and prior held resources are untouched. Storage/full-profile
-acceptance remains incomplete; this observation does not authorize a retry.
-
-
-Routing predicate evidence uses the existing native bounded execution schema,
-limits/accounting and unique shell marker framing. Each finite declared
-predicate reports only its fixed name/rule, absent/empty/present state and
-agreement boolean; server loopback-alias equality never emits its credential
-URL. Server MC_HOST_local must still be present with exact expected agreement;
-server config overrides and all client alias/config overrides still refuse
-presence, including empty values. The readonly shell completes its diagnostic
-records so native success can retain them, then the Python gate refuses any
-failed predicate before alias/bootstrap. Diagnostic transport success must
-never be interpreted as routing-guard PASS.
-
-The pinned0412 [bounded execution source](https://github.com/inflatable-cookie/effigy/blob/0412cc7b17f4aab3905e6853a08985270d1454d0/src/runner/container_command/bounded_exec.rs)
-emits `inner_command_failed` without captured command bytes. Negative native
-results therefore retain finite phase/failure/exit/accounting and explicit
-unavailable-predicate evidence. Spawn, timeout, truncation, malformed native
-output and missing/duplicate shell markers refuse; arbitrary exception text,
-stdout/stderr and environment values never enter receipts. Controls exercise
-the actual production transport/decoder/guard/journal with private real-shell
-and native-envelope doubles, including every empty/present predicate, exact
-alias mismatch, seeded secrets and durable0600 failure evidence.
-
-Content-addressed published server metadata declares MC_CONFIG_DIR and lacks
-MC_HOST_local. The pinned [entrypoint source](https://github.com/pgsty/silo/blob/2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c/dockerscripts/docker-entrypoint.sh)
-does not establish that alias; the bundle's explicit Compose declaration is a
-separate input. Image metadata is not the selected runtime exec environment,
-and these source facts do not identify the historical first failed predicate.
-The required absent-config/present-alias contract remains enforced pending an
-owner ruling and separately authorized observation; no override removal,
-guard relaxation, image repin or runtime retry is implied. Storage/full-profile
-proof remains incomplete, and every held resource remains protected.
-
-
-The owning service-specific rule now replaces only server MC_CONFIG_DIR
-absence with PRESENT and exact `/tmp/.mc`. This value agrees in memory with
-the digest-verified arm64 server config and immutable
-[Dockerfile default](https://github.com/pgsty/silo/blob/2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c/Dockerfile.goreleaser).
-MC_CONFIG_ENV_FILE remains absent even when empty; every other routing/proxy
-predicate is unchanged. Server MC_HOST_local must still match the independent
-bundle-provided loopback alias/fixture credential contract in private memory.
-Client MC_CONFIG_DIR, MC_CONFIG_ENV_FILE and MC_HOST_local remain strictly
-absent; HOME `/root` and persisted alias source `/root/.mc/config.json` remain
-required. No environment unset, Compose/image/catalog mutation or alias fallback
-is used to manufacture agreement. Intended server mounts cover only `/data`,
-with no foreign/host mount covering `/tmp/.mc`; client mounts do not cover its
-config root. Baseline controls reject config-root/ancestor mount coverage.
-
-Both image-default/Compose/native input matrices must agree before effects.
-The digest-pinned client config and unchanged Compose declare no HOME. This is
-unknown default evidence, not actual selected-exec absence. Disposable client
-**diagnostic commands only** now establish the owner-supplied `HOME=/root` by
-POSIX assignment/export inside selected `sh -lc`, after shell entry and before
-all guard/MC initialization. Pinned MC's global config-dir default initializes
-from HOME before CLI binding; a CLI config-dir flag alone does not remove that
-dependency. The shared finite helper binds every client guard, alias, bucket,
-producer, write, stat and read call. It records inherited HOME only as finite
-presence/expected-agreement and the separate `owner_command_input` authority;
-assigned HOME is never labelled native/image/inherited proof. Default HOME is
-still unqualified for later production bootstrap acceptance.
-
-Baselines accept only the shared binding capability, never an arbitrary
-`native_home` value or string override. Actual guards after binding require exact
-`/root`, unchanged strict client MC override/proxy absence, and runtime alias
-source exactly `/root/.mc/config.json`. Fresh container mounts must not cover
-that config root or ancestors; permission/config creation failures stop honestly.
-Server HOME `/tmp`, MC_CONFIG_DIR exact `/tmp/.mc`, env-file/proxy absence and
-private loopback alias equality remain unchanged. No variables are unset to
-manufacture agreement, and no host/service/catalog/Compose/image/default or user
-setting is modified. Finite input framing, native bounds, independent producer /
-consumer success and Python refusal before writes remain mandatory.
-
-Static source/image/Compose inputs qualify expectations, not runtime ownership
-or byte correspondence. Actual readonly guards in both selected services must
-pass before bootstrap/object effects; any false or unknown ends the attempt.
-Historical guard/404 causes remain unknown. Host client settlement does not
-establish remote cancellation/rollback; new VM/images/volumes stay held and old
-held resources remain protected. This diagnostic input does not qualify Linux,
-production default HOME, whole profiles or lifecycle acceptance.
-
-A fresh selected-service observation retained complete true server/client guards
-and exact command-input HOME agreement before client alias bootstrap. Bootstrap
-and alias-list transport both completed within native bounds, but the strict
-alias configuration projection refused. The specific rejected field was not
-retained, so endpoint/config-source/credential/path-mode cause remains unknown.
-No bucket or object operation was reached. Available post-down service inventory
-was empty and the exact private gateway stopped; these are observations, not
-retirement or remote rollback proof. The new VM/images/volumes remain held.
-Default client HOME and storage byte correspondence remain unqualified. A future
-alias diagnostic must preserve finite per-field agreement before refusal without
-persisting raw config, credentials or output; no fallback or ignored guard is
-justified by this observation.
-
-The diagnostic client recipe explicitly fixes global `--config-dir /root/.mc`
-for every MC invocation, while retaining HOME assignment before initialization
-and strict MC/proxy environment absence. Alias set specifies `--api S3v4
---path auto` after positional arguments. Server calls retain their independent
-`/tmp/.mc` environment and loopback alias; client CLI flags never apply there.
-This recipe is an owner-supplied probe input, not production default, inferred
-argv basename/config root, automatic signing detection or inherited HOME proof.
-
-Pinned MC [alias message](https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/cmd/alias-main.go)
-uses pretty JSON with optional credentials/API/path/src/lookup fields. Our
-credentialled exact recipe requires credentials/API/path; nondeprecated list
-requires exact config-file `src`, while set's maintained constructor omits it.
-The list constructor gets `src` from config resolution; neither missing source
-nor an environment alias receives config-file credit. No deprecated lookup,
-foreign endpoint, path/API alternative, credential mismatch or extra field is
-accepted. Explicit API skips the signature-probe branch in pinned
-[alias-set source](https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/cmd/alias-set.go).
-
-Before services, a genuine digest-pinned client container with `--network none`
-and no host/shared mounts checks unchanged readonly guards, explicit alias
-set/list, independent local file producer, stat and exact cat bytes. Config
-writes stay inside that fresh ephemeral image fixture. Each phase has a unique
-completion marker and must succeed before the next. Source controls alone are
-not genuine output proof. Known alias/stat/bucket/pipe fields retain finite
-presence/type/agreement before refusal; malformed/duplicate/extra records fail
-closed. Arbitrary names/values, credentials/config/raw output never persist.
-MC cat remains raw bytes only in memory; independent shell/native success and
-exact byte comparison remain required. Native negative command bytes remain
-unavailable, with no invented MC error or field evidence. No generic/default/
-catalog/image/Compose/production bootstrap change is implied.
-
-The explicit diagnostic recipe has now passed genuine pinned network-none alias
-set/list and local stat/cat output, then actual selected-service correspondence
-in disposable Reference primary/worktree scopes. Every required alias/stat/
-bucket/pipe field agreed before validation; native project/service selection and
-unique live loopback mappings agreed with fresh Compose. Client challenges read
-exactly through selected server loopback and signed host GET; distinct host PUT
-bytes read exactly through server and client. Own keys survived and both foreign
-keys in each existing bucket returned `404/NoSuchKey`. This observes byte
-correspondence, not numeric DNS/IP/container-ID inventory or a historical cause.
-
-Both new scoped downs completed and post-down inventories were available and
-empty; the exact new private gateway stopped. These do not prove retirement or
-remote cancellation. New VM/images/volumes remain held; all earlier held
-resources are protected. Production bootstrap defaults remain unqualified: its
-existing MC calls use their original default HOME/config and API detection, so
-this explicit probe recipe cannot stand in for production bootstrap or remaining
-whole-profile/Reference-finalisation/lifecycle/dev:test acceptance.
+No-backend current-source disposable Reference default main and two explicit
+opt-in worktree assemblies pass. The unchanged legacy catalog declares genuine
+`minio/minio:RELEASE.2025-09-07T16-13-09Z`; anonymous manifest access currently
+returns401. Silo substituted under MinIO's name is not container parity. Required
+new-production bootstrap genuine image/runtime/CORS, current-source full-profile/
+Reference finalisation/lifecycle/dev:test/container acceptance remain pending.
+Historical pilot evidence cannot replace these gates. Cleanup uses newly proven
+scoped resources only; VM/images/volumes stay held, no retire/purge authority
+follows from down0 or empty inventory. Old held resources remain protected.

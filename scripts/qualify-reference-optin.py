@@ -1668,9 +1668,9 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                         "reference_checkout": str(checkout),
                         "reference_commit": reference_commit,
                         "auth_fixture": auth_patch_receipt or {},
-                        "effigy_source": "6da2f94bcc1400f9165b954a5343bd0cb14267ac",
+                        "effigy_source": "0412cc7b17f4aab3905e6853a08985270d1454d0",
                         "effigy_binary": str(Path(EFFIGY).resolve()),
-                        "effigy_binary_sha256": "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8",
+                        "effigy_binary_sha256": "be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb",
                         "checkout_generation": states["api"].get("runtime_generation"),
                         "listeners": {
                             name: {key: state.get(key) for key in
@@ -2072,9 +2072,9 @@ def main() -> int:
     if diagnostics is not None:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
-                           effigy_source="6da2f94bcc1400f9165b954a5343bd0cb14267ac",
+                           effigy_source="0412cc7b17f4aab3905e6853a08985270d1454d0",
                            effigy_binary=str(Path(EFFIGY).resolve()),
-                           effigy_binary_sha256="5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8",
+                           effigy_binary_sha256="be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb",
                            selector=("proof:dev-profiles:reference-storage" if storage_only
                                      else "proof:dev-profiles:reference-runtime"),
                            continuation=("remaining_lifecycle" if remaining_lifecycle
@@ -2165,73 +2165,18 @@ def main() -> int:
                                           auth_patch_receipt=auth_patch_receipt,
                                           remaining_lifecycle=remaining_lifecycle,
                                           retained_inputs=retained_inputs)
-        receipts["checkout_retire"] = []
+        # Scoped down/current child-group/socket/route checks are owned by
+        # verify_profile_runtime. Never turn those observations into retirement
+        # or purge authority; newly created VM/images/volumes remain held.
+        receipts["resource_disposition"] = {"vm_images_volumes":"held", "retirement_proven":False}
         for checkout in checkouts:
-            append_diagnostic_best_effort(diagnostics, "checkout_retirement_started",
-                                          checkout=str(checkout))
-            try:
-                retired = effigy_json(checkout, runtime_env, "container", "retire", "--yes", "--json", timeout=900)
-            except BaseException as error:
-                append_diagnostic_best_effort(
-                    diagnostics, "checkout_retirement_failed", checkout=str(checkout),
-                    exception_type=type(error).__name__)
-                raise
-            empty_retirement = (
-                retired.get("idempotent") is True
-                and retired.get("scope") is None
-                and not retired.get("removed")
-                and not retired.get("remaining")
-            )
-            if ((retired.get("record_removed") is not True and not empty_retirement)
-                    or retired.get("remaining") or retired.get("unverified_profiles")):
-                raise RuntimeError(f"Reference checkout scope retirement is uncertain: {checkout}")
-            receipts["checkout_retire"].append({"checkout": str(checkout), "result": retired})
-            append_diagnostic_best_effort(
-                diagnostics, "checkout_retired", checkout=str(checkout),
-                record_removed=retired.get("record_removed") is True,
-                idempotent=retired.get("idempotent") is True,
-                remaining_count=len(retired.get("remaining") or []),
-                unverified_profiles_count=len(retired.get("unverified_profiles") or []))
-            gateway = RUNTIME.gateway_json(EFFIGY, runtime_env, profile_root(checkout), "status")
-            test_gateway = RUNTIME.gateway_json(EFFIGY, runtime_env, profile_root(checkout, "test"), "status")
-            append_diagnostic_best_effort(
-                diagnostics, "checkout_gateway_status", checkout=str(checkout),
-                hybrid_running=bool(gateway.get("running")), hybrid_route_count=len(gateway.get("routes") or []),
-                test_running=bool(test_gateway.get("running")), test_route_count=len(test_gateway.get("routes") or []))
-            if (gateway.get("running") or gateway.get("routes")
-                    or test_gateway.get("running") or test_gateway.get("routes")):
-                raise RuntimeError(f"Reference checkout retirement left a private gateway route active: {checkout}")
-        inventory_envelope = json.loads(RUNTIME.run(
-            [EFFIGY, "container", "status", "--global", "--json"],
-            env=runtime_env, timeout=120, print_output=False,
-        ).stdout)
-        inventory = inventory_envelope.get("result") or {}
-        append_diagnostic_best_effort(
-            diagnostics, "private_runtime_inventory", environment_count=inventory.get("environment_count"),
-            envelope_ok=inventory_envelope.get("ok") is True)
-        if inventory_envelope.get("ok") is not True or inventory.get("environment_count") != 0:
-            raise RuntimeError(f"private Colima profile still has active Effigy scopes: {inventory}")
-        receipts["global_runtime_after_retirement"] = inventory
-        append_diagnostic_best_effort(diagnostics, "private_profile_purge_started")
-        try:
-            RUNTIME.run([EFFIGY, "container", "profile", "purge", "--profile", "effigy", "--yes", "--json"],
-                        env=runtime_env, timeout=600, print_output=False)
-        except BaseException as error:
-            append_diagnostic_best_effort(diagnostics, "private_profile_purge_failed",
-                                          exception_type=type(error).__name__)
-            raise
-        profile_status = json.loads(RUNTIME.run(
-            [EFFIGY, "container", "profile", "status", "--profile", "effigy", "--json"],
-            env=runtime_env, timeout=120, print_output=False,
-        ).stdout).get("result") or {}
-        if profile_status.get("exists") is not False:
-            raise RuntimeError(f"private Colima profile purge was not verified: {profile_status}")
-        receipts["private_profile_purge"] = profile_status
-        safe_to_purge_colima = True
-        append_diagnostic_best_effort(diagnostics, "private_profile_purged", exists=False)
-        receipts["effigy_source"] = "6da2f94bcc1400f9165b954a5343bd0cb14267ac"
+            for state_name in ("hybrid","test"):
+                gateway=RUNTIME.gateway_json(EFFIGY,runtime_env,profile_root(checkout,state_name),"status")
+                if gateway.get("running") or gateway.get("routes"):
+                    raise RuntimeError("new private gateway remains held after scoped cleanup")
+        receipts["effigy_source"] = "0412cc7b17f4aab3905e6853a08985270d1454d0"
         receipts["effigy_binary"] = str(Path(EFFIGY).resolve())
-        receipts["effigy_binary_sha256"] = "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8"
+        receipts["effigy_binary_sha256"] = "be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb"
         receipts["silo_images"] = image_receipt
         receipts["reference_source"] = str(source)
         receipt_path = fixture_root / "profile-selector-receipts.json"
@@ -2253,13 +2198,13 @@ def main() -> int:
                                    selector_succeeded=attempt_succeeded,
                                    private_profile_purged=safe_to_purge_colima,
                                    disposition=("purged" if safe_to_purge_colima else
-                                                "held_after_failed_selector" if started_colima else "not_started"))
+                                                "held" if started_colima else "not_started"))
             except BaseException:
                 pass
             finally:
                 diagnostics.close()
         if colima_start_attempted and not safe_to_purge_colima:
-            print("PRIVATE COLIMA PROFILE HELD: profile resources could not be fully reconciled; inspect the retained fixture root before cleanup",
+            print("PRIVATE COLIMA PROFILE HELD: VM/images/volumes are retained; scoped cleanup does not authorize retirement",
                   file=sys.stderr, flush=True)
 
 

@@ -61,3 +61,11 @@ run_in = "host"
 [tasks."proof:dev-profiles:routing-guard-tests"]
 run = "python3 scripts/routing_guard_test.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:silo-bootstrap-tests"]
+run = "python3 scripts/dev/silo_bootstrap_test.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:profile-preconditions"]
+run = "python3 scripts/qualify-profile-preconditions.py"
+run_in = "host"

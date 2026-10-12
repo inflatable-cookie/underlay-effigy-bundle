@@ -323,25 +323,13 @@ class ProfileAdmissionTests(unittest.TestCase):
             self.assertFalse((repo / "infra/dev/catalog/silo").exists())
 
     def test_silo_bootstrap_uses_pinned_client_sidecar_and_actual_bucket(self) -> None:
-        identity = profiles.BinaryIdentity("/qualified/source", "/qualified/effigy", "hash", 1, 2, 3, 4)
+        # The separate production control drives actual shell environment,
+        # bounded envelopes, bucket/CORS semantics and exclusive file cleanup.
+        import silo_bootstrap_test
+        control=silo_bootstrap_test.BootstrapTests()
         with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
-            repo = Path(temporary)
-            env = {"EFFIGY_PROFILE_SILO_BUCKET": "acme-media"}
-            context = {"routes": {"front": "front.fixture.test", "admin": "admin.fixture.test"},
-                       "https_port": 443}
-            with patch.object(profiles, "_run_process", return_value=None) as command:
-                profiles._bootstrap_silo(identity, repo, env, "hybrid_services", context)
-            self.assertEqual(command.call_count, 3)
-            commands = [call.args[1] for call in command.call_args_list]
-            stages = [args[args.index("--command") + 1] for args in commands]
-            self.assertTrue(all("shell" in args and "silo_client" in args for args in commands))
-            self.assertTrue(all("--json" not in args for args in commands))
-            self.assertTrue(all(call.kwargs["emit_stderr"] is False for call in command.call_args_list))
-            self.assertIn("http://silo:9000", stages[0])
-            self.assertIn("mc mb local/acme-media", stages[1])
-            self.assertIn("<AllowedOrigin>https://front.fixture.test</AllowedOrigin>", stages[2])
-            self.assertIn("<AllowedOrigin>https://admin.fixture.test</AllowedOrigin>", stages[2])
-            self.assertIn("mc cors set local/acme-media", stages[2])
+            seen=control.exercise(Path(temporary).resolve())
+            self.assertEqual(seen,[('silo',0),('silo_client',0)]+[('silo_client',0)]*5)
 
     def test_private_state_root_is_confined_and_mode_0700(self) -> None:
         with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:

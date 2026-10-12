@@ -1,0 +1,88 @@
+"""Real-shell production bootstrap/capture controls, with no backend effects."""
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import silo_client as shared
+spec=importlib.util.spec_from_file_location('bootstrap_launcher',Path(__file__).with_name('profile_launcher.py'))
+launcher=importlib.util.module_from_spec(spec)
+import sys
+sys.modules[spec.name]=launcher
+spec.loader.exec_module(launcher)
+
+
+class BootstrapTests(unittest.TestCase):
+    def exercise(self,root,container='hybrid_services',override=None,negative=False):
+        seen=[]
+        identity=launcher.BinaryIdentity('source','/owned/effigy','digest',1,2,3,4)
+        context={'routes':{'front':'front.example.test','admin':'admin.example.test'},'https_port':443}
+        env={'EFFIGY_PROFILE_SILO_BUCKET':'owned-bucket'}
+        def transport(args,**kwargs):
+            self.assertEqual(args[0],identity.binary)
+            for flag,key in (('--deadline-ms','deadline_ms'),('--stdout-limit-bytes','stdout_limit_bytes'),('--stderr-limit-bytes','stderr_limit_bytes')):
+                self.assertEqual(int(args[args.index(flag)+1]),shared.BOUNDS[key])
+            service=args[args.index('--service')+1];command=args[args.index('--command')+1]
+            selected=args[args.index('container')+1];self.assertEqual(selected,container)
+            actual={'PATH':'/usr/bin:/bin','HOME':'/tmp'}
+            if service=='silo':actual.update(MC_CONFIG_DIR='/tmp/.mc',MC_HOST_local='http://minioadmin:minioadmin@127.0.0.1:9000')
+            elif override:actual.update(override)
+            # Marked process-entry consumers challenge HOME, global flag order,
+            # explicit alias recipe and bucket/ACL/CORS inputs through real sh.
+            prefix='mc() { test "$HOME" = /root && test "$1" = --config-dir && test "$2" = /root/.mc || return 91; shift 2; '
+            prefix+='case "$*" in "alias set local http://silo:9000 minioadmin minioadmin --api S3v4 --path auto"|"ready local"|"mb local/owned-bucket --ignore-existing"|"anonymous set download local/owned-bucket") printf stage_pass;; '
+            prefix+='"cors set local/owned-bucket "*) test -f "$4" && '+ '/usr/bin/python3 -c '+__import__('shlex').quote('import sys; from pathlib import Path; s=Path(sys.argv[1]).read_text(); assert s.count("<AllowedOrigin>")==2 and "https://front.example.test" in s and "https://admin.example.test" in s and "<AllowedMethod>PUT</AllowedMethod>" in s')+' "$4";; *) return 92;; esac; }; '
+            # Rehome only the test's in-container temporary path into this fresh
+            # owned fixture, while executing the maintained file/trap behavior.
+            command=command.replace('/tmp/underlay-profile-cors-',str(root/'cors-'))
+            result=subprocess.run(['/bin/sh','-c',prefix+command],env=actual,capture_output=True,text=True,timeout=3)
+            seen.append((service,result.returncode))
+            value={'schema':'effigy.container.bounded-exec.v1','schema_version':1,'ok':True,'container':container,'service':service,'failure':'complete','code':0,'limits':shared.BOUNDS,'retained':{'stdout_bytes':len(result.stdout.encode()),'stderr_bytes':len(result.stderr.encode())},'preparation':{'captures':0,'retained':{'stdout_bytes':0,'stderr_bytes':0}},'attempts':1,'workspace_user_fallback':False,'remote_cancellation':'unverified','stdout':result.stdout,'stderr':result.stderr,'stdout_bytes':len(result.stdout.encode()),'stderr_bytes':len(result.stderr.encode())}
+            code=0
+            if negative:
+                for key in ('stdout','stderr','stdout_bytes','stderr_bytes'):value.pop(key)
+                value.update(ok=False,failure='inner_command_failed',code=1,inner_code=1);code=1
+            envelope={'schema':'effigy.command.v1','schema_version':1,'ok':value['ok'],'result':value if value['ok'] else None,'error':None if value['ok'] else {'details':value,'message':'seeded-secret'}}
+            return {'outcome':'complete','exit':code,'stdout':json.dumps(envelope).encode(),'stdout_bytes':0,'stderr_bytes':0}
+        with patch.object(launcher,'verify_unchanged'),patch.object(shared,'bounded_run',side_effect=transport):
+            launcher._bootstrap_silo(identity,root,env,container,context)
+        return seen
+
+    def test_both_profiles_real_shell_recipe_cors_and_exclusive_cleanup(self):
+        for container in ('hybrid_services','disposable_test'):
+            with tempfile.TemporaryDirectory(prefix='underlay-bootstrap-') as temporary:
+                root=Path(temporary).resolve()
+                seen=self.exercise(root,container)
+                self.assertEqual(seen,[('silo',0),('silo_client',0)]+[('silo_client',0)]*5)
+                self.assertEqual(list(root.glob('cors-*')),[])
+                path=root/'.effigy/runtime/dev-profiles'/container/'silo-bootstrap.jsonl'
+                self.assertEqual(path.stat().st_mode&0o777,0o600)
+                self.assertNotIn('minioadmin',path.read_text())
+
+    def test_guard_and_native_negative_prevent_mutations_and_secret_output(self):
+        for override in ({'MC_HOST_local':''},{'MC_CONFIG_DIR':'seeded-secret'},{'HTTP_PROXY':''}):
+            with tempfile.TemporaryDirectory(prefix='underlay-bootstrap-') as temporary:
+                root=Path(temporary).resolve()
+                with self.assertRaisesRegex(launcher.ProfileError,'readonly guard refused'):
+                    self.exercise(root,override=override)
+                text=(root/'.effigy/runtime/dev-profiles/hybrid_services/silo-bootstrap.jsonl').read_text()
+                self.assertNotIn('seeded-secret',text);self.assertNotIn('"operation":"alias"',text)
+        with tempfile.TemporaryDirectory(prefix='underlay-bootstrap-') as temporary:
+            root=Path(temporary).resolve()
+            with self.assertRaises(launcher.ProfileError):self.exercise(root,negative=True)
+            text=(root/'.effigy/runtime/dev-profiles/hybrid_services/silo-bootstrap.jsonl').read_text()
+            self.assertIn('unavailable_native_failure_omits_command_bytes',text)
+            self.assertNotIn('seeded-secret',text)
+
+    def test_shared_capture_accounting_rejects_forged_success(self):
+        # Native envelope/marker/overflow controls remain covered by the real
+        # routing/storage suites; unknown selection cannot gain prefix credit.
+        for text in ('{}','{"schema":"effigy.command.v1","ok":true}', 'seeded-secret'):
+            with self.assertRaises(ValueError):shared.bounded_payload(text,0,'silo_client')
+        with self.assertRaises(ValueError):shared.bounded_arguments('silo_client','ignored','foreign')
+
+if __name__=='__main__':unittest.main()

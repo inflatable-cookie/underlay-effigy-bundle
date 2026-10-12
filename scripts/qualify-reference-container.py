@@ -13,7 +13,6 @@ import subprocess
 import traceback
 from pathlib import Path
 
-from silo_fixture import IMAGE, prepare_published_images
 from qualification_runtime import require_effigy_binary
 
 
@@ -79,9 +78,7 @@ def fixture_minio_catalog(effigy: str, checkout: Path, env: dict[str, str]) -> t
     marker = b"image: minio/minio:{{ version }}"
     if original.count(marker) != 1:
         raise RuntimeError("Reference MinIO catalog differs from the pinned published image declaration")
-    fixture = original.replace(marker, f"image: {IMAGE}".encode("utf-8"), 1)
-    fragment.write_bytes(fixture)
-    return original, hashlib.sha256(fixture).hexdigest()
+    return original, hashlib.sha256(original).hexdigest()
 
 
 def restore_catalog(checkout: Path, original: bytes) -> bool:
@@ -158,8 +155,6 @@ def main() -> int:
         run(["colima", "start", "--profile", "effigy", "--runtime", "containerd",
              "--cpu", "6", "--memory", "8", "--disk", "64"], env=runtime_env, timeout=1200, output=True)
         profile_started = True
-        image = prepare_published_images(fixture_root, runtime_env)
-        receipts["silo_published_images"] = image
 
         reference_root = private_home / "reference"
         reference_root.mkdir(mode=0o700)
@@ -199,10 +194,10 @@ def main() -> int:
         catalog_baseline, fixture_catalog_hash = fixture_minio_catalog(effigy, checkout, runtime_env)
         receipts["catalog_override"] = {
             "published_default_image": "minio/minio:{{ version }}",
-            "fixture_image": IMAGE,
+            "fixture_image": "minio/minio:RELEASE.2025-09-07T16-13-09Z",
             "fixture_fragment_sha256": fixture_catalog_hash,
             "default_ports_preserved": True,
-            "default_catalog_modified_only_in_disposable_clone": True,
+            "default_catalog_modified_only_in_disposable_clone": False,
         }
         stack_attempted = True
         up = effigy_json(effigy, checkout, runtime_env, "container", "up", "--detach", "--json", timeout=5400)
@@ -244,8 +239,8 @@ def main() -> int:
             "workspace_toolchain_markers": {
                 marker: marker in dockerfile_text for marker in ("FROM rust:", "ARG BUN_VERSION", "BUN_INSTALL")
             },
-            "minio_image_override": IMAGE,
-            "minio_image_in_compose": IMAGE in compose,
+            "minio_image_override": None,
+            "minio_image_in_compose": "minio/minio:RELEASE.2025-09-07T16-13-09Z" in compose,
         })
         if not receipts["container_up"]["workspace_service_has_build"]:
             raise RuntimeError("default stack did not generate a built workspace service")
@@ -258,8 +253,8 @@ def main() -> int:
         if not receipts["container_up"]["workspace_rust_bun_catalog_mapping"]:
             raise RuntimeError("bundle default no longer maps the workspace service to workspace-rust-bun")
         if not receipts["container_up"]["minio_image_in_compose"]:
-            raise RuntimeError("default stack did not use the disclosed published Silo image override")
-        print("PASS private Reference default container build/startup with unchanged workspace image and the published digest-pinned Silo fixture override", flush=True)
+            raise RuntimeError("default stack did not preserve the declared legacy MinIO image")
+        print("PASS private Reference default container build/startup with unchanged workspace and legacy service images", flush=True)
     except Exception as error:
         failure = f"{type(error).__name__}: {error}"
         print(f"REFERENCE DEFAULT-CONTAINER QUALIFICATION BLOCKED: {failure}", flush=True)
@@ -269,16 +264,14 @@ def main() -> int:
                 down = effigy_json(effigy, checkout, runtime_env, "container", "down", "--json", timeout=600)
                 status = effigy_json(effigy, checkout, runtime_env, "container", "status", "--json", timeout=180)
                 active = [name for name, value in services_up(status).items() if value.lower() == "up"]
-                retired = effigy_json(effigy, checkout, runtime_env, "container", "retire", "--yes", "--json", timeout=300)
-                retirement_ok = retired.get("ok") is True and not retired.get("unverified_profiles") and not retired.get("remaining")
                 receipts["cleanup"].append({
                     "container_down": down,
                     "services_up_after_down": active,
-                    "retire": retired,
-                    "retirement_verified": retirement_ok,
+                    "retirement_proven": False,
+                    "retirement_verified": False,
                 })
-                if active or not retirement_ok:
-                    raise RuntimeError("private default container stack retirement is uncertain")
+                if active:
+                    raise RuntimeError("private default container stack scoped shutdown is uncertain")
             except Exception as error:
                 receipts["cleanup"].append({"container_cleanup_error": f"{type(error).__name__}: {error}"})
         if checkout is not None and catalog_baseline is not None:
@@ -321,21 +314,7 @@ def main() -> int:
                 receipts["cleanup"].append({"private_gateway_cleanup_error": type(error).__name__})
                 cleanup_verified = False
         if profile_started:
-            if cleanup_verified:
-                try:
-                    run([effigy, "container", "profile", "purge", "--profile", "effigy", "--yes", "--json"],
-                        env=runtime_env, timeout=600)
-                    profile_status = json.loads(run(
-                        [effigy, "container", "profile", "status", "--profile", "effigy", "--json"],
-                        env=runtime_env, timeout=120,
-                    ).stdout).get("result") or {}
-                    receipts["cleanup"].append({"profile_exists_after_purge": profile_status.get("exists")})
-                    cleanup_verified = profile_status.get("exists") is False
-                except Exception as error:
-                    cleanup_verified = False
-                    receipts["cleanup"].append({"profile_purge_error": type(error).__name__})
-            else:
-                print("HELD: default-container profile retained because exact cleanup did not verify", flush=True)
+            receipts["resource_disposition"]={"vm_images_volumes":"held", "retirement_proven":False}
 
         receipts["cleanup_verified"] = cleanup_verified
         if failure:

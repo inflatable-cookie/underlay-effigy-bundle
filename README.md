@@ -77,9 +77,9 @@ cleanup. It never invokes full QA. Use `dev:test:down` to reconcile a run
 interrupted before its normal cleanup.
 
 The profile launcher checks the clean Effigy source revision
-`6da2f94bcc1400f9165b954a5343bd0cb14267ac`, binary version `effigy v0.14.1`,
+`0412cc7b17f4aab3905e6853a08985270d1454d0`, binary version `effigy v0.14.1`,
 and qualified macOS arm64 SHA-256
-`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8` before
+`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb` before
 starting services, the gateway, or cleanup. The current exact-source admission supports
 macOS arm64; unsupported platforms and changed/unknown binaries
 are refused with the container profile still available. Child Effigy calls
@@ -107,118 +107,56 @@ and permanent Reference source adoption remain separate work.
 
 ## Development profile qualification
 
-Use the approved private Effigy source and binary:
+Admission accepts only the clean qualified Effigy source
+`0412cc7b17f4aab3905e6853a08985270d1454d0` and private Darwin arm64 binary
+SHA256 `be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
+Version/semver is not attestation. Every child uses the retained absolute binary;
+old, unknown, changed and unsupported identities refuse before effects.
+
+Set `UNDERLAY_PROFILE_EFFIGY_BIN`, `UNDERLAY_PROFILE_EFFIGY_SOURCE` and
+`UNDERLAY_REFERENCE_SOURCE` to the admitted artifact, owned source checkout and
+read-only Reference source. Run covering selectors through that artifact:
 
 ```sh
-export UNDERLAY_PROFILE_EFFIGY_SOURCE=/path/to/private/effigy
-export UNDERLAY_PROFILE_EFFIGY_BIN=/path/to/private/effigy/target/release/effigy
-export UNDERLAY_REFERENCE_SOURCE=~/Dev/projects/underlay-reference
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:public-origin
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:profile-contract-tests
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:profile-compile
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-runtime
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-container
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:silo-contract-tests
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:silo-artifacts
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-storage
+"$UNDERLAY_PROFILE_EFFIGY_BIN" proof:dev-profiles:profile-contract-tests
+"$UNDERLAY_PROFILE_EFFIGY_BIN" proof:dev-profiles:silo-bootstrap-tests
+"$UNDERLAY_PROFILE_EFFIGY_BIN" proof:dev-profiles:lifecycle-contract-tests
+"$UNDERLAY_PROFILE_EFFIGY_BIN" proof:dev-profiles:profile-compile
+"$UNDERLAY_PROFILE_EFFIGY_BIN" proof:dev-profiles:profile-preconditions
 ```
 
-The scripts verify Effigy source
-`6da2f94bcc1400f9165b954a5343bd0cb14267ac` and private `effigy v0.14.1`
-binary SHA-256
-`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`.
-The runtime selectors pull approved digest-pinned PGSTY Silo and MC images,
-create fresh private Reference main/worktree instances and retain redacted
-receipts outside the repository. They use a private gateway/CA and isolated
-Colima runtime without installing system trust or changing the operator
-checkout. See [development profile ownership](docs/knowledge/contracts/dev-profiles.md)
-for interfaces, prerequisites and selector coverage.
+The preconditions selector assembles default Reference main and explicit opt-in
+worktrees without a backend, then verifies unchanged legacy image availability.
+Current anonymous `minio/minio:RELEASE.2025-09-07T16-13-09Z` manifest access
+returns401. Silo under MinIO's name does not count as container parity. Required
+current-source full-profile, Reference finalisation, lifecycle, dev:test and
+container acceptance remain unqualified; historical pilot receipts cannot be
+transferred to new owners/generations or changed bootstrap inputs.
 
-The historical Reference pilot proves three concurrent actual API/front/admin
-stacks, owned readiness before routes, public HTTPS origins/HMR,
-Postgres/SMTP connectivity, restart/dependent propagation, collision,
-interruption recovery and isolated teardown. Its former source-built upstream
-MinIO receipts are historical evidence. Current storage qualification uses
-published PGSTY Silo and MC through fixture-only overrides; Silo is a downstream
-fork, not unchanged upstream MinIO. Silo signed object operations,
-credentials/CORS controls and container-only build/start passed with that
-override. The covering Reference storage proof also passed registration,
-media creation, presigned upload, finalisation and signed retrieval/deletion,
-with verified owned cleanup. An earlier registration-response timeout remains
-historical evidence with an unestablished cause; the later pass does not explain
-that timeout or establish a runtime fix. See the owning development-profile
-contract above for the qualification boundary.
-The original published default MinIO image pull remains
-unqualified (`insufficient_scope`); Silo does not repair that registry access.
-No consumer default switch or Reference source migration is delivered.
+The exported production `scripts/dev/silo_client.py` owns the opt-in MC recipe:
+client command-local HOME `/root` before MC initialization, global config-dir
+`/root/.mc`, alias-set API `S3v4` / path `auto`. Client MC/proxy environment
+overrides must remain absent even empty. Server HOME `/tmp`, config-dir
+`/tmp/.mc` and independent loopback alias remain strict. Idempotent bucket,
+anonymous download and two exact browser-origin CORS policies are preserved.
+Each finite stage uses native8000ms /65536stdout /16384stderr bounds, separate
+prep/command accounting and unique inner/outer success. Readonly guards precede
+mutations; no unbounded fallback, infinite shell loop or uncertain mutation retry.
+CORS uses a noclobber nonce file and exact-path trap cleanup.
 
-The current opt-in admission pin is Effigy source `6da2f94b`; listener state already
-contains the effective scoped hostname. Current-source production-selector
-receipts establish actual Reference registration/login and signed Silo media
-upload/finalisation/download/delete, plus three-instance HTTPS origins/HMR.
-These exact-input receipts are retained without repeating successful storage
-operations during remaining-lifecycle verification. Historical auth response
-timeouts have no established cause. The separate container-only proof passed
-and verified cleanup. The earlier remaining-lifecycle attempt passed API/admin handoff but front
-failed its context lookup before publication. With phase diagnostics, API/front
-handoff passed, while admin context failed at `host-inventory / default.hosts`
-with exit 1 and class `ProfileError`. The underlying rejection reason remains
-unestablished. Interruption/collision and actual `dev:test` execution were not
-reached; complete profile readiness remains unproven.
-The subsequent nested-envelope diagnostic attempt failed closed at front's
-post-restart ownership/readiness check without capturing a context-error record.
-Its probe-time listener snapshot was not retained; the cause remains unknown.
-Typed snapshots now preserve both helpers' exact observations before validation
-and on rejection. A later attempt passed restart/handoff, then exposed an
-interruption-fixture precondition conflict: after owned profile down, its route
-lookup still required ready listeners and rejected the correctly stopped front.
-This is a bundle qualification-helper counterexample; historical rejection
-causes remain unknown. Probe setup now validates and captures the effective domain
-before down and reuses it for cleanup, preserving all live ownership gates.
-A subsequent attempt reused the input-matched restart/origin proof and passed
-that setup boundary, then refused before interruption launch: the fixture
-manifest inspector recognized only `interrupted_probe`, rather than the three
-production hosts plus the probe. Configuration inspection exited zero; whether
-composition or the inspection parser caused that historical mismatch was then
-unestablished. A subsequent assembly-only typed `effigy.config.v1` comparison
-resolved the boundary: the default list contained `api/front/admin`, while
-adding the fixture's local probe array replaced it with `interrupted_probe`.
-The regex agreed with both semantic lists. No parser correction or service
-launch followed that diagnostic counterexample. The fixture helper now uses
-`[manifest].extend` for the host-process array, preserving production entries
-field for field and restoring original manifest bytes. Typed assembly and
-hermetic refusal/restoration controls cover both probe injection paths.
-The corrected runtime attempt reached the owned HTTP503 interruption probe and
-SIGINT, then stopped at its teardown assertion: supported down left the probe
-record `failed`, while the helper required `stopped`. The main profile is down;
-both private siblings remain active and held because the runner refused further
-cleanup. Recovery, remaining lifecycle and `dev:test` acceptance are unproven.
-The revised fixture waits in actual pending startup before bind/report and
-records kernel boot/start identities with microseconds and the detached child
-group. Launcher SIGINT and scoped child cleanup are separate proof steps;
-a historic cleared `failed` record alone supplies neither proof.
-The next bounded attempt reached nine fresh ready listeners and matched the
-retained restart/build inputs. It stopped in the main checkout's initial
-live-identity precondition, before probe injection, down or SIGINT: admin had
-changed child generation, PID and address while its supervisor and runtime
-generation stayed unchanged. The generic error wording says “foreign/after
-down”, but the captured timeline establishes this earlier boundary. Cause is
-unknown; no interruption, collision, recovery or cleanup credit follows.
-The three new cleanup down selectors returned zero, but their VM/residue remain
-held because the complete proof failed. Earlier held resources were untouched.
-The restart harness requires the canonical configured API catalog cwd, exact
-private executable command/path/digest, its unique executable mapping, recorded
-start/ancestry/generation and sole kernel socket ownership before signaling.
-Unrelated `lsof txt` mappings do not substitute for any identity gate.
-Context failures now retain fixed phase, container-operation, exit status and
-allowlisted error class/message, without captured stdout or arbitrary stderr.
-Nested negative envelopes also retain a fixed source reason and their actual
-process exit separately; unknown reasons remain explicitly unclassified.
-The qualification harness copies these records outside the fixture before
-teardown. Diagnostic-only changes must preserve the accepted successful recipes
-before auth/storage receipts can be reused.
+Qualification shares the exported recipe/guard/decoder; production imports no
+qualification code. Source, real-shell/native-envelope and genuine pinned
+network-none image controls are distinct evidence. Safe mode0600 field/stage/
+phase/count receipts exclude credentials, commands, raw environment/config and
+output. Native negative command bytes remain unavailable. Historical causes
+stay unknown, guest-reported metadata is not binary attestation, numeric DNS/
+container-ID inventory is unobserved, and Linux host runtime is unqualified.
+Host client settlement does not prove remote cancellation/rollback. New VM/
+images/volumes stay held; scoped down or empty inventory is not retirement.
+
+See [development profile ownership](docs/knowledge/contracts/dev-profiles.md)
+for the supported interfaces and evidence boundaries. Independent review and
+consumer adoption remain separate; no default migration or release is implied.
 
 ## Browser runtime (`browser_runtime`)
 
@@ -258,193 +196,3 @@ The bundle declares the shared Underlay runtime secret contract, including:
 - `auth_google_client_secret`
 
 App-specific secrets should stay in the consuming repo.
-
-Current opt-in admission uses qualified source `6da2f94b` and its private macOS
-arm64 artifact. Historical runtime receipts above keep their original source
-identity; they do not qualify the new binary. The harness collects bounded v2
-transition observations before validation failures and cleanup, preserving
-selected causes and reserved launch assignments. Missing, partial or lost
-records remain unknown and never authorize cleanup or baseline replacement.
-
-New-source proof currently stops at first-worktree host-signed S3 GET HTTP 404
-after MC upload; main Reference auth/storage passed. The response framing/body
-and cause remain unknown. Remaining lifecycle and `dev:test` are unqualified.
-Legal phase-less launch records and default-port public URLs are now retained
-by the collector; corrected post-cleanup observations do not grant earlier
-probe-time or cleanup credit.
-
-`proof:dev-profiles:storage-correlation` is a bounded service-only diagnostic,
-not whole-profile acceptance. It derives only the Silo server/client declarations
-from the actual Reference export, retains their catalog pins, and omits app
-listeners and explicit DNS routes in the disposable fixture. The catalog TCP
-alias still requires the reviewed private gateway. It records selected MC
-alias/config scope, native selected-service observations, scoped Compose identity,
-separate producer/consumer exits and stat, signed response phases/framing and allowlisted S3 error codes.
-Bodies and credentials stay in memory. Its hermetic controls are selected by
-`proof:dev-profiles:storage-correlation-tests` with the same exact-source binary
-and source environment used by runtime qualification.
-
-The first service-only setup stopped before Silo startup because the helper
-supplied `--repo` to a gateway command. Pinned Effigy rejects that argument before
-execution; gateway ownership instead uses `--private-state-root`. All four actual setup/up/status/down gateway argument lists pass the pinned
-side-effect-free parser control. The minimal fixture now uses the native runtime
-root schema; `sources.siblings=false` stays in the production bundle assembly
-context. Both actual main/worktree policies pass native configuration and host
-inventory gates before runtime, preserving only Silo/client services.
-
-The helper queries native checkout scope once before effects and binds it to
-the caller-owned canonical Git fixture/source. Primary `none/null` requires the
-exact declared project and no scope labels; a worktree requires its exact full
-token and documented effective project. Shared overrides and foreign/conflicting
-identity refuse. Native generated Compose is checked before startup and again
-against actual status afterward; these observations grant no cleanup authority.
-
-The preceding service-only attempt passed those scope checks, private gateway and
-main services, alias bootstrap and client override checks. It stopped on the
-Silo server `hostname` probe (inner exit 127, Effigy outer exit 1), before MC
-object operations or S3 requests. The stderr message was not retained, so no
-underlying cause or historical 404 explanation is established. A supported
-container identity probe with demonstrated executable preconditions is the next
-bounded prerequisite. Recorded new service/gateway down calls exited zero;
-VM/images/volumes remain held and retirement is unproven. Old held resources
-remain untouched; whole-profile acceptance remains incomplete.
-
-Storage correlation evidence follows the [owning evidence boundary](docs/knowledge/contracts/dev-profiles.md#storage-endpoint-evidence-boundary): native selected services and live published ports plus exact challenge-byte correspondence. DNS/IP addresses and network inventory remain unobserved. This diagnostic cannot certify whole-profile acceptance or retirement.
-
-The preceding `6da2f94b` command-mode shell collected output internally before
-emitting it. An external pipe cap cannot prove the required inner capture bound,
-so that diagnostic stopped after both native checkout preflights and before
-VM/gateway/service startup. At that boundary image-interface and endpoint correspondence execution remained
-unqualified; the historical storage failure cause remains unknown.
-
-The current private Darwin arm64 gate accepts exact source `0412cc7b` and its
-reviewed artifact checksum, using native bounded JSON shell capture with one
-deadline and cumulative independent stream limits. Full command/accounting
-validation precedes byte credit. Host-client reap is not remote cancellation or
-rollback; uncertain effects and old residue remain held. No Linux consumer or
-default rollout is qualified by this diagnostic.
-
-On the new qualified source, both native checkout gates and genuine pinned
-network-none image utility/local-stat controls passed. Main service startup
-returned success, but live-port reconciliation refused an unrecognized backend
-representation before alias/bootstrap or object operations. The rejected port
-text was not retained, so its precise shape and the historical 404 cause remain
-unknown. No second attempt was made. Available post-down inventory was empty;
-new VM/images/volumes remain held without retirement credit. Storage and pending
-whole-profile acceptance remain incomplete.
-
-The port reader now distinguishes exposed-only tokens from published mappings.
-Exposure grants no host-binding credit: complete, unique loopback mappings must
-match configured service targets exactly. Safe field/token projections precede
-refusal in both checkout paths. File-only native-parser controls cover the
-correction; they do not identify the missing historical token or deployed guest
-formatter version. Before services, the service-only proof now observes the
-new private guest through supported `colima nerdctl --profile effigy -- version
---format` passthrough. It bounds capture, records finite client metadata and
-checks the formatter source at the reported full commit. Unknown output or
-source disagreement stops before images/services; metadata is not binary source
-attestation. The absolute host Colima identity is retained and rechecked without
-backend fallback. Storage and full profile acceptance remain pending.
-
-The bounded Darwin pilot observed nerdctl `v2.3.1` at reported commit
-`04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860`. That source groups mappings and
-compresses contiguous ranges, unlike the qualified reference formatter. The
-strict source gate refused before images/services; no storage correspondence
-was claimed. Supporting that formatter needs source-based controls first, with
-range/ambiguous representations still refusing. The new private VM remains held.
-
-The port diagnostic now qualifies only the exact v2.3.1 reported version/commit
-and full immutable formatter digest. It preserves address/protocol context
-across native comma splitting and expands canonical equal-span compression
-only up to the independently declared inventory, with a 16-mapping cap. Every
-expanded tuple must match a unique declared loopback TCP binding; malformed,
-ambiguous, foreign, overlapping, duplicate or extra mappings refuse. Exposure
-still grants no host credit. Maintained source/test cases and the real native
-parser are covered by no-effect controls; reported metadata does not attest the
-guest binary. This qualification does not reconstruct historical failures.
-
-The fresh service-only pilot reobserved that exact formatter metadata/source and
-validated the main scope's compressed loopback API/console pair against its
-independent Compose inventory. It stopped at the first server routing guard:
-native bounded execution reported `inner_command_failed`, inner code 1. The
-precise failed predicate or shell cause is unobserved; no alias/bootstrap or
-object request was reached and worktree services were not started. Available
-post-down main inventory was empty and the private gateway was stopped; these
-observations do not prove retirement. New VM/images/volumes remain held.
-
-Routing guards now emit only allowlisted predicate names, absent/empty/present
-states and agreement booleans through the same bounded native transport and
-unique shell markers. The readonly diagnostic command may complete to retain
-all predicates; the helper independently refuses any failed agreement before
-alias/bootstrap. Transport completion is not guard acceptance. Native negative
-results omit command bytes, so dispatch/native/marker failure classes preserve
-explicit unavailable evidence rather than guessing a predicate or logging raw
-environment values. No new runtime proof accompanies this diagnostic change.
-
-The current server guard requires MC_CONFIG_DIR present and exactly `/tmp/.mc`,
-matching the digest-pinned image and immutable Dockerfile default. Env-file,
-proxy/routing and client override absence checks remain intact; server alias
-agreement is still checked privately against the independent Compose input.
-Missing, empty, relative or other server config paths refuse.
-
-Both service-default baselines run before VM effects. Disposable client diagnostic
-commands use the shared bounded helper to assign and export `HOME=/root` inside
-selected `sh -lc`, after shell entry and before the guard or any MC process.
-This is an explicit owner command input, not image, native or inherited HOME
-proof. Inherited HOME is observed only as finite presence/agreement; client
-default HOME remains unqualified. The input makes MC's HOME-derived config source
-`/root/.mc/config.json` deterministic; actual alias source and container mount
-boundaries still require validation. Client MC_CONFIG_DIR, MC_CONFIG_ENV_FILE,
-MC_HOST_local and routing/proxy overrides remain absent even when empty. Server
-HOME and exact `/tmp/.mc` config-dir checks are unchanged. No Compose/catalog,
-image, service environment or production bootstrap default changes accompany
-this diagnostic input. A false/unknown guard stops before alias or object writes.
-
-A fresh selected-service observation retained complete true server/client guards
-and exact command-input HOME agreement before client alias bootstrap. Bootstrap
-and alias-list transport both completed within native bounds, but the strict
-alias configuration projection refused. The specific rejected field was not
-retained, so endpoint/config-source/credential/path-mode cause remains unknown.
-No bucket or object operation was reached. Available post-down service inventory
-was empty and the exact private gateway stopped; these are observations, not
-retirement or remote rollback proof. The new VM/images/volumes remain held.
-Default client HOME and storage byte correspondence remain unqualified. A future
-alias diagnostic must preserve finite per-field agreement before refusal without
-persisting raw config, credentials or output; no fallback or ignored guard is
-justified by this observation.
-
-Disposable client MC diagnostics now use one argument constructor with global
-`--config-dir /root/.mc`, after the existing command-local HOME binding. Alias
-set explicitly selects `--api S3v4 --path auto`. This probe recipe supplies the
-strict intended inputs; it does not qualify production bootstrap defaults.
-Alias-set JSON omits `src`; alias-list must still report exact
-`/root/.mc/config.json`. Known field presence, type and expected-agreement are
-journalled before alias/stat/bucket/pipe refusal, with no raw values or unknown
-field names. Network-disabled pinned client image controls check actual alias
-set/list and local stat/cat output before any selected service starts.
-
-The source-struct storage controls use `UNDERLAY_MC_SOURCE_ROOT` pointing to an
-owned source fixture containing the immutable pinned MC `cmd` files; they verify
-full content digests before inspecting tags/pretty JSON. This is a source-only
-control input, distinct from the genuine image-output gate inside the bounded
-service-only selector. Client image version/provenance calls use the same
-explicit HOME/config-dir diagnostic recipe; ordinary artifact callers retain
-existing behavior.
-
-The explicit diagnostic recipe has now passed genuine pinned network-none alias
-set/list and local stat/cat output, then actual selected-service correspondence
-in disposable Reference primary/worktree scopes. Every required alias/stat/
-bucket/pipe field agreed before validation; native project/service selection and
-unique live loopback mappings agreed with fresh Compose. Client challenges read
-exactly through selected server loopback and signed host GET; distinct host PUT
-bytes read exactly through server and client. Own keys survived and both foreign
-keys in each existing bucket returned `404/NoSuchKey`. This observes byte
-correspondence, not numeric DNS/IP/container-ID inventory or a historical cause.
-
-Both new scoped downs completed and post-down inventories were available and
-empty; the exact new private gateway stopped. These do not prove retirement or
-remote cancellation. New VM/images/volumes remain held; all earlier held
-resources are protected. Production bootstrap defaults remain unqualified: its
-existing MC calls use their original default HOME/config and API detection, so
-this explicit probe recipe cannot stand in for production bootstrap or remaining
-whole-profile/Reference-finalisation/lifecycle/dev:test acceptance.

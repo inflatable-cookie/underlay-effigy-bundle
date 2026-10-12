@@ -18,6 +18,7 @@ class GuardTests(unittest.TestCase):
         if service=='silo':
             env['MC_HOST_local']='http://minioadmin:minioadmin@127.0.0.1:9000'
             env['MC_CONFIG_DIR']='/tmp/.mc'
+            env['HOME']='/tmp'
         return env
 
     def transport(self,env,mode='complete'):

@@ -66,13 +66,7 @@ def json_records(output):
     return [record]
 
 
-def mc_command(arguments, service='silo_client', json_output=False):
-    import shlex
-    if service not in ('silo_client','silo'):raise ValueError('guard_service_refused')
-    # Trusted diagnostic recipe only; HOME binding still precedes initialization.
-    prefix=['mc']+(['--config-dir','/root/.mc'] if service=='silo_client' else [])
-    if json_output:prefix.append('--json')
-    return ' '.join(shlex.quote(x) for x in prefix+list(arguments))
+from dev.silo_client import mc_command
 
 
 def mc_record(output, expected, diagnostics, operation, optional=None):
@@ -569,64 +563,4 @@ def capture_contract(source):
             'outer_pipe_cap_sufficient':False,'source_files_sha256':digests}
 
 
-BOUNDS={'deadline_ms':8000,'stdout_limit_bytes':65536,'stderr_limit_bytes':16384}
-BOUND_FAILURES={'deadline','stdout_overflow','stderr_overflow','read_failure','incomplete_output',
-                'launch_failed','inner_command_failed','runtime_identity_mismatch','workspace_preparation_failed'}
-
-
-def bounded_arguments(service,command):
-    if service not in ('silo','silo_client'):raise ValueError('bounded_service_refused')
-    return ['container','hybrid_services','shell','--service',service,'--command',command,'--bounded',
-            '--deadline-ms',str(BOUNDS['deadline_ms']),'--stdout-limit-bytes',str(BOUNDS['stdout_limit_bytes']),
-            '--stderr-limit-bytes',str(BOUNDS['stderr_limit_bytes']),'--json']
-
-
-def bounded_payload(output,outer_exit,service):
-    envelope=strict_json(output)
-    if (not isinstance(envelope,dict) or envelope.get('schema')!='effigy.command.v1'
-            or envelope.get('schema_version')!=1 or type(envelope.get('ok')) is not bool):
-        raise ValueError('bounded_envelope_refused')
-    value=envelope.get('result') if envelope['ok'] else envelope.get('error',{}).get('details')
-    if (not isinstance(value,dict) or value.get('schema')!='effigy.container.bounded-exec.v1'
-            or value.get('schema_version')!=1 or type(value.get('ok')) is not bool
-            or value['ok'] != envelope['ok'] or value.get('remote_cancellation')!='unverified'):
-        raise ValueError('bounded_schema_refused')
-    failure=value.get('failure');success=failure=='complete'
-    if (failure not in BOUND_FAILURES and not success) or success!=value['ok'] or (outer_exit==0)!=success:
-        raise ValueError('bounded_status_refused')
-    if value.get('container')!='hybrid_services' or value.get('service')!=service:
-        if not (failure=='launch_failed' and value.get('container')==value.get('service')=='[redacted]'):
-            raise ValueError('bounded_selection_refused')
-    limits=value.get('limits') if success else value.get('limits',BOUNDS)
-    if limits!=BOUNDS:raise ValueError('bounded_limits_refused')
-    retained=value.get('retained');preparation=value.get('preparation')
-    if not isinstance(retained,dict) or not isinstance(preparation,dict) or not isinstance(preparation.get('retained'),dict):
-        raise ValueError('bounded_accounting_refused')
-    attempts=value.get('attempts');captures=preparation.get('captures')
-    if type(attempts) is not int or not 0<=attempts<=2 or type(captures) is not int or not 0<=captures<=100:
-        raise ValueError('bounded_accounting_refused')
-    if type(value.get('workspace_user_fallback')) is not bool or value['workspace_user_fallback']!=(attempts>1):
-        raise ValueError('bounded_accounting_refused')
-    projection={'failure':failure,'attempts':attempts,'preparation_captures':captures,'remote_cancellation':'unverified','bounds':dict(BOUNDS)}
-    for stream in ('stdout','stderr'):
-        count=retained.get(stream+'_bytes');prep=preparation['retained'].get(stream+'_bytes');limit=BOUNDS[stream+'_limit_bytes']
-        if type(count) is not int or type(prep) is not int or not 0<=prep<=count<=limit:
-            raise ValueError('bounded_accounting_refused')
-        projection[stream+'_retained_bytes']=count;projection['preparation_'+stream+'_bytes']=prep
-        if success:
-            raw=value.get(stream);command_count=value.get(stream+'_bytes')
-            if not isinstance(raw,str) or type(command_count) is not int or len(raw.encode())!=command_count or count!=prep+command_count:
-                raise ValueError('bounded_accounting_refused')
-            projection['command_'+stream+'_bytes']=command_count
-    if success:
-        if value.get('code')!=0 or attempts<1:raise ValueError('bounded_status_refused')
-        return value['stdout'],projection
-    phase=value.get('phase')
-    if failure!='inner_command_failed':
-        if phase not in ('runtime_discovery','workspace_preparation','command_execution') or value.get('termination_scope')!='owned_host_client_group':
-            raise ValueError('bounded_phase_refused')
-        projection['phase']=phase
-    elif type(value.get('inner_code')) is not int or value['inner_code']==0:
-        raise ValueError('bounded_status_refused')
-    else:projection['inner_code']=value['inner_code']
-    return None,projection
+from dev.silo_client import BOUNDS, BOUND_FAILURES, bounded_arguments, bounded_payload
