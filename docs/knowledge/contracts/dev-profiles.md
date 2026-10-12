@@ -848,12 +848,12 @@ container shell captures before emitting output: `execute_command_mode_shell`
 requests capture, transport supplies no deadline, and `run_command_capture_until`
 uses `Command.output()` on that branch. The deadline branch also reads streams
 into unbounded vectors. A bounded external pipe reader cannot establish an inner
-container stdout/stderr byte cap. The storage diagnostic therefore refuses before
+container stdout/stderr byte cap. That storage diagnostic therefore refused before
 VM/gateway/service effects after native main/worktree preflights. This is a
 capture-evidence capability boundary, not evidence of the historical 404 cause
 or a Silo defect. No streaming alternative or in-container bounded producer is
 qualified by this change; the pinned-image and storage correspondence paths
-remain unavailable until that boundary is resolved.
+remained unavailable until that boundary was resolved.
 
 Source anchors: [command-mode capture](https://github.com/inflatable-cookie/effigy/blob/6da2f94bcc1400f9165b954a5343bd0cb14267ac/crates/effigy-runtime/src/shell.rs),
 [execution transport](https://github.com/inflatable-cookie/effigy/blob/6da2f94bcc1400f9165b954a5343bd0cb14267ac/src/runner/exec_command/transport.rs).
@@ -881,3 +881,23 @@ cannot be interrupted midway; natural post-reap survivors remain held. This
 private Darwin pilot supplies no real Linux consumer proof or fleet/default
 rollout. The owner QA passed with one identified passed LEAK; its mechanism
 remains unestablished, and no leak-free or historical-cause claim is made.
+
+The first diagnostic on this current source passed both actual disposable native
+compositions/scopes/hosts and generated Compose identity gates, then started one
+new private VM. Both pinned images passed network-none shell utility, local-file
+producer/stat, multiline JSON and required MC command-help checks before service
+startup. Main up/status succeeded; live-port reconciliation rejected an unknown
+backend port representation before alias overrides/bootstrap or object writes.
+Only the finite rejection class and native response byte count were retained;
+the rejected port value is unobserved and cannot be reconstructed from later
+stopped status. This supplies no DNS, Silo/core defect or historical-cause proof.
+The bounded native command helper itself did not reach real service execution.
+
+New scoped down and private gateway down returned success, with available empty
+post-down service inventory. These observations do not prove volume retirement
+or remote cancellation. New VM/images/volumes and all prior residue remain held.
+Before any further storage runtime authority, the bundle owner needs a bounded
+safe pre-validation live-port projection and an exact pinned-backend format
+contract/control. No guessed port-format broadening or second runtime is
+qualified by this outcome. Storage correspondence and all outstanding
+whole-profile/independent assurance remain unproven.

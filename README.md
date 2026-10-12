@@ -313,9 +313,9 @@ Storage correlation evidence follows the [owning evidence boundary](docs/knowled
 
 The preceding `6da2f94b` command-mode shell collected output internally before
 emitting it. An external pipe cap cannot prove the required inner capture bound,
-so the storage diagnostic stops after both native checkout preflights and before
-VM/gateway/service startup. Image-interface and endpoint correspondence execution
-remain unqualified; the historical storage failure cause remains unknown.
+so that diagnostic stopped after both native checkout preflights and before
+VM/gateway/service startup. At that boundary image-interface and endpoint correspondence execution remained
+unqualified; the historical storage failure cause remains unknown.
 
 The current private Darwin arm64 gate accepts exact source `0412cc7b` and its
 reviewed artifact checksum, using native bounded JSON shell capture with one
@@ -323,3 +323,12 @@ deadline and cumulative independent stream limits. Full command/accounting
 validation precedes byte credit. Host-client reap is not remote cancellation or
 rollback; uncertain effects and old residue remain held. No Linux consumer or
 default rollout is qualified by this diagnostic.
+
+On the new qualified source, both native checkout gates and genuine pinned
+network-none image utility/local-stat controls passed. Main service startup
+returned success, but live-port reconciliation refused an unrecognized backend
+representation before alias/bootstrap or object operations. The rejected port
+text was not retained, so its precise shape and the historical 404 cause remain
+unknown. No second attempt was made. Available post-down inventory was empty;
+new VM/images/volumes remain held without retirement credit. Storage and pending
+whole-profile acceptance remain incomplete.
