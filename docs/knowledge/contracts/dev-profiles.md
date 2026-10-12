@@ -1103,3 +1103,52 @@ Default client HOME and storage byte correspondence remain unqualified. A future
 alias diagnostic must preserve finite per-field agreement before refusal without
 persisting raw config, credentials or output; no fallback or ignored guard is
 justified by this observation.
+
+The diagnostic client recipe explicitly fixes global `--config-dir /root/.mc`
+for every MC invocation, while retaining HOME assignment before initialization
+and strict MC/proxy environment absence. Alias set specifies `--api S3v4
+--path auto` after positional arguments. Server calls retain their independent
+`/tmp/.mc` environment and loopback alias; client CLI flags never apply there.
+This recipe is an owner-supplied probe input, not production default, inferred
+argv basename/config root, automatic signing detection or inherited HOME proof.
+
+Pinned MC [alias message](https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/cmd/alias-main.go)
+uses pretty JSON with optional credentials/API/path/src/lookup fields. Our
+credentialled exact recipe requires credentials/API/path; nondeprecated list
+requires exact config-file `src`, while set's maintained constructor omits it.
+The list constructor gets `src` from config resolution; neither missing source
+nor an environment alias receives config-file credit. No deprecated lookup,
+foreign endpoint, path/API alternative, credential mismatch or extra field is
+accepted. Explicit API skips the signature-probe branch in pinned
+[alias-set source](https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/cmd/alias-set.go).
+
+Before services, a genuine digest-pinned client container with `--network none`
+and no host/shared mounts checks unchanged readonly guards, explicit alias
+set/list, independent local file producer, stat and exact cat bytes. Config
+writes stay inside that fresh ephemeral image fixture. Each phase has a unique
+completion marker and must succeed before the next. Source controls alone are
+not genuine output proof. Known alias/stat/bucket/pipe fields retain finite
+presence/type/agreement before refusal; malformed/duplicate/extra records fail
+closed. Arbitrary names/values, credentials/config/raw output never persist.
+MC cat remains raw bytes only in memory; independent shell/native success and
+exact byte comparison remain required. Native negative command bytes remain
+unavailable, with no invented MC error or field evidence. No generic/default/
+catalog/image/Compose/production bootstrap change is implied.
+
+The explicit diagnostic recipe has now passed genuine pinned network-none alias
+set/list and local stat/cat output, then actual selected-service correspondence
+in disposable Reference primary/worktree scopes. Every required alias/stat/
+bucket/pipe field agreed before validation; native project/service selection and
+unique live loopback mappings agreed with fresh Compose. Client challenges read
+exactly through selected server loopback and signed host GET; distinct host PUT
+bytes read exactly through server and client. Own keys survived and both foreign
+keys in each existing bucket returned `404/NoSuchKey`. This observes byte
+correspondence, not numeric DNS/IP/container-ID inventory or a historical cause.
+
+Both new scoped downs completed and post-down inventories were available and
+empty; the exact new private gateway stopped. These do not prove retirement or
+remote cancellation. New VM/images/volumes remain held; all earlier held
+resources are protected. Production bootstrap defaults remain unqualified: its
+existing MC calls use their original default HOME/config and API detection, so
+this explicit probe recipe cannot stand in for production bootstrap or remaining
+whole-profile/Reference-finalisation/lifecycle/dev:test acceptance.

@@ -11,9 +11,9 @@ import secrets
 
 from qualification_runtime import require_effigy_binary, SUPPORTED_EFFIGY_SOURCE, SUPPORTED_EFFIGY_SHA256
 from reference_storage_probe import StorageDiagnosticJournal
-from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity, bounded_run, shell_region, status_projection, environment_guard, cross_scope, strict_json, capture_contract, bounded_arguments, bounded_payload, file_producer, native_identity_observation, native_status_observation
+from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity, bounded_run, shell_region, status_projection, environment_guard, cross_scope, strict_json, capture_contract, bounded_arguments, bounded_payload, file_producer, native_identity_observation, native_status_observation, mc_command, alias_projection
 from silo_fixture import prepare_published_images
-from routing_guard import finite_shell, evaluate_guard, OWNER_CLIENT_COMMAND_INPUT, client_command_input, client_input_projection
+from routing_guard import finite_shell, evaluate_guard, OWNER_CLIENT_COMMAND_INPUT, client_command_input, client_input_projection, guard_command, guard_projection
 from service_defaults import baseline, image_defaults
 from formatter_provenance import bind_host, bound_colima, version_arguments, observe
 import importlib.util
@@ -31,7 +31,64 @@ OPT = load('storage_optin', 'qualify-reference-optin.py')
 DEV = load('storage_launcher', 'dev/profile_launcher.py')
 
 
-SAFE_REASONS = {'status_projection_truncated','live_port_duplicate','unexpected_exposed_port','live_port_not_owned_loopback','native_bounded_refusal','bounded_envelope_refused','bounded_schema_refused','bounded_status_refused','bounded_selection_refused','bounded_limits_refused','bounded_accounting_refused','bounded_phase_refused','container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused','routing_guard_refused','service_default_baseline_unqualified','guard_framing_refused','guard_record_refused','guard_dispatch_refused','client_command_input_refused','formatter_host_identity_refused','formatter_private_scope_refused','formatter_version_unknown','formatter_source_unknown','formatter_capture_refused','formatter_source_unavailable'}
+SAFE_REASONS = {'status_projection_truncated','live_port_duplicate','unexpected_exposed_port','live_port_not_owned_loopback','native_bounded_refusal','bounded_envelope_refused','bounded_schema_refused','bounded_status_refused','bounded_selection_refused','bounded_limits_refused','bounded_accounting_refused','bounded_phase_refused','container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','mc_operation_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused','routing_guard_refused','service_default_baseline_unqualified','guard_framing_refused','guard_record_refused','guard_dispatch_refused','client_command_input_refused','formatter_host_identity_refused','formatter_private_scope_refused','formatter_version_unknown','formatter_source_unknown','formatter_capture_refused','formatter_source_unavailable'}
+
+def client_image_provenance(env,journal,shape):
+    from silo_fixture import CLIENT_IMAGE
+    marker='UNDERLAY_'+secrets.token_hex(16).upper()
+    command=environment_guard('silo_client')+'; '+mc_command(['--version'])
+    if shape:command='command -v sh; command -v mc; '+command+'; sha256sum /usr/bin/mc'
+    command=shell_command(client_command_input(command,marker),marker)
+    capture=bounded_run([bound_colima(env),'nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',CLIENT_IMAGE,'-c',command],env=env,timeout=60)
+    journal.append('client_image_provenance',shape=shape,exit=capture['exit'],outcome=capture['outcome'],stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'])
+    if capture['exit'] or capture['outcome']!='complete':raise ValueError('image_interface_refused')
+    region,inner=shell_region(capture['stdout'].decode(),marker)
+    if inner:raise ValueError('image_interface_refused')
+    region,input_record=client_input_projection(region,marker)
+    journal.append('client_command_input',operation='image_provenance',service='silo_client',**input_record)
+    return region
+
+
+def offline_client_recipe(nonce, markers):
+    path='/root/underlay-'+nonce
+    return [guard_command('silo_client')+'; '+environment_guard('silo_client'),
+            mc_command(['alias','set','local','http://silo:9000','minioadmin','minioadmin','--api','S3v4','--path','auto'],json_output=True),
+            mc_command(['alias','list','local'],json_output=True),
+            file_producer(path,b'challenge'),
+            mc_command(['stat',path],json_output=True),mc_command(['cat',path])]
+
+
+def offline_client_interface(env,journal,nonce):
+    from silo_fixture import CLIENT_IMAGE
+    from storage_correlation import stat_projection
+    labels=('guard','alias_set','alias_list','producer','stat','cat')
+    markers=['UNDERLAY_'+secrets.token_hex(16).upper() for _ in labels]
+    commands=offline_client_recipe(nonce,markers)
+    outer='UNDERLAY_'+secrets.token_hex(16).upper()
+    # Each independent phase must succeed before the next, inside one fresh
+    # network-none container. No host/shared mounts or signature autodetection.
+    command='; '.join('( '+shell_command(c,m)+' ) || exit $?' for c,m in zip(commands,markers))
+    command=shell_command(client_command_input(command,outer),outer)
+    capture=bounded_run([bound_colima(env),'nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',CLIENT_IMAGE,'-c',command],env=env,timeout=60)
+    journal.append('offline_client_recipe',exit=capture['exit'],outcome=capture['outcome'],stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'],network='none')
+    if capture['exit'] or capture['outcome']!='complete':raise ValueError('image_interface_refused')
+    region,inner=shell_region(capture['stdout'].decode(),outer)
+    if inner:raise ValueError('image_interface_refused')
+    region,input_record=client_input_projection(region,outer)
+    journal.append('client_command_input',operation='offline_client_recipe',service='silo_client',**input_record)
+    for label,marker in zip(labels,markers):
+        output,inner=shell_region(region,marker)
+        journal.append('offline_mc_phase',operation=label,inner_exit=inner,output_bytes=len(output.encode()))
+        if inner:raise ValueError('image_interface_refused')
+        if label=='guard':
+            record=guard_projection(output,'silo_client');journal.append('routing_guard',**record)
+            if not record['guard_passed']:raise ValueError('routing_guard_refused')
+        elif label in ('alias_set','alias_list'):alias_projection(output,journal,label)
+        elif label=='stat':stat_projection(output,'underlay-'+nonce,9,journal)
+        elif label=='cat':
+            journal.append('offline_cat',bytes_match=output=='challenge',body_bytes=len(output.encode()))
+            if output!='challenge':raise ValueError('byte_correspondence_refused')
+
 
 def image_interfaces(env,journal,nonce):
     from silo_fixture import IMAGE,CLIENT_IMAGE
@@ -40,7 +97,7 @@ def image_interfaces(env,journal,nonce):
     # only the shared message shape is qualified by this no-network file control.
     for image in (IMAGE,CLIENT_IMAGE):
         marker='UNDERLAY_'+secrets.token_hex(16).upper()
-        command='set -eu; command -v mc >/dev/null; command -v sh >/dev/null; '+file_producer('/root/underlay-'+nonce,b'challenge')+'; mc stat --json /root/underlay-'+nonce
+        command='set -eu; command -v mc >/dev/null; command -v sh >/dev/null; '+file_producer('/root/underlay-'+nonce,b'challenge')+'; '+mc_command(['stat','/root/underlay-'+nonce], 'silo_client' if image==CLIENT_IMAGE else 'silo',json_output=True)
         if image==CLIENT_IMAGE:command=client_command_input(command,marker)
         command=shell_command(command,marker)
         capture=bounded_run([bound_colima(env),'nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c',command],env=env,timeout=60)
@@ -51,11 +108,11 @@ def image_interfaces(env,journal,nonce):
         if image==CLIENT_IMAGE:
             region,input_record=client_input_projection(region,marker)
             journal.append('client_command_input',operation='image_local_stat',service='silo_client',**input_record)
-        stat_projection(region, 'underlay-'+nonce,9)
+        stat_projection(region, 'underlay-'+nonce,9,journal)
         # Help exercises genuine flags/builtins without alias signature probes.
         for operation in ('alias list','pipe','cat','mb','stat'):
             marker='UNDERLAY_'+secrets.token_hex(16).upper()
-            command='mc '+operation+' --help'
+            command=mc_command(operation.split()+['--help'],'silo_client' if image==CLIENT_IMAGE else 'silo')
             if image==CLIENT_IMAGE:command=client_command_input(command,marker)
             capture=bounded_run([bound_colima(env),'nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c',shell_command(command,marker)],env=env,timeout=10)
             journal.append('image_flag_interface',operation=operation.replace(' ','_'),exit=capture['exit'],outcome=capture['outcome'],stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'],network='none')
@@ -65,6 +122,8 @@ def image_interfaces(env,journal,nonce):
             if image==CLIENT_IMAGE:
                 _,input_record=client_input_projection(region,marker)
                 journal.append('client_command_input',operation='image_help_'+operation.replace(' ','_'),service='silo_client',**input_record)
+    offline_client_interface(env,journal,nonce)
+
 
 def main():
     binary = require_effigy_binary()
@@ -225,7 +284,7 @@ def main():
         if process['exit'] or process['outcome']!='complete': raise ValueError('private_vm_start_unknown')
         vm_started = True
         formatter = observe(env, fixture, journal)
-        prepare_published_images(fixture, env)
+        prepare_published_images(fixture, env,client_probe=lambda shape:client_image_provenance(env,journal,shape))
         image_interfaces(env, journal, nonce)
         # The production Silo catalog declares a TCP alias; pinned core starts
         # its gateway for that catalog capability even without explicit DNS.
@@ -276,7 +335,7 @@ def main():
                 return finite_shell(selected_call,journal,label,command,service)
             for service in ('silo','silo_client'):
                 evaluate_guard(shell,journal,service)
-            shell('alias-bootstrap','set -eu; mc alias set local http://silo:9000 minioadmin minioadmin')
+            alias_projection(shell('alias-bootstrap',mc_command(['alias','set','local','http://silo:9000','minioadmin','minioadmin','--api','S3v4','--path','auto'],json_output=True)),journal,'alias_set')
             outcome=correlate(shell,OPT.RUNTIME._s3_request,journal,port,key,nonce)
             outcome.update(selected)
             results.append(outcome)

@@ -105,7 +105,7 @@ def registry_contract(repository: str, arch: str) -> dict:
             "sbom_available": any("spdx" in item["predicate_type"].lower() or "cyclonedx" in item["predicate_type"].lower() for item in attestations)}
 
 
-def prepare_published_images(runtime_root: Path, environment: dict[str, str]) -> dict:
+def prepare_published_images(runtime_root: Path, environment: dict[str, str], *, client_probe=None) -> dict:
     colima_home = Path(environment["COLIMA_HOME"]).resolve(strict=True)
     if runtime_root.resolve() not in colima_home.parents:
         raise RuntimeError("Silo qualification requires task-private COLIMA_HOME")
@@ -123,9 +123,15 @@ def prepare_published_images(runtime_root: Path, environment: dict[str, str]) ->
     prefix = ["colima", "nerdctl", "--profile", "effigy", "--", "run", "--rm", "--network", "none"]
     shape = command(prefix + ["--entrypoint", "/bin/sh", IMAGE, "-c",
         "command -v silo; command -v mc; command -v mcli; silo --version; mc --version; sha256sum /usr/bin/silo /usr/bin/mc"], env=environment, timeout=60)
-    client_version = command(prefix + [CLIENT_IMAGE, "--version"], env=environment, timeout=60)
-    client_shape = command(prefix + ["--entrypoint", "/bin/sh", CLIENT_IMAGE, "-c",
-        "command -v sh; command -v mc; mc --version; sha256sum /usr/bin/mc"], env=environment, timeout=60)
+    if client_probe is None:
+        client_version = command(prefix + [CLIENT_IMAGE, "--version"], env=environment, timeout=60)
+        client_shape = command(prefix + ["--entrypoint", "/bin/sh", CLIENT_IMAGE, "-c",
+            "command -v sh; command -v mc; mc --version; sha256sum /usr/bin/mc"], env=environment, timeout=60)
+    else:
+        # A caller-owned diagnostic input; ordinary artifact qualification and
+        # production bootstrap retain their existing defaults.
+        client_version = client_probe(False)
+        client_shape = client_probe(True)
     if RELEASE not in shape or RELEASE not in client_version or RELEASE not in client_shape:
         raise RuntimeError("published Silo/client executable release differs from selected image")
     if (PINS["pgsty/silo"]["revision"][:12] not in shape

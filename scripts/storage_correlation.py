@@ -66,32 +66,63 @@ def json_records(output):
     return [record]
 
 
-def alias_projection(output):
-    record = json_records(output)[0]
-    allowed = {'status','alias','URL','accessKey','secretKey','api','path','src'}
-    if set(record) != allowed or record.get('status') != 'success' or record.get('alias') != 'local':
-        raise ValueError('alias_shape_refused')
-    if (record['URL'] != 'http://silo:9000' or record['api'] != 'S3v4'
-            or record['path'] != 'auto' or record['src'] != '/root/.mc/config.json'
-            or record['accessKey'] != 'minioadmin' or record['secretKey'] != 'minioadmin'):
-        raise ValueError('alias_config_refused')
+def mc_command(arguments, service='silo_client', json_output=False):
+    import shlex
+    if service not in ('silo_client','silo'):raise ValueError('guard_service_refused')
+    # Trusted diagnostic recipe only; HOME binding still precedes initialization.
+    prefix=['mc']+(['--config-dir','/root/.mc'] if service=='silo_client' else [])
+    if json_output:prefix.append('--json')
+    return ' '.join(shlex.quote(x) for x in prefix+list(arguments))
+
+
+def mc_record(output, expected, diagnostics, operation, optional=None):
+    optional=optional or {}
+    try:record=json_records(output)[0]
+    except ValueError:
+        if diagnostics:diagnostics.append('mc_fields',operation=operation,classification='malformed_or_duplicate',input_bytes=len(output.encode()),fields=[])
+        raise
+    fields=[]
+    for name,(kind,value) in {**expected,**optional}.items():
+        present=name in record;typed=present and type(record[name]) is kind
+        agreement=typed and (value is None or record[name]==value)
+        fields.append({'field':name,'present':present,'type_agreement':typed,
+                       'expected_agreement':agreement,'required':name in expected})
+    extra=set(record)-set(expected)-set(optional)
+    if diagnostics:diagnostics.append('mc_fields',operation=operation,classification='decoded',
+        input_bytes=len(output.encode()),record_count=1,unknown_field_count=len(extra),fields=fields)
+    if extra or any((f['required'] and not f['expected_agreement']) or (not f['required'] and f['present'] and not f['expected_agreement']) for f in fields):
+        raise ValueError('alias_config_refused' if operation.startswith('alias') else 'stat_shape_refused' if operation=='stat' else 'mc_operation_refused')
+    return record
+
+
+def alias_projection(output, diagnostics=None, operation='alias_list'):
+    expected={'status':(str,'success'),'alias':(str,'local'),'URL':(str,'http://silo:9000'),
+              'accessKey':(str,'minioadmin'),'secretKey':(str,'minioadmin'),'api':(str,'S3v4'),'path':(str,'auto')}
+    if operation=='alias_list':expected['src']=(str,'/root/.mc/config.json')
+    elif operation!='alias_set':raise ValueError('alias_shape_refused')
+    mc_record(output,expected,diagnostics,operation)
     return {'alias':'local', 'endpoint':'http://silo:9000',
-            'config_scope':'client-container:/root/.mc', 'credentials_recorded':False}
+            'config_scope':'client-container:/root/.mc', 'credentials_recorded':False,
+            'recipe_provenance':'explicit_probe_input_not_production_default'}
 
 
-def stat_projection(output, key=None, size=None):
-    record = json_records(output)[0]
-    allowed = {'status','name','lastModified','size','etag','type','expires',
-               'expiration','expirationRuleID','replicationStatus','metadata',
-               'versionID','deleteMarker','restore','checksum'}
-    if (not set(record) <= allowed or not {'status','name','lastModified','size','etag','type'} <= set(record)
-            or record['status'] != 'success' or record['type'] != 'file'
-            or type(record['size']) is not int or not 0 <= record['size'] <= 1048576
-            or not isinstance(record['name'], str)
-            or (key is not None and record['name'] != key)
-            or (size is not None and record['size'] != size)):
-        raise ValueError('stat_shape_refused')
-    return {'status':'success', 'size':record['size'], 'type':'file'}
+def stat_projection(output, key=None, size=None, diagnostics=None):
+    expected={'status':(str,'success'),'name':(str,key),'lastModified':(str,None),
+              'size':(int,size),'etag':(str,None),'type':(str,'file')}
+    optional={name:(str,None) for name in ('expires','expiration','expirationRuleID','replicationStatus','versionID')}
+    optional.update({name:(dict,None) for name in ('metadata','restore','checksum')})
+    optional['deleteMarker']=(bool,None)
+    record=mc_record(output,expected,diagnostics,'stat',optional)
+    if not 0<=record['size']<=1048576:raise ValueError('stat_shape_refused')
+    return {'status':'success','size':record['size'],'type':'file'}
+
+
+def operation_projection(output, operation, target, size=None, diagnostics=None):
+    if operation=='bucket':expected={'status':(str,'success'),'bucket':(str,target),'region':(str,'')}
+    elif operation=='pipe':expected={'status':(str,'success'),'target':(str,target),'size':(int,size)}
+    else:raise ValueError('mc_operation_refused')
+    mc_record(output,expected,diagnostics,operation)
+    return {'operation':operation,'success':True}
 
 
 def running(status):
@@ -486,15 +517,15 @@ def correlate(shell, request, journal, port, key, nonce):
     bucket='underlay-storage-correlation'
     client_key=nonce+'-'+key;host_key=nonce+'-host-'+key
     payload=('client:'+client_key).encode();reverse=('host:'+host_key).encode()
-    journal.append('mc_alias',**alias_projection(shell('alias','mc alias list --json local')))
+    journal.append('mc_alias',**alias_projection(shell('alias',mc_command(['alias','list','local'],json_output=True)),journal))
     # No ignore-existing: this attempt must own fresh storage.
-    shell('bucket',f'mc mb local/{bucket}')
+    operation_projection(shell('bucket',mc_command(['mb',f'local/{bucket}'],json_output=True)),'bucket',f'local/{bucket}',diagnostics=journal)
     file='/tmp/underlay-correlation-'+nonce+'-'+key
     shell('producer',file_producer(file,payload))
-    shell('consumer',f'mc pipe local/{bucket}/{client_key} < '+shlex.quote(file))
-    journal.append('mc_stat',**stat_projection(shell('stat',f'mc stat --json local/{bucket}/{client_key}'),client_key,len(payload)))
+    operation_projection(shell('consumer',mc_command(['pipe',f'local/{bucket}/{client_key}'],json_output=True)+' < '+shlex.quote(file)),'pipe',f'local/{bucket}/{client_key}',len(payload),journal)
+    journal.append('mc_stat',**stat_projection(shell('stat',mc_command(['stat',f'local/{bucket}/{client_key}'],json_output=True)),client_key,len(payload),journal))
     def read_exact(service, alias, object_key, expected, label):
-        value=shell(label,f'mc cat {alias}/{bucket}/{object_key}',service=service).encode()
+        value=shell(label,mc_command(['cat',f'{alias}/{bucket}/{object_key}'],service),service=service).encode()
         journal.append(label,body_bytes=len(value),bytes_match=value==expected,body_sha256=hashlib.sha256(value).hexdigest())
         if value!=expected: raise ValueError('byte_correspondence_refused')
     read_exact('silo','local',client_key,payload,'server_read_client_write')

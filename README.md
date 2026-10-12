@@ -412,3 +412,39 @@ Default client HOME and storage byte correspondence remain unqualified. A future
 alias diagnostic must preserve finite per-field agreement before refusal without
 persisting raw config, credentials or output; no fallback or ignored guard is
 justified by this observation.
+
+Disposable client MC diagnostics now use one argument constructor with global
+`--config-dir /root/.mc`, after the existing command-local HOME binding. Alias
+set explicitly selects `--api S3v4 --path auto`. This probe recipe supplies the
+strict intended inputs; it does not qualify production bootstrap defaults.
+Alias-set JSON omits `src`; alias-list must still report exact
+`/root/.mc/config.json`. Known field presence, type and expected-agreement are
+journalled before alias/stat/bucket/pipe refusal, with no raw values or unknown
+field names. Network-disabled pinned client image controls check actual alias
+set/list and local stat/cat output before any selected service starts.
+
+The source-struct storage controls use `UNDERLAY_MC_SOURCE_ROOT` pointing to an
+owned source fixture containing the immutable pinned MC `cmd` files; they verify
+full content digests before inspecting tags/pretty JSON. This is a source-only
+control input, distinct from the genuine image-output gate inside the bounded
+service-only selector. Client image version/provenance calls use the same
+explicit HOME/config-dir diagnostic recipe; ordinary artifact callers retain
+existing behavior.
+
+The explicit diagnostic recipe has now passed genuine pinned network-none alias
+set/list and local stat/cat output, then actual selected-service correspondence
+in disposable Reference primary/worktree scopes. Every required alias/stat/
+bucket/pipe field agreed before validation; native project/service selection and
+unique live loopback mappings agreed with fresh Compose. Client challenges read
+exactly through selected server loopback and signed host GET; distinct host PUT
+bytes read exactly through server and client. Own keys survived and both foreign
+keys in each existing bucket returned `404/NoSuchKey`. This observes byte
+correspondence, not numeric DNS/IP/container-ID inventory or a historical cause.
+
+Both new scoped downs completed and post-down inventories were available and
+empty; the exact new private gateway stopped. These do not prove retirement or
+remote cancellation. New VM/images/volumes remain held; all earlier held
+resources are protected. Production bootstrap defaults remain unqualified: its
+existing MC calls use their original default HOME/config and API detection, so
+this explicit probe recipe cannot stand in for production bootstrap or remaining
+whole-profile/Reference-finalisation/lifecycle/dev:test acceptance.

@@ -89,6 +89,65 @@ class CorrelationTests(unittest.TestCase):
         for key,size in (('foreign',7),('owned',8)):
             with self.assertRaises(ValueError):probe.stat_projection(self.stat('owned',7),key,size)
 
+    def test_mc_per_field_before_refusal_and_exact_recipe(self):
+        import tempfile
+        from pathlib import Path
+        from reference_storage_probe import StorageDiagnosticJournal
+        with tempfile.TemporaryDirectory(prefix='underlay-mc-fields-') as temporary:
+            root=Path(temporary);fixture=root/'fixture';fixture.mkdir(mode=0o700)
+            p=root/'storage-diagnostics.jsonl';journal=StorageDiagnosticJournal(p,fixture)
+            alias=json.loads(self.alias())
+            for field in alias:
+                for change in (None,False,'seeded-secret'):
+                    altered={**alias,field:change}
+                    with self.assertRaises(ValueError):probe.alias_projection(json.dumps(altered),journal)
+                    record=json.loads(p.read_text().splitlines()[-1])
+                    self.assertFalse(next(f for f in record['fields'] if f['field']==field)['expected_agreement'])
+                altered=dict(alias);altered.pop(field)
+                with self.assertRaises(ValueError):probe.alias_projection(json.dumps(altered),journal)
+            with self.assertRaises(ValueError):probe.alias_projection(json.dumps({**alias,'seeded-secret':'secret'}),journal)
+            self.assertEqual(json.loads(p.read_text().splitlines()[-1])['unknown_field_count'],1)
+            set_record=dict(alias);set_record.pop('src')
+            probe.alias_projection(json.dumps(set_record),journal,'alias_set')
+            with self.assertRaises(ValueError):probe.alias_projection(json.dumps(set_record),journal,'alias_list')
+            for field in json.loads(self.stat('owned',9)):
+                altered={**json.loads(self.stat('owned',9)),field:False}
+                with self.assertRaises(ValueError):probe.stat_projection(json.dumps(altered),'owned',9,journal)
+            for op,body in (('bucket',{'status':'success','bucket':'local/owned','region':''}),
+                            ('pipe',{'status':'success','target':'local/owned','size':9})):
+                probe.operation_projection(json.dumps(body),op,'local/owned',9,journal)
+                for field in body:
+                    with self.assertRaises(ValueError):probe.operation_projection(json.dumps({**body,field:'seeded-secret'}),op,'local/owned',9,journal)
+            journal.close()
+            self.assertEqual(p.stat().st_mode&0o777,0o600)
+            self.assertNotIn('seeded-secret',p.read_text())
+        import shlex
+        for args in (['alias','list','local'],['mb','local/owned'],['pipe','local/owned'],['stat','local/owned'],['cat','local/owned']):
+            words=shlex.split(probe.mc_command(args))
+            self.assertEqual(words[:3],['mc','--config-dir','/root/.mc'])
+            self.assertEqual(words[3:],args)
+            self.assertEqual(shlex.split(probe.mc_command(args,'silo')),['mc']+args)
+
+    def test_pinned_emitted_struct_source_contract(self):
+        import os,re,hashlib
+        from pathlib import Path
+        root=Path(os.environ['UNDERLAY_MC_SOURCE_ROOT'])
+        facts={'alias-main.go':('54ef9abc015f0be1bc4481f9e903097bf8ddb2b0bba57ef22e7accdd3d125ebd','aliasMessage'),
+               'stat.go':('335b9f8a197955ed97003e4130e82804eb9f41288c0fdeebf8edf8003ec3be95','statMessage'),
+               'mb-main.go':('b2e98ac646ce4604725d3b8119241d1211116835f92db7c027a2af3d0d86cdd6','makeBucketMessage'),
+               'pipe-main.go':('8f0fff4597e8c872214dbe7f2ce68be17ab6fe6a8c1c4d8f8cc8e7f1c910765b','pipeMessage')}
+        for filename,(digest,struct) in facts.items():
+            raw=(root/filename).read_bytes();self.assertEqual(hashlib.sha256(raw).hexdigest(),digest)
+            source=raw.decode();block=source.split('type '+struct+' struct {',1)[1].split('}',1)[0]
+            fields=re.findall(r'json:"([^"]+)"',block)
+            values={name.split(',')[0]:('' if ',omitempty' in name else 'required') for name in fields}
+            if struct=='aliasMessage':
+                self.assertEqual(set(values),set(json.loads(self.alias()))|{'lookup'})
+                self.assertEqual(values['src'],'');self.assertEqual(values['status'],'required')
+            elif struct=='statMessage':self.assertEqual(values['type'],'')
+            else:self.assertTrue(all(v=='required' for v in values.values()))
+            self.assertIn('json.MarshalIndent',source)
+
     def test_full_correspondence_and_reverse_bytes_refusal(self):
         nonce='a'*32; key='main-known.txt';client_key=nonce+'-'+key;host_key=nonce+'-host-'+key
         payload=('client:'+client_key).encode();reverse=('host:'+host_key).encode();calls=[]
@@ -96,6 +155,8 @@ class CorrelationTests(unittest.TestCase):
             calls.append(label)
             if label=='alias':return self.alias()
             if label=='stat':return self.stat(client_key,len(payload))
+            if label=='bucket':return json.dumps({'status':'success','bucket':'local/underlay-storage-correlation','region':''})
+            if label=='consumer':return json.dumps({'status':'success','target':'local/underlay-storage-correlation/'+client_key,'size':len(payload)})
             if label=='server_read_client_write':return payload.decode()
             if label in ('server_read_host_write','client_read_host_write'):return reverse.decode()
             return ''
