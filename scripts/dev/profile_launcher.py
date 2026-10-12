@@ -1001,9 +1001,11 @@ def _bootstrap_silo(
             fd=os.open(path,flags,0o600)
             try:
                 info=os.fstat(fd)
-                if info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o600 or not stat.S_ISREG(info.st_mode):
+                if info.st_uid!=os.getuid() or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600 or not stat.S_ISREG(info.st_mode):
                     raise ProfileError('Silo bootstrap journal boundary refused')
-                os.write(fd,(json.dumps({'event':event,**record},separators=(',',':'))+'\n').encode())
+                data=(json.dumps({'event':event,**record},separators=(',',':'))+'\n').encode()
+                if info.st_size+len(data)>131072:raise ProfileError('Silo bootstrap journal bound refused')
+                if os.write(fd,data)!=len(data):raise ProfileError('Silo bootstrap journal write refused')
             finally:os.close(fd)
     journal=Journal()
     def call(label,unused,args,timeout):
@@ -1029,8 +1031,13 @@ def _bootstrap_silo(
     except Exception:
         raise ProfileError('Silo bootstrap readonly guard refused') from None
     mc=silo_client.mc_command
-    shell('alias',mc(['alias','set','local','http://silo:9000',SILO_USER,SILO_PASSWORD,
-                      '--api','S3v4','--path','auto']))
+    shell('client_tools','set -eu; command -v mc >/dev/null; command -v rm >/dev/null')
+    try:
+        silo_client.alias_projection(shell('alias_set',mc(['alias','set','local','http://silo:9000',SILO_USER,SILO_PASSWORD,
+                      '--api','S3v4','--path','auto'],json_output=True)),journal,'alias_set')
+        silo_client.alias_projection(shell('alias_list',mc(['alias','list','local'],json_output=True)),journal)
+    except Exception:
+        raise ProfileError('Silo bootstrap alias configuration refused') from None
     # One native absolute deadline bounds the client's own readonly readiness
     # operation. No infinite shell loop and no repeated remote mutation.
     shell('ready',mc(['ready','local']))

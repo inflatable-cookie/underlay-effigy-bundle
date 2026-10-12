@@ -69,35 +69,7 @@ def json_records(output):
 from dev.silo_client import mc_command
 
 
-def mc_record(output, expected, diagnostics, operation, optional=None):
-    optional=optional or {}
-    try:record=json_records(output)[0]
-    except ValueError:
-        if diagnostics:diagnostics.append('mc_fields',operation=operation,classification='malformed_or_duplicate',input_bytes=len(output.encode()),fields=[])
-        raise
-    fields=[]
-    for name,(kind,value) in {**expected,**optional}.items():
-        present=name in record;typed=present and type(record[name]) is kind
-        agreement=typed and (value is None or record[name]==value)
-        fields.append({'field':name,'present':present,'type_agreement':typed,
-                       'expected_agreement':agreement,'required':name in expected})
-    extra=set(record)-set(expected)-set(optional)
-    if diagnostics:diagnostics.append('mc_fields',operation=operation,classification='decoded',
-        input_bytes=len(output.encode()),record_count=1,unknown_field_count=len(extra),fields=fields)
-    if extra or any((f['required'] and not f['expected_agreement']) or (not f['required'] and f['present'] and not f['expected_agreement']) for f in fields):
-        raise ValueError('alias_config_refused' if operation.startswith('alias') else 'stat_shape_refused' if operation=='stat' else 'mc_operation_refused')
-    return record
-
-
-def alias_projection(output, diagnostics=None, operation='alias_list'):
-    expected={'status':(str,'success'),'alias':(str,'local'),'URL':(str,'http://silo:9000'),
-              'accessKey':(str,'minioadmin'),'secretKey':(str,'minioadmin'),'api':(str,'S3v4'),'path':(str,'auto')}
-    if operation=='alias_list':expected['src']=(str,'/root/.mc/config.json')
-    elif operation!='alias_set':raise ValueError('alias_shape_refused')
-    mc_record(output,expected,diagnostics,operation)
-    return {'alias':'local', 'endpoint':'http://silo:9000',
-            'config_scope':'client-container:/root/.mc', 'credentials_recorded':False,
-            'recipe_provenance':'explicit_probe_input_not_production_default'}
+from dev.silo_client import mc_record, alias_projection
 
 
 def stat_projection(output, key=None, size=None, diagnostics=None):

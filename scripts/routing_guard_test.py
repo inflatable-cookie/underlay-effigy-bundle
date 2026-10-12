@@ -70,7 +70,7 @@ class GuardTests(unittest.TestCase):
             if service=='silo':
                 changed=dict(env);changed.pop('MC_HOST_local');journal=Mock()
                 with self.assertRaises(ValueError):self.invoke(service,changed,journal)
-                self.assertEqual(journal.append.call_args.kwargs['predicates'][-1]['presence'],'absent')
+                self.assertEqual(next(r for r in journal.append.call_args.kwargs['predicates'] if r['predicate']=='MC_HOST_local')['presence'],'absent')
 
     def test_server_exact_default_replaces_absence_without_other_exceptions(self):
         for value in (None,'','relative','.mc','/tmp/.mc/','/other','seeded-secret'):

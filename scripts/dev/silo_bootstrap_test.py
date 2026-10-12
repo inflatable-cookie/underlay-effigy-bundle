@@ -34,7 +34,10 @@ class BootstrapTests(unittest.TestCase):
             # Marked process-entry consumers challenge HOME, global flag order,
             # explicit alias recipe and bucket/ACL/CORS inputs through real sh.
             prefix='mc() { test "$HOME" = /root && test "$1" = --config-dir && test "$2" = /root/.mc || return 91; shift 2; '
-            prefix+='case "$*" in "alias set local http://silo:9000 minioadmin minioadmin --api S3v4 --path auto"|"ready local"|"mb local/owned-bucket --ignore-existing"|"anonymous set download local/owned-bucket") printf stage_pass;; '
+            alias={'status':'success','alias':'local','URL':'http://silo:9000','accessKey':'minioadmin','secretKey':'minioadmin','api':'S3v4','path':'auto'}
+            prefix+='case "$*" in "--json alias set local http://silo:9000 minioadmin minioadmin --api S3v4 --path auto") printf %s '+__import__('shlex').quote(json.dumps(alias,indent=1))+';; '
+            prefix+='"--json alias list local") printf %s '+__import__('shlex').quote(json.dumps({**alias,'src':'/root/.mc/config.json'},indent=1))+';; '
+            prefix+='"ready local"|"mb local/owned-bucket --ignore-existing"|"anonymous set download local/owned-bucket") printf stage_pass;; '
             prefix+='"cors set local/owned-bucket "*) test -f "$4" && '+ '/usr/bin/python3 -c '+__import__('shlex').quote('import sys; from pathlib import Path; s=Path(sys.argv[1]).read_text(); assert s.count("<AllowedOrigin>")==2 and "https://front.example.test" in s and "https://admin.example.test" in s and "<AllowedMethod>PUT</AllowedMethod>" in s')+' "$4";; *) return 92;; esac; }; '
             # Rehome only the test's in-container temporary path into this fresh
             # owned fixture, while executing the maintained file/trap behavior.
@@ -57,7 +60,7 @@ class BootstrapTests(unittest.TestCase):
             with tempfile.TemporaryDirectory(prefix='underlay-bootstrap-') as temporary:
                 root=Path(temporary).resolve()
                 seen=self.exercise(root,container)
-                self.assertEqual(seen,[('silo',0),('silo_client',0)]+[('silo_client',0)]*5)
+                self.assertEqual(seen,[('silo',0),('silo_client',0)]+[('silo_client',0)]*7)
                 self.assertEqual(list(root.glob('cors-*')),[])
                 path=root/'.effigy/runtime/dev-profiles'/container/'silo-bootstrap.jsonl'
                 self.assertEqual(path.stat().st_mode&0o777,0o600)

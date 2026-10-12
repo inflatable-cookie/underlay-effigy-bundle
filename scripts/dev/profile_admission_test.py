@@ -329,7 +329,7 @@ class ProfileAdmissionTests(unittest.TestCase):
         control=silo_bootstrap_test.BootstrapTests()
         with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
             seen=control.exercise(Path(temporary).resolve())
-            self.assertEqual(seen,[('silo',0),('silo_client',0)]+[('silo_client',0)]*5)
+            self.assertEqual(seen,[('silo',0),('silo_client',0)]+[('silo_client',0)]*7)
 
     def test_private_state_root_is_confined_and_mode_0700(self) -> None:
         with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:

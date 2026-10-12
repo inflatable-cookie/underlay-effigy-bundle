@@ -52,7 +52,7 @@ def main():
             if index:
                 if not {'hybrid_services','disposable_test'}<=set(containers):raise ValueError('optin_composition_unavailable')
             elif {'hybrid_services','disposable_test'}&set(containers):raise ValueError('default_composition_changed')
-            receipt['assemblies'].append({'checkout':str(checkout),'profile':'default' if not index else 'explicit_optin','container_names':sorted(containers),'exported_silo_client_asset':(Path(__file__).parent/'dev/silo_client.py').is_file()})
+            receipt['assemblies'].append({'checkout':str(checkout),'profile':'default' if not index else 'explicit_optin','container_names':sorted(set(containers)&{'default','stack','hybrid_services','disposable_test'}),'unknown_container_count':len(set(containers)-{'default','stack','hybrid_services','disposable_test'}),'exported_silo_client_asset':(Path(__file__).parent/'dev/silo_client.py').is_file()})
         # Supported extraction only writes into this newly owned checkout. It
         # does not inspect a live backend or substitute Silo for legacy MinIO.
         call(checkouts[0],'service','extract','minio','--dir','infra/dev/catalog')
