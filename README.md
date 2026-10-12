@@ -371,3 +371,12 @@ precise failed predicate or shell cause is unobserved; no alias/bootstrap or
 object request was reached and worktree services were not started. Available
 post-down main inventory was empty and the private gateway was stopped; these
 observations do not prove retirement. New VM/images/volumes remain held.
+
+Routing guards now emit only allowlisted predicate names, absent/empty/present
+states and agreement booleans through the same bounded native transport and
+unique shell markers. The readonly diagnostic command may complete to retain
+all predicates; the helper independently refuses any failed agreement before
+alias/bootstrap. Transport completion is not guard acceptance. Native negative
+results omit command bytes, so dispatch/native/marker failure classes preserve
+explicit unavailable evidence rather than guessing a predicate or logging raw
+environment values. No new runtime proof accompanies this diagnostic change.

@@ -13,6 +13,7 @@ from qualification_runtime import require_effigy_binary, SUPPORTED_EFFIGY_SOURCE
 from reference_storage_probe import StorageDiagnosticJournal
 from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity, bounded_run, shell_region, status_projection, environment_guard, cross_scope, strict_json, capture_contract, bounded_arguments, bounded_payload, file_producer, native_identity_observation, native_status_observation
 from silo_fixture import prepare_published_images
+from routing_guard import finite_shell, evaluate_guard
 from formatter_provenance import bind_host, bound_colima, version_arguments, observe
 import importlib.util
 
@@ -29,7 +30,7 @@ OPT = load('storage_optin', 'qualify-reference-optin.py')
 DEV = load('storage_launcher', 'dev/profile_launcher.py')
 
 
-SAFE_REASONS = {'status_projection_truncated','live_port_duplicate','unexpected_exposed_port','live_port_not_owned_loopback','native_bounded_refusal','bounded_envelope_refused','bounded_schema_refused','bounded_status_refused','bounded_selection_refused','bounded_limits_refused','bounded_accounting_refused','bounded_phase_refused','container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused','formatter_host_identity_refused','formatter_private_scope_refused','formatter_version_unknown','formatter_source_unknown','formatter_capture_refused','formatter_source_unavailable'}
+SAFE_REASONS = {'status_projection_truncated','live_port_duplicate','unexpected_exposed_port','live_port_not_owned_loopback','native_bounded_refusal','bounded_envelope_refused','bounded_schema_refused','bounded_status_refused','bounded_selection_refused','bounded_limits_refused','bounded_accounting_refused','bounded_phase_refused','container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused','routing_guard_refused','guard_framing_refused','guard_record_refused','guard_dispatch_refused','formatter_host_identity_refused','formatter_private_scope_refused','formatter_version_unknown','formatter_source_unknown','formatter_capture_refused','formatter_source_unavailable'}
 
 def image_interfaces(env,journal,nonce):
     from silo_fixture import IMAGE,CLIENT_IMAGE
@@ -243,19 +244,12 @@ def main():
                            service_names=['silo','silo_client'])
 
             def shell(label, command, service='silo_client'):
-                marker='UNDERLAY_'+secrets.token_hex(16).upper()
-                output,outer=call(label,checkout,bounded_arguments(service,shell_command(command,marker)),timeout=10)
-                output,projection=bounded_payload(output,outer,service)
-                journal.append('native_bounded_completion',operation=label,**projection)
-                if output is None:raise ValueError('native_bounded_refusal')
-                region,inner=shell_region(output,marker)
-                journal.append('shell_completion',operation=label,service=service,inner_exit=inner,
-                               outer_exit=outer,region_bytes=len(region.encode()),framing='unique_marker')
-                if outer!=0 or inner!=0:raise ValueError('shell_operation_refused')
-                return region
-            # Presence (including empty) refuses before persisted alias bootstrap.
+                # Same production bounded transport; checkout is explicitly bound.
+                def selected_call(operation, unused, args, timeout):
+                    return call(operation, checkout, args, timeout=timeout)
+                return finite_shell(selected_call,journal,label,command,service)
             for service in ('silo','silo_client'):
-                shell('routing_environment_guard',environment_guard(service),service=service)
+                evaluate_guard(shell,journal,service)
             shell('alias-bootstrap','set -eu; mc alias set local http://silo:9000 minioadmin minioadmin')
             outcome=correlate(shell,OPT.RUNTIME._s3_request,journal,port,key,nonce)
             outcome.update(selected)

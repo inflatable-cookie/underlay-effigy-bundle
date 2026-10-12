@@ -1011,3 +1011,35 @@ inventory was available and empty, and the exact new private gateway stopped;
 remote cancellation and volume/VM retirement remain unproven. New resources
 remain held and prior held resources are untouched. Storage/full-profile
 acceptance remains incomplete; this observation does not authorize a retry.
+
+
+Routing predicate evidence uses the existing native bounded execution schema,
+limits/accounting and unique shell marker framing. Each finite declared
+predicate reports only its fixed name/rule, absent/empty/present state and
+agreement boolean; server loopback-alias equality never emits its credential
+URL. Server MC_HOST_local must still be present with exact expected agreement;
+server config overrides and all client alias/config overrides still refuse
+presence, including empty values. The readonly shell completes its diagnostic
+records so native success can retain them, then the Python gate refuses any
+failed predicate before alias/bootstrap. Diagnostic transport success must
+never be interpreted as routing-guard PASS.
+
+The pinned0412 [bounded execution source](https://github.com/inflatable-cookie/effigy/blob/0412cc7b17f4aab3905e6853a08985270d1454d0/src/runner/container_command/bounded_exec.rs)
+emits `inner_command_failed` without captured command bytes. Negative native
+results therefore retain finite phase/failure/exit/accounting and explicit
+unavailable-predicate evidence. Spawn, timeout, truncation, malformed native
+output and missing/duplicate shell markers refuse; arbitrary exception text,
+stdout/stderr and environment values never enter receipts. Controls exercise
+the actual production transport/decoder/guard/journal with private real-shell
+and native-envelope doubles, including every empty/present predicate, exact
+alias mismatch, seeded secrets and durable0600 failure evidence.
+
+Content-addressed published server metadata declares MC_CONFIG_DIR and lacks
+MC_HOST_local. The pinned [entrypoint source](https://github.com/pgsty/silo/blob/2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c/dockerscripts/docker-entrypoint.sh)
+does not establish that alias; the bundle's explicit Compose declaration is a
+separate input. Image metadata is not the selected runtime exec environment,
+and these source facts do not identify the historical first failed predicate.
+The required absent-config/present-alias contract remains enforced pending an
+owner ruling and separately authorized observation; no override removal,
+guard relaxation, image repin or runtime retry is implied. Storage/full-profile
+proof remains incomplete, and every held resource remains protected.
