@@ -11,7 +11,7 @@ import secrets
 
 from qualification_runtime import require_effigy_binary, SUPPORTED_EFFIGY_SOURCE, SUPPORTED_EFFIGY_SHA256
 from reference_storage_probe import StorageDiagnosticJournal
-from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity, bounded_run, shell_region, status_projection, environment_guard, cross_scope, strict_json, capture_contract, bounded_arguments, bounded_payload, file_producer
+from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity, bounded_run, shell_region, status_projection, environment_guard, cross_scope, strict_json, capture_contract, bounded_arguments, bounded_payload, file_producer, native_identity_observation, native_status_observation
 from silo_fixture import prepare_published_images
 import importlib.util
 
@@ -28,7 +28,7 @@ OPT = load('storage_optin', 'qualify-reference-optin.py')
 DEV = load('storage_launcher', 'dev/profile_launcher.py')
 
 
-SAFE_REASONS = {'native_bounded_refusal','bounded_envelope_refused','bounded_schema_refused','bounded_status_refused','bounded_selection_refused','bounded_limits_refused','bounded_accounting_refused','bounded_phase_refused','container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused'}
+SAFE_REASONS = {'status_projection_truncated','live_port_duplicate','unexpected_exposed_port','live_port_not_owned_loopback','native_bounded_refusal','bounded_envelope_refused','bounded_schema_refused','bounded_status_refused','bounded_selection_refused','bounded_limits_refused','bounded_accounting_refused','bounded_phase_refused','container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused'}
 
 def image_interfaces(env,journal,nonce):
     from silo_fixture import IMAGE,CLIENT_IMAGE
@@ -91,12 +91,15 @@ def main():
 
     def result(label, checkout, args):
         output,_=call(label,checkout,args)
+        journal.append('native_envelope_input',operation=label,input_bytes=len(output.encode()),input_sha256=hashlib.sha256(output.encode()).hexdigest(),evidence='current_input_before_validation',ownership_credit=False)
         envelope=strict_json(output)
         if (not isinstance(envelope,dict) or envelope.get('schema')!='effigy.command.v1'
                 or envelope.get('schema_version')!=1 or envelope.get('ok') is not True
                 or not isinstance(envelope.get('result'),dict)):
             raise ValueError('command_envelope_refused')
         value=envelope['result']
+        journal.append('native_identity_input',operation=label,**native_identity_observation(value))
+        if label in ('service-only-status','new-owned-after-down'):journal.append('native_status_input',operation=label,**native_status_observation(value))
         if args[0]=='config': expected='effigy.config.v1'
         elif args[0]=='gateway': expected='effigy.gateway.status.v1' if args[1]=='status' else 'effigy.gateway.command.v1'
         else: expected='effigy.container.'+args[1 if args[1]=='scope' else 2]+'.v1'
@@ -149,7 +152,7 @@ def main():
             if verified != policy:
                 raise RuntimeError('minimal service policy changed during composition')
             native_scope = result('checkout-scope', checkout, ['container', 'scope', '--json'])
-            identity = scope_identity(native_scope, checkout, fixture, 'none' if checkout == main_checkout else 'worktree', revision, policy)
+            identity = scope_identity(native_scope, checkout, fixture, 'none' if checkout == main_checkout else 'worktree', revision, policy, diagnostics=journal)
             identities[checkout] = identity
             journal.append('checkout_identity_gate', **identity, runtime_effects=False)
             # Native hosts loads the effective catalog capabilities without
@@ -164,13 +167,13 @@ def main():
                     raise ValueError('unsafe_generated_compose')
                 generated.resolve(strict=True).relative_to(checkout)
                 raw_preflight = generated.read_bytes()
-                compose_identity(raw_preflight, {'project_name':identity['project']}, identity)
+                compose_identity(raw_preflight, {'project_name':identity['project']}, identity, diagnostics=journal)
                 journal.append('no_backend_compose_identity_gate', **identity,
                                compose_sha256=hashlib.sha256(raw_preflight).hexdigest(),
                                provenance='native_hosts_generated_configuration', runtime_effects=False)
             journal.append('minimal_policy_gate', checkout=str(checkout), policy_preserved=True,
                            catalog_files_sha256={alias: hashlib.sha256((checkout / 'infra/dev/catalog' / alias / 'service.toml').read_bytes()).hexdigest() for alias in ('silo', 'silo-mc')},
-                           effective_hosts=hosts_projection(hosts, checkout, identity), runtime_effects=False)
+                           effective_hosts=hosts_projection(hosts, checkout, identity, diagnostics=journal), runtime_effects=False)
 
         # Both real identities are retained. Output captured inside core cannot
         # be bounded by our external pipe reader. Stop before any runtime effect.
@@ -207,7 +210,7 @@ def main():
             matches = [port for service, port, target in bindings if service == 'silo' and target == 9000]
             if len(matches) != 1: raise RuntimeError('ambiguous Silo loopback map')
             identity = identities[checkout]
-            selected = status_projection(status, identity, bindings)
+            selected = status_projection(status, identity, bindings, diagnostics=journal)
             port = selected['port']
             for previous in results:
                 if previous['port']==port or previous['project']==selected['project'] or set(previous['selected_container_sha256']) & set(selected['selected_container_sha256']):
@@ -222,7 +225,7 @@ def main():
                            expected_project=identity['project'], expected_kind=identity['kind'],
                            expected_token=identity['token'], loopback_port=port)
             try:
-                observed = compose_identity(raw, status, identity)
+                observed = compose_identity(raw, status, identity, diagnostics=journal)
             except ValueError as error:
                 journal.append('compose_identity_rejected', reason=str(error))
                 raise
@@ -261,7 +264,7 @@ def main():
             try:
                 result('new-owned-scoped-down', checkout, ['container', 'hybrid_services', 'down', '--json'])
                 status = result('new-owned-after-down', checkout, ['container', 'hybrid_services', 'status', '--json'])
-                observation=status_projection(status,identities[checkout],[],after_down=True)
+                observation=status_projection(status,identities[checkout],[],after_down=True,diagnostics=journal)
                 journal.append('cleanup_status',checkout=str(checkout),**observation,retirement_proven=False)
             except Exception as error:
                 journal.append('cleanup_unknown', exception_type=type(error).__name__)

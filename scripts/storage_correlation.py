@@ -100,7 +100,79 @@ def running(status):
     return not any(x in lowered for x in ('exited','created','dead','paused')) and any(x in lowered for x in ('up','running'))
 
 
-def status_projection(status, identity, bindings, after_down=False):
+def input_fingerprint(value):
+    # Native JSON is externally bounded. Only byte counts/digests leave memory.
+    if isinstance(value,str): raw=value.encode('utf-8')
+    else:
+        try: raw=json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+        except (ValueError,TypeError):return {'input_type':'unsupported','input_bytes':None,'input_sha256':None}
+    kind='string' if isinstance(value,str) else ('object' if isinstance(value,dict) else 'list' if isinstance(value,list) else 'boolean' if type(value) is bool else 'integer' if type(value) is int else 'null' if value is None else 'other')
+    return {'input_type':kind,'input_bytes':len(raw),'input_sha256':hashlib.sha256(raw).hexdigest()}
+
+
+def port_facts(value):
+    import ipaddress
+    facts=input_fingerprint(value)
+    if not isinstance(value,str):return {**facts,'class':'wrong_type'}
+    if len(value.encode())>128:return {**facts,'class':'oversized'}
+    exposed=re.fullmatch(r'([0-9]{1,5})/(tcp|udp|sctp)',value)
+    published=re.fullmatch(r'(\[[0-9a-fA-F:]+\]|[0-9.]+):([0-9]{1,5})->([0-9]{1,5})/(tcp|udp|sctp)',value)
+    if exposed:
+        target=int(exposed[1])
+        if not 1<=target<=65535 or str(target)!=exposed[1]:return {**facts,'class':'malformed_numeric'}
+        return {**facts,'class':'exposed_only','target':target,'protocol':exposed[2]}
+    if published:
+        try: address=ipaddress.ip_address(published[1].strip('[]'))
+        except ValueError:return {**facts,'class':'malformed_address'}
+        host,target=int(published[2]),int(published[3])
+        if not (1<=host<=65535 and 1<=target<=65535 and str(host)==published[2] and str(target)==published[3]):return {**facts,'class':'malformed_numeric'}
+        kind='loopback_exact' if str(address)=='127.0.0.1' else 'wildcard' if address.is_unspecified else 'other_loopback' if address.is_loopback else 'foreign'
+        return {**facts,'class':'published','host_port':host,'target':target,'protocol':published[4],'address_kind':kind}
+    if re.fullmatch(r'[0-9a-fA-F:.\[\]>/tcpudsh-]{1,128}',value) and '-' in value:
+        return {**facts,'class':'range_or_malformed'}
+    return {**facts,'class':'unknown'}
+
+
+def native_identity_observation(value):
+    result={'evidence':'current_input_before_validation','root_type':input_fingerprint(value)['input_type'],'fields':[],'ownership_credit':False}
+    if isinstance(value,dict):
+        for field in ('schema','schema_version','ok','checkout','scope','routes','selected_value','project_name','compose_file','ports','container','primary_service','driver','manifest_driver','backend','profile','runtime_running'):
+            if field in value:result['fields'].append({'field':field,**input_fingerprint(value[field])})
+    return result
+
+
+def native_status_observation(status):
+    result={'evidence':'current_input_before_validation','root_type':input_fingerprint(status)['input_type'],
+            'fields':[],'rows':[],'projection_truncated':False,'ownership_credit':False}
+    if not isinstance(status,dict):return result
+    for field in ('schema','schema_version','ok','container','driver','manifest_driver','backend','profile','project_name','primary_service','runtime_running'):
+        result['fields'].append({'field':field,'present':field in status,**input_fingerprint(status.get(field))})
+    rows=status.get('services');result['service_inventory']=input_fingerprint(rows)
+    if not isinstance(rows,list):return result
+    result['row_count']=len(rows);result['projection_truncated']=len(rows)>16
+    for index,row in enumerate(rows[:16]):
+        projection={'index':index,'service':'unknown','fields':[],'ports':[]}
+        if not isinstance(row,dict):
+            projection['row']=input_fingerprint(row);result['rows'].append(projection);continue
+        if row.get('name') in ('silo','silo_client'):projection['service']=row['name']
+        for field in ('name','container_name','status','ports'):
+            projection['fields'].append({'field':field,'present':field in row,**input_fingerprint(row.get(field))})
+        # Unknown key names are never printed either.
+        projection['extra_field_count']=len(set(row)-{'name','container_name','status','ports'})
+        ports=row.get('ports')
+        if isinstance(ports,list):
+            projection['port_count']=len(ports)
+            if len(ports)>64:result['projection_truncated']=True
+            projection['ports']=[{'index':i,**port_facts(token)} for i,token in enumerate(ports[:64])]
+        result['rows'].append(projection)
+    return result
+
+
+def status_projection(status, identity, bindings, after_down=False, diagnostics=None):
+    observation=native_status_observation(status)
+    if diagnostics is not None: diagnostics.append("native_status_observation", **observation)
+    if observation["projection_truncated"]:raise ValueError("status_projection_truncated")
+    if not isinstance(status,dict):raise ValueError("status_identity_unavailable")
     expected = {'schema':'effigy.container.status.v1','schema_version':1,'ok':True,
                 'container':'hybrid_services','driver':'colima','manifest_driver':'colima',
                 'backend':'containerd','profile':'effigy','project_name':identity['project'],
@@ -112,7 +184,7 @@ def status_projection(status, identity, bindings, after_down=False):
     if after_down:
         if rows: raise ValueError('post_down_inventory_not_empty')
         return {'available':True,'service_count':0}
-    if len(rows) != 2 or {r.get('name') for r in rows if isinstance(r,dict)} != {'silo','silo_client'}:
+    if len(rows) != 2 or any(not isinstance(r,dict) or not isinstance(r.get('name'),str) for r in rows) or {r['name'] for r in rows} != {'silo','silo_client'}:
         raise ValueError('status_service_ambiguity')
     names=[]; published=[]
     for row in rows:
@@ -123,14 +195,21 @@ def status_projection(status, identity, bindings, after_down=False):
             raise ValueError('status_container_unknown')
         names.append(name)
         if not isinstance(row['ports'],list): raise ValueError('status_ports_unknown')
-        for port in row['ports']:
-            # Pinned backend preserves docker/nerdctl .Ports strings; no ranges,
-            # wildcard binds or unknown representations receive credit.
-            match=re.fullmatch(r'127\.0\.0\.1:([0-9]{1,5})->([0-9]{1,5})/tcp',port) if isinstance(port,str) else None
-            if not match: raise ValueError('live_port_representation_unknown')
-            host,target=map(int,match.groups())
-            if not 1 <= host <= 65535 or not 1 <= target <= 65535: raise ValueError('live_port_invalid')
-            published.append((row['name'],host,target))
+        seen=set()
+        for token in row['ports']:
+            facts=port_facts(token)
+            digest=facts['input_sha256']
+            if digest in seen:raise ValueError('live_port_duplicate')
+            seen.add(digest)
+            if facts['class']=='exposed_only':
+                if facts['protocol']!='tcp' or (row['name'],facts['target']) not in {(n,t) for n,h,t in bindings}:
+                    raise ValueError('unexpected_exposed_port')
+                # Exposure conveys no host binding; require all real mappings
+                # independently and exactly below.
+                continue
+            if facts['class']!='published':raise ValueError('live_port_representation_unknown')
+            if facts['address_kind']!='loopback_exact' or facts['protocol']!='tcp':raise ValueError('live_port_not_owned_loopback')
+            published.append((row['name'],facts['host_port'],facts['target']))
     if len(set(names)) != 2 or len(set(published)) != len(published) or sorted(published) != sorted(bindings):
         raise ValueError('live_compose_disagreement')
     api=[h for name,h,t in published if name=='silo' and t==9000]
@@ -198,7 +277,8 @@ def minimal_policy(policy):
     return result
 
 
-def scope_identity(report, checkout, fixture, expected_kind, revision, policy):
+def scope_identity(report, checkout, fixture, expected_kind, revision, policy, diagnostics=None):
+    if diagnostics is not None:diagnostics.append("native_scope_observation", **native_identity_observation(report))
     """Bind one native query to a caller-created Git checkout before effects."""
     import os
     import subprocess
@@ -248,7 +328,8 @@ def scope_identity(report, checkout, fixture, expected_kind, revision, policy):
             'project':project, 'reference_source':revision}
 
 
-def compose_identity(raw, status, identity):
+def compose_identity(raw, status, identity, diagnostics=None):
+    if diagnostics is not None:diagnostics.append("compose_identity_input", input_bytes=len(raw),input_sha256=hashlib.sha256(raw).hexdigest(),status=native_identity_observation(status),ownership_credit=False)
     """Strict branch-specific labels; observations confer no cleanup authority."""
     try:
         text = raw.decode('utf-8')
@@ -271,7 +352,8 @@ def compose_identity(raw, status, identity):
     return {'project':identity['project'], 'scope_kind':identity['kind'], 'scope':identity['token']}
 
 
-def hosts_projection(hosts, checkout, identity=None):
+def hosts_projection(hosts, checkout, identity=None, diagnostics=None):
+    if diagnostics is not None:diagnostics.append("native_hosts_observation", **native_identity_observation(hosts))
     from pathlib import Path
     if (not isinstance(hosts, dict) or hosts.get('schema') != 'effigy.container.hosts.v1'
             or hosts.get('ok') is not True or hosts.get('checkout') != str(Path(checkout).resolve())):

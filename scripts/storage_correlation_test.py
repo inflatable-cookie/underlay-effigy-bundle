@@ -178,6 +178,93 @@ class CorrelationTests(unittest.TestCase):
             refused=subprocess.run(['/bin/sh','-c',probe.file_producer(path,b'replacement')],capture_output=True,timeout=2)
             self.assertNotEqual(refused.returncode,0);self.assertEqual(path.read_bytes(),payload)
 
+    def test_port_classes_and_before_rejection_evidence(self):
+        import copy
+        identity={'project':'owned'}
+        status=dict(schema='effigy.container.status.v1',schema_version=1,ok=True,container='hybrid_services',driver='colima',manifest_driver='colima',backend='containerd',profile='effigy',project_name='owned',primary_service='silo',runtime_running=True,services=[{'name':'silo','container_name':'opaque server','status':'Up 1 second','ports':['127.0.0.1:8140->9000/tcp','9000/tcp']},{'name':'silo_client','container_name':'opaque client','status':'running','ports':[]}])
+        bindings=[('silo',8140,9000)]
+        self.assertEqual(probe.status_projection(status,identity,bindings)['port'],8140)
+        for token in ('9000/udp','1234/tcp','0.0.0.0:8140->9000/tcp','[::]:8140->9000/tcp','127.0.0.2:8140->9000/tcp','127.0.0.1:8140->9000/udp','127.0.0.1:8140-8141->9000/tcp','seeded-secret-http://user:password@foreign','x'*300,None):
+            changed=copy.deepcopy(status);changed['services'][0]['ports'].append(token)
+            journal=Mock()
+            with self.assertRaises(ValueError):probe.status_projection(changed,identity,bindings,diagnostics=journal)
+            evidence=journal.append.call_args.kwargs
+            self.assertEqual(evidence['evidence'],'current_input_before_validation')
+            self.assertEqual(evidence['rows'][0]['ports'][-1]['input_sha256'],probe.input_fingerprint(token)['input_sha256'])
+            self.assertNotIn('seeded-secret',json.dumps(evidence));self.assertNotIn('password',json.dumps(evidence))
+            self.assertLess(len(json.dumps(evidence)),12000)
+        for tokens in (['9000/tcp'], ['127.0.0.1:8140->9000/tcp']*2, ['127.0.0.1:8140->9000/tcp','127.0.0.1:8540->9000/tcp']):
+            changed=copy.deepcopy(status);changed['services'][0]['ports']=tokens
+            with self.assertRaises(ValueError):probe.status_projection(changed,identity,bindings,diagnostics=Mock())
+        changed=copy.deepcopy(status);changed['project_name']='seeded-secret';changed['services'][0]['container_name']='credential-string';changed['services'][0]['status']='seeded-secret'
+        journal=Mock()
+        with self.assertRaises(ValueError):probe.status_projection(changed,identity,bindings,diagnostics=journal)
+        self.assertNotIn('seeded-secret',json.dumps(journal.append.call_args.kwargs))
+        self.assertNotIn('credential-string',json.dumps(journal.append.call_args.kwargs))
+        changed=copy.deepcopy(status);changed['services'][0]['ports']=['9000/tcp']*65
+        journal=Mock()
+        with self.assertRaisesRegex(ValueError,'projection_truncated'):probe.status_projection(changed,identity,bindings,diagnostics=journal)
+        self.assertTrue(journal.append.call_args.kwargs['projection_truncated'])
+
+    def test_rejected_status_is_durable_secret_free_mode0600(self):
+        import tempfile,stat
+        from pathlib import Path
+        from reference_storage_probe import StorageDiagnosticJournal
+        with tempfile.TemporaryDirectory(prefix='underlay-port-evidence-') as name:
+            root=Path(name).resolve();fixture=root/'fixture';fixture.mkdir(mode=0o700)
+            evidence=root/'evidence';evidence.mkdir(mode=0o700)
+            path=evidence/'storage-diagnostics.jsonl';journal=StorageDiagnosticJournal(path,fixture)
+            status={'schema':'seeded-secret','compose_file':'/seeded-secret/path','services':[{'name':'silo','container_name':'seeded-secret','status':'seeded-secret','ports':['seeded-secret']} ]}
+            try:
+                with self.assertRaises(ValueError):probe.status_projection(status,{'project':'owned'},[],diagnostics=journal)
+                persisted=path.read_text()
+                self.assertNotIn('seeded-secret',persisted)
+                record=json.loads(persisted)
+                self.assertEqual(record['event'],'native_status_observation')
+                self.assertEqual(record['rows'][0]['ports'][0]['class'],'unknown')
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode),0o600)
+            finally:journal.close()
+
+    def test_native_private_backend_formatter_rows_both_checkouts(self):
+        import tempfile,subprocess,os,shutil
+        from pathlib import Path
+        from qualification_runtime import require_effigy_binary
+        binary=require_effigy_binary()
+        with tempfile.TemporaryDirectory(prefix='underlay-native-port-parser-',dir=Path.home()) as name:
+            fixture=Path(name).resolve();bin_dir=fixture/'bin';bin_dir.mkdir();home=fixture/'home';home.mkdir()
+            fake=bin_dir/'colima'
+            fake.write_text("#!/bin/sh\ncase \"$*\" in\n 'status --profile effigy') printf '%s\\n' 'colima is running using containerd';;\n 'list --json') printf '%s\\n' '{\"name\":\"effigy\",\"status\":\"Running\",\"cpus\":2,\"memory\":4294967296,\"disk\":34359738368}';;\n 'nerdctl --profile effigy -- ps --format '*|'nerdctl --profile effigy -- ps --all --format '*) printf '%s' \"$FAKE_PORT_ROWS\";;\n 'nerdctl --profile effigy -- exec '*) exit 0;;\n *) exit 93;;\nesac\n")
+            fake.chmod(0o700)
+            env={**os.environ,'PATH':str(bin_dir)+os.pathsep+os.environ['PATH'],'HOME':str(home),'COLIMA_HOME':str(fixture/'colima'),'EFFIGY_COMPOSE_BACKEND':'colima'}
+            for key in ('DOCKER_HOST','DOCKER_CONTEXT'):env.pop(key,None)
+            main=fixture/'main';main.mkdir()
+            def git(root,*args):return subprocess.run(['git','-C',str(root),*args],check=True,capture_output=True,text=True,timeout=10).stdout.strip()
+            git(main,'init');(main/'owned').write_text('fixture');git(main,'add','owned');git(main,'-c','user.name=Fixture','-c','user.email=fixture@example.test','commit','-m','fixture')
+            revision=git(main,'rev-parse','HEAD');first=fixture/'first';git(main,'worktree','add','--detach',str(first),'HEAD')
+            policy=probe.minimal_policy(dict(driver='colima',profile='effigy',startup='detached',project_name='owned',working_dir='/',host={'publish_address':'127.0.0.1'},services={'silo':{'catalog':'silo'},'silo_client':{'catalog':'silo-mc'}}))
+            projects=[]
+            for checkout,kind in ((main,'none'),(first,'worktree')):
+                for alias in ('silo','silo-mc'):shutil.copytree(Path(__file__).parent/'dev/catalog'/alias,checkout/'infra/dev/catalog'/alias)
+                (checkout/'effigy.toml').write_text(probe.minimal_manifest(policy))
+                captured=probe.bounded_run(probe.invocation(binary,checkout,['container','scope','--json']),env=env,timeout=10)
+                self.assertEqual(captured['exit'],0)
+                scope=probe.strict_json(captured['stdout'].decode())['result']
+                identity=probe.scope_identity(scope,checkout,fixture,kind,revision,policy)
+                project=identity['project'];projects.append(project)
+                # This is a source-representative formatter double, not a live
+                # backend receipt. The actual pinned native parser/serializer runs.
+                port=8140 if kind=='none' else 8540
+                rows=f'opaque-server-{kind}\tUp 1 second\t127.0.0.1:{port}->9000/tcp, 9000/tcp\t{project}\t{checkout}\tsilo\tFalse\nopaque-client-{kind}\trunning\t\t{project}\t{checkout}\tsilo_client\tFalse\n'
+                captured=probe.bounded_run(probe.invocation(binary,checkout,['container','hybrid_services','status','--json']),env={**env,'FAKE_PORT_ROWS':rows},timeout=10)
+                self.assertEqual(captured['exit'],0,{'stderr_bytes':captured['stderr_bytes'],'stdout_bytes':captured['stdout_bytes']})
+                envelope=probe.strict_json(captured['stdout'].decode());self.assertEqual(envelope['schema'],'effigy.command.v1');self.assertTrue(envelope['ok'])
+                native=envelope['result'];self.assertEqual(native['schema_version'],1)
+                server=next(row for row in native['services'] if row['name']=='silo')
+                self.assertEqual(server['ports'],[f'127.0.0.1:{port}->9000/tcp','9000/tcp'])
+                self.assertEqual(probe.status_projection(native,identity,[('silo',port,9000)],diagnostics=Mock())['port'],port)
+                with self.assertRaises(ValueError):probe.status_projection(native,{**identity,'project':'foreign'},[('silo',8140,9000)],diagnostics=Mock())
+            self.assertEqual(len(set(projects)),2)
+
     def test_bounded_native_accounting_and_secret_projection(self):
         import copy
         marker='UNDERLAY_TEST1234'

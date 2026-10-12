@@ -332,3 +332,11 @@ text was not retained, so its precise shape and the historical 404 cause remain
 unknown. No second attempt was made. Available post-down inventory was empty;
 new VM/images/volumes remain held without retirement credit. Storage and pending
 whole-profile acceptance remain incomplete.
+
+The port reader now distinguishes exposed-only tokens from published mappings.
+Exposure grants no host-binding credit: complete, unique loopback mappings must
+match configured service targets exactly. Safe field/token projections precede
+refusal in both checkout paths. File-only native-parser controls cover the
+correction; they do not identify the missing historical token or deployed guest
+formatter version. No new runtime or cleanup was performed. Storage and full
+profile acceptance remain pending.

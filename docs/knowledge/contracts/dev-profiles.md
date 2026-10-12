@@ -901,3 +901,36 @@ safe pre-validation live-port projection and an exact pinned-backend format
 contract/control. No guessed port-format broadening or second runtime is
 qualified by this outcome. Storage correspondence and all outstanding
 whole-profile/independent assurance remain unproven.
+
+### Port representation and pre-validation diagnostics
+
+Effigy at `0412cc7b` requests backend `.Ports`, splits comma-separated entries
+and trims each token. Its maintained port-recovery control distinguishes a
+published host mapping from exposed-only `9000/tcp`. The storage helper now
+classifies these separately: exposed-only TCP for an independently declared
+service target receives no host-binding credit. Every actual published mapping
+must still equal the unique configured loopback host/target inventory. Unknown,
+ranged, duplicate, conflicting, wildcard, other-address and other-protocol
+mappings refuse; exposure alone cannot satisfy a required mapping.
+
+Before native identity/status validation, both checkout paths retain finite
+field/service/index classes, presence/type, byte counts and digests, plus
+recognized numeric port/protocol/address-kind facts. Arbitrary strings, field
+names, credentials and envelopes never enter the journal. Row/token projection
+limits refuse explicitly rather than granting credit to a clipped inventory.
+The same observation boundary covers scope, hosts, Compose provenance and
+post-down status; diagnostics are nonauthoritative and do not permit cleanup.
+
+Source references: [pinned Effigy backend parser](https://github.com/inflatable-cookie/effigy/blob/0412cc7b17f4aab3905e6853a08985270d1454d0/crates/effigy-containers/src/exec/parse.rs),
+[Docker CLI v28.0.1 formatter](https://github.com/docker/cli/blob/068a01ea9470df6494cc92d9e64e240805ae47a7/cli/command/formatter/container.go)
+and [nerdctl v2.1.6 formatter](https://github.com/containerd/nerdctl/blob/59253e9931873e79b92fe3400f14e69d6be34025/pkg/formatter/formatter.go).
+Docker's formatter includes exposure and publication; the referenced nerdctl
+formatter emits CNI mappings. These exact reference versions establish
+representative formatter shapes, not the deployed guest formatter version.
+No immutable receipt establishes that version or recovers the prior rejected
+value. Private file-only backend doubles exercise the actual pinned native
+parser/serializer for main and worktree without contacting a runtime. Their
+results are control evidence, not new runtime or historical failure credit.
+Storage correspondence and the historical 404 cause remain unknown. A future
+owner-authorized diagnostic would need current pre-validation projections and
+backend-version provenance before any object operation; none is authorized here.
