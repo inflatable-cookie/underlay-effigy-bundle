@@ -64,14 +64,14 @@ class ContextDiagnosticTests(unittest.TestCase):
 
 class ProfileAdmissionTests(unittest.TestCase):
     def test_reviewed_source_pin_refuses_historical_capability(self):
-        self.assertEqual(profiles.SUPPORTED_SOURCE, "6da2f94bcc1400f9165b954a5343bd0cb14267ac")
-        self.assertEqual(profiles.SUPPORTED_BINARY_SHA256, "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8")
+        self.assertEqual(profiles.SUPPORTED_SOURCE, "0412cc7b17f4aab3905e6853a08985270d1454d0")
+        self.assertEqual(profiles.SUPPORTED_BINARY_SHA256, "be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb")
         with tempfile.TemporaryDirectory(prefix="underlay-old-pin-") as temporary:
             source = Path(temporary).resolve()
             binary = source / "effigy"
             binary.write_bytes(b"historical")
             binary.chmod(0o700)
-            with patch.object(profiles, "_git", side_effect=[str(source), "8ecd64b37963cd6832a2b6ffa528034c56828504"]), \
+            with patch.object(profiles, "_git", side_effect=[str(source), "6da2f94bcc1400f9165b954a5343bd0cb14267ac"]), \
                  patch.object(profiles.subprocess, "run") as run, self.assertRaises(profiles.ProfileError):
                 profiles.verify_binary(str(source), str(binary), system="Darwin", machine="arm64")
             run.assert_not_called()

@@ -19,9 +19,9 @@ does not change the container-only path.
 The bundle inputs `profiles.effigy_source` and `profiles.effigy_binary` must
 name the clean qualified source checkout and absolute executable. Before any
 profile state, service, gateway or cleanup operation, the launcher checks
-source commit `6da2f94bcc1400f9165b954a5343bd0cb14267ac`, version `effigy
+source commit `0412cc7b17f4aab3905e6853a08985270d1454d0`, version `effigy
 v0.14.1`, and macOS arm64 binary SHA-256
-`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`. Current
+`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`. Current
 exact-source admission is macOS arm64 only; new-source runtime acceptance is
 still incomplete. Unknown, changed, wrong-platform or
 unavailable identities fail before runtime effects, with actionable input
@@ -105,9 +105,9 @@ blocked capability must not become an invented CLI or private protocol.
 ## Supported mechanism
 
 Qualification uses Effigy source
-`6da2f94bcc1400f9165b954a5343bd0cb14267ac` and its private `effigy v0.14.1`
+`0412cc7b17f4aab3905e6853a08985270d1454d0` and its private `effigy v0.14.1`
 binary, SHA-256
-`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`.
+`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
 The scripts require explicit source and binary paths and verify both identities.
 The owning interfaces are Effigy's contract 005 managed host listener routes
 and guide 063 managed host listeners/private gateway at that source. The
@@ -168,9 +168,9 @@ catalog publication or adoption, consumer default migration, or live settings
 changes. Reference remains the disposable pilot and Acowtancy remains excluded.
 
 The qualified opt-in Effigy source is
-`6da2f94bcc1400f9165b954a5343bd0cb14267ac`. Its trusted private macOS arm64
+`0412cc7b17f4aab3905e6853a08985270d1454d0`. Its trusted private macOS arm64
 binary has SHA256
-`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`.
+`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
 This source includes the independently qualified managed-listener checkout
 hostname mapping and passed exact-source milestone assurance.
 Published `v0.14.1` does not contain the private gateway and managed-listener
@@ -683,9 +683,9 @@ manual source-image build or global Effigy replacement is required.
 ### Qualified transition observations
 
 The active opt-in gate admits source
-`6da2f94bcc1400f9165b954a5343bd0cb14267ac` and the privately qualified macOS
+`0412cc7b17f4aab3905e6853a08985270d1454d0` and the privately qualified macOS
 arm64 binary SHA256
-`5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8`.
+`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
 The version string remains `effigy v0.14.1` and is not source attestation.
 Earlier `8ecd64b3`/`03d10d8e` records remain historical evidence. Generic runtime
 changes invalidate transfer of their source-sensitive runtime acceptance;
@@ -861,3 +861,23 @@ MC alias/stat decoders use the pinned [alias message](https://github.com/pgsty/m
 and [stat message](https://github.com/pgsty/mc/blob/e952aa78f10a2b77dd525a2b7e3143bcda0cd377/cmd/stat.go)
 structures; local and S3 stat share `parseStat` and indented JSON serialization.
 Source-shaped controls do not certify execution against the published images.
+
+### Reviewed bounded storage command capture
+
+Current private Darwin arm64 admission accepts source `0412cc7b17f4aab3905e6853a08985270d1454d0`
+and binary SHA256 `be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
+The preceding `6da2f94b`/`5febcae9` capture refusal is historical evidence.
+Finite storage commands use only the reviewed shell `--bounded` surface with
+all deadline/stdout/stderr limits supplied, plus JSON. The helper checks native
+whole-operation accounting, separate preparation and command counts, complete
+status and unique inner markers. Raw bounded envelopes and successful secret
+output remain private in memory; refusal projects only finite reasons/counts.
+The external cap is supplemental and cannot replace the native capture bound.
+
+Host-client group termination/reap proves neither remote command cancellation
+nor object rollback or service retirement. Failed effectful commands leave
+remote effects uncertain and are never repeated. Synchronous filesystem calls
+cannot be interrupted midway; natural post-reap survivors remain held. This
+private Darwin pilot supplies no real Linux consumer proof or fleet/default
+rollout. The owner QA passed with one identified passed LEAK; its mechanism
+remains unestablished, and no leak-free or historical-cause claim is made.

@@ -11,7 +11,7 @@ import secrets
 
 from qualification_runtime import require_effigy_binary, SUPPORTED_EFFIGY_SOURCE, SUPPORTED_EFFIGY_SHA256
 from reference_storage_probe import StorageDiagnosticJournal
-from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity, bounded_run, shell_region, status_projection, environment_guard, cross_scope, strict_json, capture_contract
+from storage_correlation import correlate, minimal_policy, minimal_manifest, s3_error, invocation, shell_command, nested_exit, hosts_projection, scope_identity, compose_identity, bounded_run, shell_region, status_projection, environment_guard, cross_scope, strict_json, capture_contract, bounded_arguments, bounded_payload, file_producer
 from silo_fixture import prepare_published_images
 import importlib.util
 
@@ -28,7 +28,7 @@ OPT = load('storage_optin', 'qualify-reference-optin.py')
 DEV = load('storage_launcher', 'dev/profile_launcher.py')
 
 
-SAFE_REASONS = {'container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused'}
+SAFE_REASONS = {'native_bounded_refusal','bounded_envelope_refused','bounded_schema_refused','bounded_status_refused','bounded_selection_refused','bounded_limits_refused','bounded_accounting_refused','bounded_phase_refused','container_capture_boundary_unqualified','capture_source_unrecognized','byte_correspondence_refused','host_byte_correspondence_refused','host_write_refused','shell_operation_refused','status_identity_unavailable','status_inventory_unavailable','status_service_ambiguity','status_not_running','status_container_unknown','status_ports_unknown','live_port_representation_unknown','live_port_invalid','live_compose_disagreement','live_api_port_ambiguity','alias_shape_refused','alias_config_refused','stat_shape_refused','cross_scope_isolation_unproven','own_key_survival_refused','cross_checkout_identity_conflict','command_capture_timeout','command_capture_truncated','native_result_schema_refused','gateway_identity_unknown','image_interface_refused'}
 
 def image_interfaces(env,journal,nonce):
     from silo_fixture import IMAGE,CLIENT_IMAGE
@@ -37,13 +37,18 @@ def image_interfaces(env,journal,nonce):
     # only the shared message shape is qualified by this no-network file control.
     for image in (IMAGE,CLIENT_IMAGE):
         marker='UNDERLAY_'+secrets.token_hex(16).upper()
-        command=shell_command('set -eu; command -v mc >/dev/null; command -v sh >/dev/null; set -C; printf %s challenge > /root/underlay-'+nonce+'; mc stat --json /root/underlay-'+nonce,marker)
+        command=shell_command('set -eu; command -v mc >/dev/null; command -v sh >/dev/null; '+file_producer('/root/underlay-'+nonce,b'challenge')+'; mc stat --json /root/underlay-'+nonce,marker)
         capture=bounded_run(['colima','nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c',command],env=env,timeout=60)
         journal.append('image_interface',exit=capture['exit'],outcome=capture['outcome'],stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'],network='none')
         if capture['exit'] or capture['outcome']!='complete':raise ValueError('image_interface_refused')
         region,inner=shell_region(capture['stdout'].decode(),marker)
         if inner!=0:raise ValueError('image_interface_refused')
         stat_projection(region, 'underlay-'+nonce,9)
+        # Help exercises genuine flags/builtins without alias signature probes.
+        for operation in ('alias list','pipe','cat','mb','stat'):
+            capture=bounded_run(['colima','nerdctl','--profile','effigy','--','run','--rm','--network','none','--entrypoint','/bin/sh',image,'-c','mc '+operation+' --help'],env=env,timeout=10)
+            journal.append('image_flag_interface',operation=operation.replace(' ','_'),exit=capture['exit'],outcome=capture['outcome'],stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'],network='none')
+            if capture['exit'] or capture['outcome']!='complete':raise ValueError('image_interface_refused')
 
 def main():
     binary = require_effigy_binary()
@@ -80,7 +85,7 @@ def main():
         if captured['outcome'] != 'complete': raise ValueError('command_capture_'+captured['outcome'])
         try: output=captured['stdout'].decode('utf-8')
         except UnicodeDecodeError: raise ValueError('command_encoding_unknown') from None
-        if captured['exit'] != 0 and '--command' not in args:
+        if captured['exit'] != 0 and '--bounded' not in args:
             raise ValueError('command_exit_refused')
         return output, captured['exit']
 
@@ -173,7 +178,7 @@ def main():
             raise ValueError('checkout_orchestration_refused')
         evidence=capture_contract(Path(os.environ['UNDERLAY_PROFILE_EFFIGY_SOURCE']))
         journal.append('capture_contract_gate',**evidence,runtime_effects=False)
-        raise ValueError('container_capture_boundary_unqualified')
+
 
         # No service starts until both typed production/minimal compositions agree.
         journal.append('start_intents', fixture=str(fixture), gateway=str(gateway), checkouts=[str(main_checkout),str(first)], private_vm_held=True)
@@ -227,7 +232,10 @@ def main():
 
             def shell(label, command, service='silo_client'):
                 marker='UNDERLAY_'+secrets.token_hex(16).upper()
-                output,outer=call(label,checkout,['container','hybrid_services','shell','--service',service,'--command',shell_command(command,marker)])
+                output,outer=call(label,checkout,bounded_arguments(service,shell_command(command,marker)),timeout=10)
+                output,projection=bounded_payload(output,outer,service)
+                journal.append('native_bounded_completion',operation=label,**projection)
+                if output is None:raise ValueError('native_bounded_refusal')
                 region,inner=shell_region(output,marker)
                 journal.append('shell_completion',operation=label,service=service,inner_exit=inner,
                                outer_exit=outer,region_bytes=len(region.encode()),framing='unique_marker')
@@ -249,13 +257,7 @@ def main():
         print(f'STOP: storage correlation {failure}; see sanitized journal', flush=True)
     finally:
         for checkout in reversed(started):
-            for service in ('silo', 'silo_client'):
-                try:
-                    output, _ = call('finite-service-log', checkout, ['container', 'hybrid_services', 'logs', '--service', service], timeout=10)
-                    journal.write_log(f'{checkout.name}-{service.replace("_", "-")}.log', output.splitlines()[-80:])
-                    journal.append('service_log_evidence',service=service,availability='unavailable_until_sanitized_lines_verified')
-                except Exception as error:
-                    journal.append('service_log_unavailable', service=service, exception_type=type(error).__name__)
+            journal.append('service_log_unavailable',reason='no_qualified_bounded_log_surface')
             try:
                 result('new-owned-scoped-down', checkout, ['container', 'hybrid_services', 'down', '--json'])
                 status = result('new-owned-after-down', checkout, ['container', 'hybrid_services', 'status', '--json'])

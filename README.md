@@ -56,8 +56,8 @@ managed-listener and private-gateway contracts.
 ```toml
 [bundle.profiles]
 enabled = true
-effigy_source = "/path/to/effigy-at-6da2f94b"
-effigy_binary = "/path/to/qualified/effigy-6da2f94b-macos-arm64"
+effigy_source = "/path/to/effigy-at-0412cc7b"
+effigy_binary = "/path/to/qualified/effigy-0412cc7b-macos-arm64"
 test_task = "app-api/test" # one bounded Effigy selector for dev:test
 test_timeout_secs = 900
 # silo_bucket = "acme-media" # defaults to <first database>-media
@@ -311,8 +311,15 @@ remain untouched; whole-profile acceptance remains incomplete.
 
 Storage correlation evidence follows the [owning evidence boundary](docs/knowledge/contracts/dev-profiles.md#storage-endpoint-evidence-boundary): native selected services and live published ports plus exact challenge-byte correspondence. DNS/IP addresses and network inventory remain unobserved. This diagnostic cannot certify whole-profile acceptance or retirement.
 
-The current exact-source command-mode shell collects output internally before
+The preceding `6da2f94b` command-mode shell collected output internally before
 emitting it. An external pipe cap cannot prove the required inner capture bound,
 so the storage diagnostic stops after both native checkout preflights and before
 VM/gateway/service startup. Image-interface and endpoint correspondence execution
 remain unqualified; the historical storage failure cause remains unknown.
+
+The current private Darwin arm64 gate accepts exact source `0412cc7b` and its
+reviewed artifact checksum, using native bounded JSON shell capture with one
+deadline and cumulative independent stream limits. Full command/accounting
+validation precedes byte credit. Host-client reap is not remote cancellation or
+rollback; uncertain effects and old residue remain held. No Linux consumer or
+default rollout is qualified by this diagnostic.

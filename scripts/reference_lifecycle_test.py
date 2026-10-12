@@ -439,7 +439,7 @@ class FixtureExtensionTests(unittest.TestCase):
         if not binary or not reference_source:
             self.skipTest("actual assembly requires explicit qualified binary and Reference source")
         self.assertEqual(hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
-                         "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8")
+                         "be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb")
         bundle = self.fixture / "bundle"
         bundle.mkdir()
         for source, destination, revision in ((optin.ROOT, bundle, "HEAD"),
