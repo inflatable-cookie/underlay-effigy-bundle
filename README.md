@@ -387,9 +387,28 @@ proxy/routing and client override absence checks remain intact; server alias
 agreement is still checked privately against the independent Compose input.
 Missing, empty, relative or other server config paths refuse.
 
-Both service-default baselines now run before VM effects. The pinned client
-image and unchanged Compose declare no HOME, and pinned secondary native exec
-does not inject one. Login-shell initialization has not been qualified to
-establish `/root`; this is unknown default evidence, not a proved runtime HOME
-failure. The preflight refuses that unknown without starting a VM. The strict
-client HOME/config-source guard remains unchanged pending source qualification.
+Both service-default baselines run before VM effects. Disposable client diagnostic
+commands use the shared bounded helper to assign and export `HOME=/root` inside
+selected `sh -lc`, after shell entry and before the guard or any MC process.
+This is an explicit owner command input, not image, native or inherited HOME
+proof. Inherited HOME is observed only as finite presence/agreement; client
+default HOME remains unqualified. The input makes MC's HOME-derived config source
+`/root/.mc/config.json` deterministic; actual alias source and container mount
+boundaries still require validation. Client MC_CONFIG_DIR, MC_CONFIG_ENV_FILE,
+MC_HOST_local and routing/proxy overrides remain absent even when empty. Server
+HOME and exact `/tmp/.mc` config-dir checks are unchanged. No Compose/catalog,
+image, service environment or production bootstrap default changes accompany
+this diagnostic input. A false/unknown guard stops before alias or object writes.
+
+A fresh selected-service observation retained complete true server/client guards
+and exact command-input HOME agreement before client alias bootstrap. Bootstrap
+and alias-list transport both completed within native bounds, but the strict
+alias configuration projection refused. The specific rejected field was not
+retained, so endpoint/config-source/credential/path-mode cause remains unknown.
+No bucket or object operation was reached. Available post-down service inventory
+was empty and the exact private gateway stopped; these are observations, not
+retirement or remote rollback proof. The new VM/images/volumes remain held.
+Default client HOME and storage byte correspondence remain unqualified. A future
+alias diagnostic must preserve finite per-field agreement before refusal without
+persisting raw config, credentials or output; no fallback or ignored guard is
+justified by this observation.

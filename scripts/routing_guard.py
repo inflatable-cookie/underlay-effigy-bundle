@@ -6,6 +6,32 @@ from storage_correlation import (ROUTING_OVERRIDES, bounded_arguments, bounded_p
                                  shell_command, shell_region)
 
 
+# This private capability names the shared command binding, not native/image
+# HOME provenance. Baselines cannot authorize arbitrary supplied HOME values.
+OWNER_CLIENT_COMMAND_INPUT = object()
+
+
+def client_command_input(command, marker):
+    return ('if test "${HOME+present}" != present; then underlay_home_state=absent; '
+            'elif test -z "$HOME"; then underlay_home_state=empty; else underlay_home_state=present; fi; '
+            'if test "${HOME-}" = /root; then underlay_home_agreement=1; else underlay_home_agreement=0; fi; '
+            'HOME=/root; export HOME; '
+            'if test "$HOME" = /root; then underlay_home_bound=1; else underlay_home_bound=0; fi; '
+            "printf '"+marker+"_HOME|%s|%s|%s\\n' "+
+            '"$underlay_home_state" "$underlay_home_agreement" "$underlay_home_bound"; '
+            'test "$underlay_home_bound" = 1 || exit 1; '+command)
+
+
+def client_input_projection(region, marker):
+    line, separator, remainder = region.partition('\n')
+    match = re.fullmatch(re.escape(marker)+r'_HOME\|(absent|empty|present)\|([01])\|1', line)
+    if not separator or not match or (match[1]!='present' and match[2]!='0'):
+        raise ValueError('client_command_input_refused')
+    return remainder, {'inherited_presence':match[1], 'inherited_expected_agreement':match[2]=='1',
+                       'input_presence':'present', 'input_expected_agreement':True,
+                       'provenance':'owner_command_input', 'default_home_qualified':False}
+
+
 def predicates(service):
     if service not in ('silo','silo_client'):
         raise ValueError('guard_service_refused')
@@ -49,6 +75,8 @@ def guard_projection(region,service):
 
 def finite_shell(call,journal,label,command,service='silo_client'):
     marker='UNDERLAY_'+secrets.token_hex(16).upper()
+    if service not in ('silo','silo_client'):raise ValueError('guard_service_refused')
+    if service=='silo_client':command=client_command_input(command,marker)
     try:
         output,outer=call(label,None,bounded_arguments(service,shell_command(command,marker)),timeout=10)
     except Exception as error:
@@ -75,6 +103,12 @@ def finite_shell(call,journal,label,command,service='silo_client'):
     journal.append('shell_completion',operation=label,service=service,inner_exit=inner,outer_exit=outer,
                    region_bytes=len(region.encode()),framing='unique_marker')
     if outer!=0 or inner!=0:raise ValueError('shell_operation_refused')
+    if service=='silo_client':
+        try:region,input_record=client_input_projection(region,marker)
+        except ValueError:
+            journal.append('client_command_input',operation=label,classification='input_framing_refused')
+            raise
+        journal.append('client_command_input',operation=label,service=service,**input_record)
     return region
 
 

@@ -4,7 +4,7 @@ import json
 import urllib.request
 
 from silo_fixture import PINS
-from routing_guard import predicates
+from routing_guard import predicates, OWNER_CLIENT_COMMAND_INPUT
 
 CONFIG_DIGESTS={'pgsty/silo':'sha256:a9590da2668a2589dee6e1f8754c755074695794aaba389b6c7e78199688e2d5',
                 'pgsty/mc':'sha256:37a94867c70839fe649c7ecfff0adad3b8d30fbdba35cdd33bf409cf27d01378'}
@@ -12,7 +12,7 @@ EXPECTED={'expected_server_configdir':'/tmp/.mc','expected_home':'/root',
           'expected_loopback_alias':'http://minioadmin:minioadmin@127.0.0.1:9000'}
 
 
-def baseline(image_env,compose_env,service,mount_targets=(),native_home=None):
+def baseline(image_env,compose_env,service,mount_targets=(),command_input=None):
     # The selected secondary service has no workspace HOME handoff. No value
     # from image/Compose/native inputs is invented from a user or shell name.
     if any(not isinstance(p,str) or not p.startswith('/') or '..' in p.split('/') for p in mount_targets):
@@ -21,15 +21,21 @@ def baseline(image_env,compose_env,service,mount_targets=(),native_home=None):
     if any(p=='/' or protected==p or protected.startswith(p.rstrip('/')+'/') for p in mount_targets):
         raise ValueError('service_mount_boundary_refused')
     effective={**image_env,**compose_env}
-    if native_home is not None:effective['HOME']=native_home
+    inherited_home={'presence':'absent' if 'HOME' not in effective else 'empty' if effective['HOME']=='' else 'present',
+                    'expected_agreement':effective.get('HOME')=='/root', 'default_home_qualified':False}
+    if command_input is not None:
+        if service!='silo_client' or command_input is not OWNER_CLIENT_COMMAND_INPUT:
+            raise ValueError('client_command_input_refused')
+        effective['HOME']='/root'
     records=[]
     for name,rule in predicates(service):
         state='absent' if name not in effective else 'empty' if effective[name]=='' else 'present'
         agreement=(state=='absent') if rule=='absent' else state=='present' and effective[name]==EXPECTED[rule]
         records.append({'predicate':name,'rule':rule,'presence':state,'agreement':agreement,
-                        'resolution':'unknown_shell_default' if name=='HOME' and state=='absent' else 'declared_inputs'})
+                        'resolution':'owner_command_input' if name=='HOME' and command_input is OWNER_CLIENT_COMMAND_INPUT else 'unknown_shell_default' if name=='HOME' and state=='absent' else 'declared_inputs'})
     return {'service':service,'predicates':records,'baseline_passed':all(r['agreement'] for r in records),
-            'runtime_credit':False,'mount_boundary_passed':True}
+            'runtime_credit':False,'mount_boundary_passed':True,
+            'home_input_observation':inherited_home if service=='silo_client' else None}
 
 
 def image_defaults(repository):

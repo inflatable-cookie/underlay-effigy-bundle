@@ -1060,20 +1060,46 @@ with no foreign/host mount covering `/tmp/.mc`; client mounts do not cover its
 config root. Baseline controls reject config-root/ancestor mount coverage.
 
 Both image-default/Compose/native input matrices must agree before effects.
-The digest-pinned client config declares no HOME, and unchanged rendered
-Compose supplies none. Pinned secondary-service native exec has no workspace
-identity/HOME handoff; nerdctl's selected exec inherits the process environment
-and applies explicit exec flags. Its login-shell initialization remains an
-unqualified source of a possible HOME default. A missing declared HOME is
-therefore `unknown_shell_default`, not a claim that actual exec HOME is absent.
-The pre-effect gate refuses this unknown. Qualifying the pinned client shell's
-root/home initialization (or an explicitly owned supported contract decision)
-is required before a new runtime can be justified; arbitrary HOME injection or
-client guard relaxation is not authorized. No historical predicate/404 cause
-is inferred and the conditional runtime budget has not begun.
+The digest-pinned client config and unchanged Compose declare no HOME. This is
+unknown default evidence, not actual selected-exec absence. Disposable client
+**diagnostic commands only** now establish the owner-supplied `HOME=/root` by
+POSIX assignment/export inside selected `sh -lc`, after shell entry and before
+all guard/MC initialization. Pinned MC's global config-dir default initializes
+from HOME before CLI binding; a CLI config-dir flag alone does not remove that
+dependency. The shared finite helper binds every client guard, alias, bucket,
+producer, write, stat and read call. It records inherited HOME only as finite
+presence/expected-agreement and the separate `owner_command_input` authority;
+assigned HOME is never labelled native/image/inherited proof. Default HOME is
+still unqualified for later production bootstrap acceptance.
 
-Pinned MC source binds config-dir flags/environment before using the default
-HOME-derived `.mc` path, and environment aliases take precedence over persisted
-aliases. The effective selected-exec guard is still required before bootstrap
-or object writes even after static defaults qualify. Static metadata and private
-shell/envelope controls are not runtime/namespace/ownership proof.
+Baselines accept only the shared binding capability, never an arbitrary
+`native_home` value or string override. Actual guards after binding require exact
+`/root`, unchanged strict client MC override/proxy absence, and runtime alias
+source exactly `/root/.mc/config.json`. Fresh container mounts must not cover
+that config root or ancestors; permission/config creation failures stop honestly.
+Server HOME `/tmp`, MC_CONFIG_DIR exact `/tmp/.mc`, env-file/proxy absence and
+private loopback alias equality remain unchanged. No variables are unset to
+manufacture agreement, and no host/service/catalog/Compose/image/default or user
+setting is modified. Finite input framing, native bounds, independent producer /
+consumer success and Python refusal before writes remain mandatory.
+
+Static source/image/Compose inputs qualify expectations, not runtime ownership
+or byte correspondence. Actual readonly guards in both selected services must
+pass before bootstrap/object effects; any false or unknown ends the attempt.
+Historical guard/404 causes remain unknown. Host client settlement does not
+establish remote cancellation/rollback; new VM/images/volumes stay held and old
+held resources remain protected. This diagnostic input does not qualify Linux,
+production default HOME, whole profiles or lifecycle acceptance.
+
+A fresh selected-service observation retained complete true server/client guards
+and exact command-input HOME agreement before client alias bootstrap. Bootstrap
+and alias-list transport both completed within native bounds, but the strict
+alias configuration projection refused. The specific rejected field was not
+retained, so endpoint/config-source/credential/path-mode cause remains unknown.
+No bucket or object operation was reached. Available post-down service inventory
+was empty and the exact private gateway stopped; these are observations, not
+retirement or remote rollback proof. The new VM/images/volumes remain held.
+Default client HOME and storage byte correspondence remain unqualified. A future
+alias diagnostic must preserve finite per-field agreement before refusal without
+persisting raw config, credentials or output; no fallback or ignored guard is
+justified by this observation.
