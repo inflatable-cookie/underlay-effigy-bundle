@@ -2152,8 +2152,18 @@ def main() -> int:
             )
             if compile_result.returncode != 0:
                 raise RuntimeError("instrumented disposable Reference auth fixture compile failed")
-        from formatter_provenance import bind_host, bound_colima, observe
+        from formatter_provenance import bind_host, bound_colima, observe, version_arguments
         bind_host(runtime_env)
+        version_arguments(runtime_env,fixture_root)
+        from service_defaults import baseline, image_defaults
+        from routing_guard import OWNER_CLIENT_COMMAND_INPUT
+        from storage_correlation import capture_contract
+        capture_contract(Path(os.environ['UNDERLAY_PROFILE_EFFIGY_SOURCE']))
+        for default in (baseline(image_defaults('pgsty/silo'),
+                       {'MC_HOST_local':'http://minioadmin:minioadmin@127.0.0.1:9000'},'silo',('/data',)),
+                       baseline(image_defaults('pgsty/mc'),{},'silo_client',command_input=OWNER_CLIENT_COMMAND_INPUT)):
+            diagnostics.append('service_default_baseline',**default)
+            if not default['baseline_passed']:raise RuntimeError('bootstrap baseline refused before effects')
         for key in ('DOCKER_HOST','DOCKER_CONTEXT','COLIMA_PROFILE'):
             if key in runtime_env:raise RuntimeError('foreign runtime override refused')
         colima_start_attempted = True

@@ -157,7 +157,7 @@ def main() -> int:
 
         run([effigy,'--repo',str(checkout),'silo:prepare'],cwd=checkout,env=runtime_env,timeout=60)
         run([effigy,'--repo',str(checkout),'silo:admit'],cwd=checkout,env=runtime_env,timeout=60)
-        from formatter_provenance import bind_host, bound_colima, observe
+        from formatter_provenance import bind_host, bound_colima, observe, version_arguments
         from reference_storage_probe import StorageDiagnosticJournal
         import sys
         interface_spec=importlib.util.spec_from_file_location('container_image_interfaces',REPO/'scripts/qualify-storage-correlation.py')
@@ -165,6 +165,7 @@ def main() -> int:
         packet=Path(subprocess.run(['mktemp','-d',str(Path.home()/'ur.005-container.XXXXXX')],check=True,capture_output=True,text=True).stdout.strip())
         journal=StorageDiagnosticJournal(packet/'storage-diagnostics.jsonl',fixture_root)
         bind_host(runtime_env)
+        version_arguments(runtime_env,fixture_root)
         gateway_attempted = True
         gateway_json(effigy, runtime_env, gateway_root, "setup-tls")
         gateway_status = gateway_json(
