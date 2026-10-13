@@ -16,7 +16,7 @@ _old = {}
 _frame = ContextVar("listener_snapshot_frame", default=None)
 _sequence = 0
 _MAX_BYTES = 65536
-_STATUSES = {"starting", "ready", "failed", "stopped", "stopping"}
+_STATUSES = {"starting", "ready", "failed", "stopped", "stopping", "unavailable"}
 _PHASES = {
     "report": {"not_observed", "absent", "unreadable", "unsafe", "schema_or_generation_mismatch", "invalid_address", "bind_mismatch", "accepted"},
     "ownership": {"not_reached", "no_owner_observed", "exclusive_owner_observed", "supervisor_changed", "child_unavailable", "child_changed", "supervisor_unavailable", "ancestry_changed", "ancestry_unavailable", "identity_unavailable", "identity_changed", "listener_outside_generation", "socket_inspection_failed", "exclusivity_unproven"},

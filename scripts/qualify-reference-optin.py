@@ -1648,9 +1648,9 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                         "reference_checkout": str(checkout),
                         "reference_commit": reference_commit,
                         "auth_fixture": auth_patch_receipt or {},
-                        "effigy_source": "0412cc7b17f4aab3905e6853a08985270d1454d0",
+                        "effigy_source": "77d22adcbdbca20752720d6671310f13894d219f",
                         "effigy_binary": str(Path(EFFIGY).resolve()),
-                        "effigy_binary_sha256": "be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb",
+                        "effigy_binary_sha256": "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938",
                         "checkout_generation": states["api"].get("runtime_generation"),
                         "listeners": {
                             name: {key: state.get(key) for key in
@@ -2053,9 +2053,9 @@ def main() -> int:
     if diagnostics is not None:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
-                           effigy_source="0412cc7b17f4aab3905e6853a08985270d1454d0",
+                           effigy_source="77d22adcbdbca20752720d6671310f13894d219f",
                            effigy_binary=str(Path(EFFIGY).resolve()),
-                           effigy_binary_sha256="be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb",
+                           effigy_binary_sha256="95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938",
                            selector=("proof:dev-profiles:reference-storage" if storage_only
                                      else "proof:dev-profiles:reference-runtime"),
                            continuation=("remaining_lifecycle" if remaining_lifecycle
@@ -2176,9 +2176,9 @@ def main() -> int:
                 gateway=RUNTIME.gateway_json(EFFIGY,runtime_env,profile_root(checkout,state_name),"status")
                 if gateway.get("running") or gateway.get("routes"):
                     raise RuntimeError("new private gateway remains held after scoped cleanup")
-        receipts["effigy_source"] = "0412cc7b17f4aab3905e6853a08985270d1454d0"
+        receipts["effigy_source"] = "77d22adcbdbca20752720d6671310f13894d219f"
         receipts["effigy_binary"] = str(Path(EFFIGY).resolve())
-        receipts["effigy_binary_sha256"] = "be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb"
+        receipts["effigy_binary_sha256"] = "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938"
         receipts["silo_images"] = image_receipt
         receipts["reference_source"] = str(source)
         receipt_path = fixture_root / "profile-selector-receipts.json"

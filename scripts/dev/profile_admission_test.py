@@ -64,8 +64,8 @@ class ContextDiagnosticTests(unittest.TestCase):
 
 class ProfileAdmissionTests(unittest.TestCase):
     def test_reviewed_source_pin_refuses_historical_capability(self):
-        self.assertEqual(profiles.SUPPORTED_SOURCE, "0412cc7b17f4aab3905e6853a08985270d1454d0")
-        self.assertEqual(profiles.SUPPORTED_BINARY_SHA256, "be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb")
+        self.assertEqual(profiles.SUPPORTED_SOURCE, "77d22adcbdbca20752720d6671310f13894d219f")
+        self.assertEqual(profiles.SUPPORTED_BINARY_SHA256, "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938")
         with tempfile.TemporaryDirectory(prefix="underlay-old-pin-") as temporary:
             source = Path(temporary).resolve()
             binary = source / "effigy"
@@ -462,6 +462,21 @@ class ProfileAdmissionTests(unittest.TestCase):
                 with self.assertRaisesRegex(profiles.ProfileError, "managed host listeners remain uncertain"):
                     profiles._container_down(identity, repo, {}, "hybrid_services")
             self.assertEqual(state_path.read_text(encoding="utf-8"), original)
+
+    def test_unavailable_remains_held_even_without_a_route_owner(self) -> None:
+        identity = profiles.BinaryIdentity("/qualified/source", "/qualified/effigy", "hash", 1, 2, 3, 4)
+        with tempfile.TemporaryDirectory(prefix="underlay-unavailable-down-") as temporary:
+            repo = Path(temporary).resolve()
+            root = repo / ".effigy/runtime/host-processes/hybrid_services/effigy"
+            root.mkdir(parents=True)
+            path = root / "front.listener.json"
+            original = json.dumps({"status": "unavailable", "route_owner": None,
+                                   "child_pid": None, "listener_pid": None})
+            path.write_text(original)
+            with patch.object(profiles, "_json_command", side_effect=[{}, {"services": []}]), \
+                 self.assertRaisesRegex(profiles.ProfileError, "front.listener.json:unavailable"):
+                profiles._container_down(identity, repo, {}, "hybrid_services")
+            self.assertEqual(path.read_text(), original)
 
     def test_partial_profile_start_reconciles_only_its_combined_scope(self) -> None:
         identity = profiles.BinaryIdentity("/qualified/source", "/qualified/effigy", "hash", 1, 2, 3, 4)

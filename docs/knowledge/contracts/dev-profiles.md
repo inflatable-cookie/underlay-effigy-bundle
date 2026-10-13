@@ -18,9 +18,9 @@ source adoption require separate explicit work. Storage and profile startup both
 The bundle inputs `profiles.effigy_source` and `profiles.effigy_binary` must
 name the clean qualified source checkout and absolute executable. Before any
 profile state, service, gateway or cleanup operation, the launcher checks
-source commit `0412cc7b17f4aab3905e6853a08985270d1454d0`, version `effigy
+source commit `77d22adcbdbca20752720d6671310f13894d219f`, version `effigy
 v0.14.1`, and macOS arm64 binary SHA-256
-`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`. Current
+`95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938`. Current
 exact-source admission is macOS arm64 only; new-source runtime acceptance is
 still incomplete. Unknown, changed, wrong-platform or
 unavailable identities fail before runtime effects, with actionable input
@@ -103,9 +103,9 @@ blocked capability must not become an invented CLI or private protocol.
 ## Supported mechanism
 
 Qualification uses Effigy source
-`0412cc7b17f4aab3905e6853a08985270d1454d0` and its private `effigy v0.14.1`
+`77d22adcbdbca20752720d6671310f13894d219f` and its private `effigy v0.14.1`
 binary, SHA-256
-`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
+`95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938`.
 The scripts require explicit source and binary paths and verify both identities.
 The owning interfaces are Effigy's contract 005 managed host listener routes
 and guide 063 managed host listeners/private gateway at that source. The
@@ -166,9 +166,9 @@ catalog publication or adoption, consumer default migration, or live settings
 changes. Reference remains the disposable pilot and Acowtancy remains excluded.
 
 The qualified opt-in Effigy source is
-`0412cc7b17f4aab3905e6853a08985270d1454d0`. Its trusted private macOS arm64
+`77d22adcbdbca20752720d6671310f13894d219f`. Its trusted private macOS arm64
 binary has SHA256
-`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
+`95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938`.
 This source includes the independently qualified managed-listener checkout
 hostname mapping and passed exact-source milestone assurance.
 Published `v0.14.1` does not contain the private gateway and managed-listener
@@ -446,9 +446,9 @@ manual source-image build or global Effigy replacement is required.
 ### Qualified transition observations
 
 The active opt-in gate admits source
-`0412cc7b17f4aab3905e6853a08985270d1454d0` and the privately qualified macOS
+`77d22adcbdbca20752720d6671310f13894d219f` and the privately qualified macOS
 arm64 binary SHA256
-`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
+`95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938`.
 The version string remains `effigy v0.14.1` and is not source attestation.
 Earlier `8ecd64b3`/`03d10d8e` records remain historical evidence. Generic runtime
 changes invalidate transfer of their source-sensitive runtime acceptance;
@@ -627,8 +627,8 @@ Source-shaped controls do not certify execution against the published images.
 
 ### Reviewed bounded storage command capture
 
-Current private Darwin arm64 admission accepts source `0412cc7b17f4aab3905e6853a08985270d1454d0`
-and binary SHA256 `be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
+Current private Darwin arm64 admission accepts source `77d22adcbdbca20752720d6671310f13894d219f`
+and binary SHA256 `95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938`.
 The preceding `6da2f94b`/`5febcae9` capture refusal is historical evidence.
 Finite storage commands use only the reviewed shell `--bounded` surface with
 all deadline/stdout/stderr limits supplied, plus JSON. The helper checks native
@@ -756,7 +756,7 @@ the timeout-only native logs fallback is removed. Absence of logs is not proof
 of absence of errors. The existing bounded, sanitized API file-tail observation
 remains separate from backend service logs.
 
-Current-source production evidence covers three disposable Reference identities
+Earlier `0412cc7b` production evidence covers three disposable Reference identities
 with nine initially ready API/front/admin listeners, verified private HTTPS,
 front/admin public origins, gateway HMR WebSocket upgrades, and exact browser
 CORS preflight. The shared production bootstrap reached its bounded stages.
@@ -771,9 +771,29 @@ Neither front nor admin successor generation was established within the bounded
 dependent check. Their bounded transition observations contain
 `dependency_unavailable` in the published phase without a successor record;
 these observations are not ownership or cleanup authority. Both sibling scoped
-downs returned zero, while main down refused unavailable front/admin listener
-records. Independent child/group/socket/route absence was not established.
+downs returned zero, while main down refused front/admin listener records in
+state `unavailable`. The files still existed unchanged before cleanup; the old
+snapshot projection omitted that supported status and rendered it `unknown`.
+Supervisor logs recorded a terminal owned-child observation error. Neither the
+projection omission nor that observation proves state disappearance or the
+historical supervision cause. Independent child/group/socket/route absence was not established.
 Keep the uncertain resources held; do not infer stopped ownership from missing
 records, force terminal states, rebase listener baselines or retry remote
 mutations. The underlying dependent restart/record-loss cause is not established;
 it requires owning source/evidence assessment before further execution.
+
+Current admission is the reviewed `77d22adc` source and `95b16dbf` private
+Darwin arm64 artifact. It includes standard direct container/task-environment
+mapping and owned-child exit observation/settlement with dependent replacement
+proof. Mixed container-sequence legacy routing is unchanged. The reported
+version is not attestation; no global install or Linux runtime qualification
+follows. Earlier receipts remain historical and do not certify these changed
+inputs. The named passing bootstrap-help LEAK has no established cause or
+connection to the earlier Reference refusal.
+
+The observation helper preserves source-supported `unavailable`, original state
+file provenance, unresolved owner/route fields and absent report provenance
+separately. Readiness still requires `ready`; down still holds `unavailable`
+even when owner fields are empty. Unknown/malformed states refuse. No projection
+converts an unavailable generation to stopped, clears its history or grants
+signal/route/group settlement authority.

@@ -451,7 +451,7 @@ class FixtureExtensionTests(unittest.TestCase):
         if not binary or not reference_source:
             self.skipTest("actual assembly requires explicit qualified binary and Reference source")
         self.assertEqual(hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
-                         "be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb")
+                         "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938")
         bundle = self.fixture / "bundle"
         bundle.mkdir()
         for source, destination, revision in ((optin.ROOT, bundle, "HEAD"),
@@ -735,6 +735,33 @@ class ListenerSnapshotTests(unittest.TestCase):
         self.assertEqual(states[-1]["snapshot"]["old"]["generation"], "a" * 32)
         self.assertEqual([row["observation_sequence"] for row in rows], list(range(1, len(rows) + 1)))
         self.assertEqual(states[-1]["snapshot"]["provenance"], states[-2]["snapshot"]["provenance"])
+
+    def test_unavailable_preserves_existing_state_owner_and_report_distinction(self):
+        for helper in ("managed_listener_state", "listener_state"):
+            self.state.update(status="unavailable", address=None, public_url=None)
+            self.write()
+            self.report_path.unlink()
+            original = self.state_path.read_bytes()
+            with self.assertRaisesRegex(RuntimeError, "owned and ready"):
+                self.validate(helper)
+            row = self.rows()[-1]["snapshot"]
+            self.assertEqual(row["state"]["status"], "unavailable")
+            self.assertEqual(row["provenance"]["read"], "read")
+            self.assertEqual(row["provenance"]["sha256"], __import__('hashlib').sha256(original).hexdigest())
+            self.assertTrue(row["state"]["owner_present"])
+            self.assertEqual(row["state"]["owner_target"], "127.0.0.1:41001")
+            self.assertEqual(row["report"]["provenance"]["read"], "absent")
+            self.assertEqual(self.state_path.read_bytes(), original)
+
+    def test_unavailable_is_source_supported_without_granting_readiness(self):
+        import os
+        source = Path(os.environ["UNDERLAY_PROFILE_EFFIGY_SOURCE"])
+        text = (source / "src/runner/host_process.rs").read_text()
+        self.assertIn('state.status = "unavailable".to_owned()', text)
+        self.assertIn('unavailable.status = "unavailable".to_owned()', text)
+        self.assertIn("unavailable", self.snapshots._STATUSES)
+        for value in ("UNAVAILABLE", "unknown", None, {}, self.secret):
+            self.assertEqual(self.snapshots._typed({"status": value})["status"], "unknown")
 
     def test_absent_malformed_permission_and_unknown_documents(self):
         for helper in ("managed_listener_state", "listener_state"):

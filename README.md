@@ -56,8 +56,8 @@ managed-listener and private-gateway contracts.
 ```toml
 [bundle.profiles]
 enabled = true
-effigy_source = "/path/to/effigy-at-0412cc7b"
-effigy_binary = "/path/to/qualified/effigy-0412cc7b-macos-arm64"
+effigy_source = "/path/to/effigy-at-77d22adc"
+effigy_binary = "/path/to/qualified/effigy-77d22adc-macos-arm64"
 test_task = "app-api/test" # one bounded Effigy selector for dev:test
 test_timeout_secs = 900
 # silo_bucket = "acme-media" # defaults to <first database>-media
@@ -77,9 +77,9 @@ cleanup. It never invokes full QA. Use `dev:test:down` to reconcile a run
 interrupted before its normal cleanup.
 
 The profile launcher checks the clean Effigy source revision
-`0412cc7b17f4aab3905e6853a08985270d1454d0`, binary version `effigy v0.14.1`,
+`77d22adcbdbca20752720d6671310f13894d219f`, binary version `effigy v0.14.1`,
 and qualified macOS arm64 SHA-256
-`be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb` before
+`95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938` before
 starting services, the gateway, or cleanup. The current exact-source admission supports
 macOS arm64; unsupported platforms and changed/unknown binaries
 are refused before storage or profile startup. Child Effigy calls
@@ -113,8 +113,8 @@ and permanent Reference source adoption remain separate work.
 ## Development profile qualification
 
 Admission accepts only the clean qualified Effigy source
-`0412cc7b17f4aab3905e6853a08985270d1454d0` and private Darwin arm64 binary
-SHA256 `be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb`.
+`77d22adcbdbca20752720d6671310f13894d219f` and private Darwin arm64 binary
+SHA256 `95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938`.
 Version/semver is not attestation. Every child uses the retained absolute binary;
 old, unknown, changed and unsupported identities refuse before effects.
 
@@ -139,13 +139,17 @@ must refuse. MinIO image availability is not a precondition.
 Current owner/generation, production bootstrap/CORS and whole-profile acceptance
 require fresh runtime proof; historical storage receipts cannot supply those gates.
 
-Current-source disposable Reference evidence covers production bootstrap, three
+Earlier `0412cc7b` disposable Reference evidence covers production bootstrap, three
 instances with HTTPS origins/HMR and browser CORS, and registration/login/media
 upload, finalisation, read and delete. Complete lifecycle acceptance remains
 unqualified: the API acquired a new address/generation and route target after
 restart, but front/admin successor generations were not established. Main scoped
-down refused unavailable front/admin listener records. Those resources remain
+down refused front/admin records whose state was `unavailable`; the files still
+existed. Those resources remain
 held; interruption, dev:test and default-container acceptance are not established.
+The current `77d22adc` gate requires fresh runtime evidence. Snapshot projections
+preserve `unavailable` as an observed state without granting ready/stopped or
+cleanup credit; a missing report remains distinct from an existing state file.
 
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
