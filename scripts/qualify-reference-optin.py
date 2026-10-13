@@ -1641,7 +1641,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                                     f"https://{record['domains']['front']}:{gateway_port}",
                                     container="hybrid_services", service="silo", client_service="silo_client",
                                     bucket_name="acme-media", cleanup_bucket=False)
-                silo_route = RUNTIME.prove_minio_gateway_route(checkout, gateway_root, record["domains"], gateway_port)
+                silo_route = RUNTIME.prove_silo_gateway_route(checkout, gateway_root, record["domains"], gateway_port)
                 if silo_route.get("status") != "passed":
                     raise RuntimeError(f"profile Silo HTTPS/SNI route did not pass: {silo_route}")
                 record["silo_gateway"] = silo_route

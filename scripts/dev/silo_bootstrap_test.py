@@ -57,7 +57,7 @@ class BootstrapTests(unittest.TestCase):
                 with patch.object(storage_launcher,'profiles',launcher), \
                      patch.object(launcher,'verify_binary',return_value=identity), \
                      patch.object(launcher,'_json_command',return_value={'routes':[{'declared':'front','effective':'front.example.test'},{'declared':'admin','effective':'admin.example.test'}]}), \
-                     patch.object(launcher,'_gateway_json',return_value={'https_addr':'127.0.0.1:443'}), \
+                     patch.object(launcher,'_gateway_json',return_value={'https_addr':'127.0.0.1:443','private':True,'running':True}), \
                      patch.dict(os.environ,{**env,'EFFIGY_GATEWAY_PRIVATE_STATE_ROOT':str(root),'EFFIGY_PROFILE_FRONT_DECLARED':'front','EFFIGY_PROFILE_ADMIN_DECLARED':'admin'}), \
                      patch.object(sys,'argv',['storage_launcher','reconcile','--repo',str(root),'--container',container]):
                     self.assertEqual(storage_launcher.main(),0)

@@ -149,10 +149,10 @@ class GuardTests(unittest.TestCase):
         journal=Mock()
         with patch.object(module,'bound_colima',return_value='/owned/colima'),patch.object(module,'bounded_run',side_effect=capture),patch.object(module,'file_producer',return_value=':'),patch.object(native,'stat_projection'),patch.object(module,'offline_client_interface'):
             module.image_interfaces({},journal,'a'*32)
-        self.assertEqual(len(invocations),12)
+        self.assertEqual(len(invocations),18)
         self.assertTrue(all(code==0 for _,code in invocations))
         inputs=[c.kwargs for c in journal.append.call_args_list if c.args[0]=='client_command_input']
-        self.assertEqual(len(inputs),6)
+        self.assertEqual(len(inputs),9)
         self.assertTrue(all(not r['inherited_expected_agreement'] and r['input_expected_agreement'] for r in inputs))
 
     def test_offline_recipe_actual_shell_flags_guard_and_phase_decode(self):
@@ -170,7 +170,10 @@ class GuardTests(unittest.TestCase):
         prefix+='"cat /root/underlay-'+'a'*32+'") printf challenge;; "--version") printf version_control;; *) return 92;; esac; }; '
         def capture(args,env,timeout):
             self.assertIn('--network',args);self.assertEqual(args[args.index('--network')+1],'none')
-            result=subprocess.run(['/bin/sh','-c',prefix+args[-1]],env={'PATH':'/usr/bin:/bin','HOME':'seeded-secret'},capture_output=True,timeout=3)
+            with tempfile.TemporaryDirectory(prefix='underlay-image-tools-') as temporary:
+                command=args[-1].replace('/tmp/underlay-tools-',str(Path(temporary)/'tools-'))
+                result=subprocess.run(['/bin/sh','-c',prefix+command],env={'PATH':'/usr/bin:/bin','HOME':'seeded-secret'},capture_output=True,timeout=3)
+                self.assertEqual(list(Path(temporary).iterdir()),[])
             return {'exit':result.returncode,'outcome':'complete','stdout':result.stdout,'stdout_bytes':len(result.stdout),'stderr_bytes':len(result.stderr)}
         journal=Mock()
         with patch.object(module,'bound_colima',return_value='/owned/colima'),patch.object(module,'bounded_run',side_effect=capture),patch.object(module,'file_producer',return_value=':'):
@@ -179,7 +182,7 @@ class GuardTests(unittest.TestCase):
         self.assertNotIn('seeded-secret',str(journal.mock_calls))
         self.assertNotIn('minioadmin',str(journal.mock_calls))
         phases=[c.kwargs['operation'] for c in journal.append.call_args_list if c.args[0]=='offline_mc_phase']
-        self.assertEqual(phases,['guard','alias_set','alias_list','producer','stat','cat'])
+        self.assertEqual(phases,['guard','tools','alias_set','alias_list','producer','stat','cat'])
 
     def test_input_authority_and_framing_refuse_without_normalizing_overrides(self):
         from service_defaults import baseline

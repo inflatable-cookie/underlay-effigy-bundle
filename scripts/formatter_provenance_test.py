@@ -41,7 +41,7 @@ class FormatterTests(unittest.TestCase):
 
     def test_explicit_profile_fixture_scope_is_exact(self):
         with tempfile.TemporaryDirectory(prefix='ur.') as temporary:
-            parent=Path(temporary)
+            parent=Path(temporary).resolve()
             fixture=parent/'ur.A1b2C3';fixture.mkdir(mode=0o700)
             for name in ('home','colima-home'):(fixture/name).mkdir(mode=0o700)
             executable=parent/'colima';executable.write_text('#!/bin/sh\nexit 93\n');executable.chmod(0o700)
