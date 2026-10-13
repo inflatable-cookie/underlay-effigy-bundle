@@ -853,28 +853,8 @@ def capture_storage_service_logs(checkout: Path, env: dict[str, str],
         diagnostics.append("service_log_capture_failed", service="reference-api",
                            source_path=str(api_log), exception_type=type(error).__name__)
 
-    try:
-        result = RUNTIME.run(
-            [EFFIGY, "--repo", str(checkout), "container", "hybrid_services", "logs",
-             "--service", "silo", "--json"],
-            # Pinned CLI logs defaults to follow=false. This is a diagnostic
-            # capture budget, independent of all readiness/action deadlines.
-            cwd=checkout, env=env, timeout=5, expected=None, print_output=False,
-        )
-        if result.returncode:
-            diagnostics.append("service_log_capture_failed", service="silo", exit=result.returncode,
-                               exception_type="EffigyLogsCommandFailed")
-            return
-        envelope = json.loads(result.stdout)
-        logs = (envelope.get("result") or {}).get("logs") if envelope.get("ok") is True else None
-        if not isinstance(logs, str):
-            diagnostics.append("service_log_capture_failed", service="silo",
-                               exception_type="EffigyLogsPayloadMissing")
-            return
-        diagnostics.write_log("silo-service.log", logs.splitlines())
-    except BaseException as error:
-        diagnostics.append("service_log_capture_failed", service="silo",
-                           exception_type=type(error).__name__)
+    diagnostics.append('service_log_unavailable',service='silo',
+                       reason='no_qualified_finite_log_surface')
 
 
 def append_diagnostic_best_effort(diagnostics: StorageDiagnosticJournal | None,

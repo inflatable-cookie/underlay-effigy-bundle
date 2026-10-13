@@ -61,12 +61,7 @@ class BootstrapTests(unittest.TestCase):
                      patch.dict(os.environ,{**env,'EFFIGY_GATEWAY_PRIVATE_STATE_ROOT':str(root),'EFFIGY_PROFILE_FRONT_DECLARED':'front','EFFIGY_PROFILE_ADMIN_DECLARED':'admin'}), \
                      patch.object(sys,'argv',['storage_launcher','reconcile','--repo',str(root),'--container',container]):
                     self.assertEqual(storage_launcher.main(),0)
-            else:
-                profile='hybrid' if container=='hybrid_services' else 'disposable_test'
-                with patch.object(launcher,'_start_services',return_value={'context':context}), \
-                     patch.object(launcher,'_profile_env',return_value=env), \
-                     patch.object(launcher,'_profile_root',return_value=root):
-                    self.assertEqual(launcher._start_profile(identity,root,env,profile),context)
+            else:launcher._bootstrap_silo(identity,root,env,container,context)
         return seen
 
     def test_both_profiles_real_shell_recipe_cors_and_exclusive_cleanup(self):
@@ -94,6 +89,21 @@ class BootstrapTests(unittest.TestCase):
             text=(root/'.effigy/runtime/dev-profiles/hybrid_services/silo-bootstrap.jsonl').read_text()
             self.assertIn('unavailable_native_failure_omits_command_bytes',text)
             self.assertNotIn('seeded-secret',text)
+
+    def test_bootstrap_bad_context_and_bucket_emit_before_mc_refusal(self):
+        identity=launcher.BinaryIdentity('source','/owned/effigy','digest',1,2,3,4)
+        for env,context in (({},{}),({'EFFIGY_PROFILE_SILO_BUCKET':'seeded-secret@bad'},{}),
+                            ({'EFFIGY_PROFILE_SILO_BUCKET':'owned-bucket'},{'routes':{'front':'seeded-secret@bad','admin':'admin.example.test'},'https_port':443})):
+            with tempfile.TemporaryDirectory(prefix='underlay-bootstrap-input-') as temporary:
+                root=Path(temporary).resolve()
+                with patch.object(shared,'bounded_run',side_effect=AssertionError('MC must not start')) as run:
+                    with self.assertRaisesRegex(launcher.ProfileError,'input contract refused'):
+                        launcher._bootstrap_silo(identity,root,env,'hybrid_services',context)
+                run.assert_not_called()
+                text=(root/'.effigy/runtime/dev-profiles/hybrid_services/silo-bootstrap.jsonl').read_text()
+                self.assertNotIn('seeded-secret',text)
+                self.assertEqual(len(text.splitlines()),4)
+                self.assertTrue(all(json.loads(line)['event']=='bootstrap_input' for line in text.splitlines()))
 
     def test_pinned_ready_acl_cors_source_interfaces(self):
         import hashlib

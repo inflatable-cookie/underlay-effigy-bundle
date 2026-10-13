@@ -963,35 +963,14 @@ def _container_down(identity: BinaryIdentity, repo: Path, env: dict[str, str], c
             raise ProfileError(f"{container} managed host listeners remain uncertain after down: {held}")
 
 
-def _bootstrap_silo(
-    identity: BinaryIdentity,
-    repo: Path,
-    env: dict[str, str],
-    container: str,
-    context: dict,
-) -> None:
-    bucket = env.get("EFFIGY_PROFILE_SILO_BUCKET", "")
-    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
-        raise ProfileError("Silo profile bucket name is missing or invalid")
-    origins = (
-        _public_url(context["routes"]["front"], context["https_port"]),
-        _public_url(context["routes"]["admin"], context["https_port"]),
-    )
-    cors = "".join(
-        (
-            "<CORSConfiguration><CORSRule>",
-            *(f"<AllowedOrigin>{html.escape(origin, quote=True)}</AllowedOrigin>" for origin in origins),
-            "<AllowedMethod>GET</AllowedMethod><AllowedMethod>HEAD</AllowedMethod>",
-            "<AllowedMethod>PUT</AllowedMethod><AllowedHeader>*</AllowedHeader>",
-            "<ExposeHeader>ETag</ExposeHeader><ExposeHeader>x-amz-request-id</ExposeHeader>",
-            "<ExposeHeader>x-amz-id-2</ExposeHeader><MaxAgeSeconds>3000</MaxAgeSeconds>",
-            "</CORSRule></CORSConfiguration>",
-        )
-    )
+_LAUNCHER_FIELDS = ('EFFIGY_PROFILE_SILO_BUCKET', *(
+    'EFFIGY_PROFILE_'+role+'_DECLARED'
+    for role in ('API','FRONT','ADMIN','S3','DBGATE','MAILPIT','SILO')))
+
+
+def _silo_journal(repo: Path, container: str):
     if not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]{0,63}',container):
         raise ProfileError('Silo bootstrap container refused')
-    # Catalog override preparation has already refused foreign/mutated assets.
-    # Fresh catalog declares only server /data; client has no mounts.
     root=_safe_repo_path(repo,repo/'.effigy'/'runtime'/'dev-profiles'/container)
     root.mkdir(mode=0o700,parents=True,exist_ok=True)
     path=root/'silo-bootstrap.jsonl'
@@ -1007,7 +986,105 @@ def _bootstrap_silo(
                 if info.st_size+len(data)>131072:raise ProfileError('Silo bootstrap journal bound refused')
                 if os.write(fd,data)!=len(data):raise ProfileError('Silo bootstrap journal write refused')
             finally:os.close(fd)
-    journal=Journal()
+    return Journal()
+
+
+def _input_shape(name, value):
+    if not isinstance(value,str):return False
+    if name=='EFFIGY_PROFILE_SILO_BUCKET':
+        return re.fullmatch(r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]',value) is not None
+    return (0<len(value)<=253 and all(
+        re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?',label)
+        for label in value.split('.')))
+
+
+def _validate_launcher_inputs(identity, repo, env, profile):
+    container=PROFILE_CONTAINERS[profile][0]
+    journal=_silo_journal(repo,container)
+    valid=True
+    for name in _LAUNCHER_FIELDS:
+        value=env.get(name);shape=_input_shape(name,value)
+        journal.append('launcher_input',field=name,present=name in env,
+                       string_type=isinstance(value,str),shape_agreement=shape)
+        valid=valid and shape
+    if not valid:raise ProfileError('Profile launcher input contract refused')
+    # Independently compare the launcher with the current composed application
+    # declarations. Config inspection has no backend/service/gateway effects.
+    path='containers.'+container+'.host_processes'
+    verify_unchanged(identity)
+    capture=silo_client.bounded_run([identity.binary,'--repo',str(repo),'--json',
+                                   'config','--inspect','--path',path],cwd=repo,env=env,timeout=120)
+    journal.append('launcher_source_capture',outcome=capture['outcome'],exit=capture['exit'],
+                   stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'])
+    try:
+        if capture['outcome']!='complete' or capture['exit']:raise ValueError()
+        envelope=silo_client.strict_json(capture['stdout'].decode())
+        result=envelope['result'];selected=result['selected_value']
+        if (envelope.get('schema')!='effigy.command.v1' or envelope.get('ok') is not True
+                or result.get('schema')!='effigy.config.v1' or result.get('ok') is not True
+                or result.get('selected_path')!=path or selected.get('path')!=path):raise ValueError()
+        processes=selected['value']
+        if not isinstance(processes,list) or not all(isinstance(p,dict) and isinstance(p.get('name'),str) for p in processes):raise ValueError()
+        apps=[p for p in processes if isinstance(p,dict) and p.get('name') in ('api','front','admin')]
+        if len(apps)!=3 or {p['name'] for p in apps}!={'api','front','admin'}:raise ValueError()
+        bindings=[p.get('env') for p in apps if p['name']=='api']
+        if not all(isinstance(b,dict) for b in bindings):raise ValueError()
+    except (KeyError,TypeError,ValueError,UnicodeError,AttributeError):
+        for name in _LAUNCHER_FIELDS:
+            journal.append('launcher_input_agreement',field=name,source_state='unavailable',
+                           source_present=None,source_string_type=None,source_shape_agreement=None,agreement=False)
+        journal.append('launcher_source_refusal',reason='typed_declarations_unavailable')
+        raise ProfileError('Profile launcher input source refused') from None
+    valid=True
+    for name in _LAUNCHER_FIELDS:
+        values=[b.get(name) for b in bindings]
+        source_valid=all(_input_shape(name,v) for v in values)
+        agreement=source_valid and all(v==env[name] for v in values)
+        journal.append('launcher_input_agreement',field=name,source_present=all(name in b for b in bindings),
+                       source_string_type=all(isinstance(v,str) for v in values),
+                       source_shape_agreement=source_valid,agreement=agreement)
+        valid=valid and agreement
+    if not valid:raise ProfileError('Profile launcher input agreement refused')
+
+
+def _bootstrap_silo(
+    identity: BinaryIdentity,
+    repo: Path,
+    env: dict[str, str],
+    container: str,
+    context: dict,
+) -> None:
+    journal=_silo_journal(repo,container)
+    bucket=env.get('EFFIGY_PROFILE_SILO_BUCKET')
+    journal.append('bootstrap_input',field='EFFIGY_PROFILE_SILO_BUCKET',present='EFFIGY_PROFILE_SILO_BUCKET' in env,
+                   string_type=isinstance(bucket,str),shape_agreement=_input_shape('EFFIGY_PROFILE_SILO_BUCKET',bucket))
+    routes=context.get('routes') if isinstance(context,dict) else None
+    values={name:routes.get(name) if isinstance(routes,dict) else None for name in ('front','admin')}
+    port=context.get('https_port') if isinstance(context,dict) else None
+    valid=_input_shape('EFFIGY_PROFILE_SILO_BUCKET',bucket)
+    for name,value in values.items():
+        shape=_input_shape('EFFIGY_PROFILE_'+name.upper()+'_DECLARED',value)
+        journal.append('bootstrap_input',field=name,present=name in routes if isinstance(routes,dict) else None,
+                       string_type=isinstance(value,str),shape_agreement=shape)
+        valid=valid and shape
+    port_valid=type(port) is int and 1<=port<=65535
+    journal.append('bootstrap_input',field='https_port',present='https_port' in context if isinstance(context,dict) else None,
+                   integer_type=type(port) is int,shape_agreement=port_valid)
+    if not valid or not port_valid:raise ProfileError('Silo bootstrap input contract refused')
+    origins=(_public_url(values['front'],port),_public_url(values['admin'],port))
+    cors = "".join(
+        (
+            "<CORSConfiguration><CORSRule>",
+            *(f"<AllowedOrigin>{html.escape(origin, quote=True)}</AllowedOrigin>" for origin in origins),
+            "<AllowedMethod>GET</AllowedMethod><AllowedMethod>HEAD</AllowedMethod>",
+            "<AllowedMethod>PUT</AllowedMethod><AllowedHeader>*</AllowedHeader>",
+            "<ExposeHeader>ETag</ExposeHeader><ExposeHeader>x-amz-request-id</ExposeHeader>",
+            "<ExposeHeader>x-amz-id-2</ExposeHeader><MaxAgeSeconds>3000</MaxAgeSeconds>",
+            "</CORSRule></CORSConfiguration>",
+        )
+    )
+    if not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]{0,63}',container):
+        raise ProfileError('Silo bootstrap container refused')
     def call(label,unused,args,timeout):
         verify_unchanged(identity)
         command_env=dict(env);command_env.pop('EFFIGY_INTERNAL_SUPPRESS_HEADER',None)
@@ -1242,6 +1319,7 @@ def _start_services(identity: BinaryIdentity, repo: Path, env: dict[str, str], p
 
 
 def _start_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: str) -> dict:
+    _validate_launcher_inputs(identity,repo,env,profile)
     result = _start_services(identity, repo, env, profile)
     context = result["context"]
     if not result.get("already_running"):

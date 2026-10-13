@@ -430,7 +430,7 @@ tls = true
 run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" start hybrid --repo {repo}'
 run_in = "host"
 secrets = "required"
-env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", UNDERLAY_PROFILE_TEST_TASK = "{{ inputs.profiles.test_task }}", UNDERLAY_PROFILE_TEST_TIMEOUT_SECS = "{{ inputs.profiles.test_timeout_secs }}" }
+env = { EFFIGY_PROFILE_SILO_BUCKET = "{{ inputs.profiles.silo_bucket or (inputs.databases|first ~ '-media') }}", EFFIGY_PROFILE_API_DECLARED = "{{ api_domain }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ front_domain }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ admin_domain }}", EFFIGY_PROFILE_S3_DECLARED = "{{ s3_domain }}", EFFIGY_PROFILE_SILO_DECLARED = "{{ silo_domain }}", EFFIGY_PROFILE_DBGATE_DECLARED = "dbgate.{{ inputs.host }}", EFFIGY_PROFILE_MAILPIT_DECLARED = "mailpit.{{ inputs.host }}", UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", UNDERLAY_PROFILE_TEST_TASK = "{{ inputs.profiles.test_task }}", UNDERLAY_PROFILE_TEST_TIMEOUT_SECS = "{{ inputs.profiles.test_timeout_secs }}" }
 
 [tasks."dev:hybrid:status"]
 run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" status hybrid --repo {repo}'
@@ -446,7 +446,7 @@ env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", 
 run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" test disposable_test --repo {repo}'
 run_in = "host"
 secrets = "required"
-env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", UNDERLAY_PROFILE_TEST_TASK = "{{ inputs.profiles.test_task }}", UNDERLAY_PROFILE_TEST_TIMEOUT_SECS = "{{ inputs.profiles.test_timeout_secs }}" }
+env = { EFFIGY_PROFILE_SILO_BUCKET = "{{ inputs.profiles.silo_bucket or (inputs.databases|first ~ '-media') }}", EFFIGY_PROFILE_API_DECLARED = "{{ test_api_domain }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ test_front_domain }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ test_admin_domain }}", EFFIGY_PROFILE_S3_DECLARED = "{{ test_s3_domain }}", EFFIGY_PROFILE_SILO_DECLARED = "{{ test_silo_domain }}", EFFIGY_PROFILE_DBGATE_DECLARED = "dbgate.{{ test_host }}", EFFIGY_PROFILE_MAILPIT_DECLARED = "mailpit.{{ test_host }}", UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", UNDERLAY_PROFILE_EFFIGY_BIN = "{{ inputs.profiles.effigy_binary }}", UNDERLAY_PROFILE_TEST_TASK = "{{ inputs.profiles.test_task }}", UNDERLAY_PROFILE_TEST_TIMEOUT_SECS = "{{ inputs.profiles.test_timeout_secs }}" }
 
 [tasks."dev:test:status"]
 run = 'python3 "{{ bundle.root }}/scripts/dev/profile_launcher.py" status disposable_test --repo {repo}'

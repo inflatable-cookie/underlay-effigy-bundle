@@ -19,6 +19,18 @@ optin_spec.loader.exec_module(optin)
 reference = runtime.REFERENCE
 
 
+class ServiceLogBoundaryTests(unittest.TestCase):
+    def test_no_unbounded_backend_fallback_when_api_log_is_missing(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory(prefix='underlay-log-boundary-') as temporary:
+            diagnostics=Mock()
+            with patch.object(optin.RUNTIME,'run',side_effect=AssertionError('backend effect forbidden')) as run:
+                optin.capture_storage_service_logs(Path(temporary),{},diagnostics)
+            run.assert_not_called()
+            diagnostics.append.assert_any_call('service_log_unavailable',service='silo',reason='no_qualified_finite_log_surface')
+            diagnostics.write_log.assert_not_called()
+
+
 class SurvivorTests(unittest.TestCase):
     def setUp(self):
         self.before = {
