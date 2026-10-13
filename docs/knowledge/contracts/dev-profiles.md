@@ -815,8 +815,36 @@ another published `dependency_unavailable`/`owner_unverified` observation, so
 the baseline must not be silently rebased. Admin also has a successor-launched
 transition, but its recorded successor state is `failed`, report `absent`,
 ownership `child_unavailable`, and route `not_reached`. The bounded dependent
-gate did not establish a ready admin successor. These facts do not identify
-the underlying child failure or the collapsed ownership predicate's cause.
+gate did not establish a ready admin successor. The collapsed ownership
+predicate's lower-level cause remains unestablished.
+
+Retained admin log bytes match the exact pre-cleanup bounded-tail digest. Their
+closed context diagnostic agrees with the captured context-error receipt:
+phase `service-port`, operation `smtp`, class `ProfileError`, message
+`loopback_binding_unavailable`, exit 1. The adapter stack location is context
+decoding, before public-config generation, Vite creation/listen or report write.
+The native supervisor then observes `child_unavailable`; that is consistent
+with this adapter exit rather than evidence of a child-exit capture defect.
+The successor launch receipt assigns the new API generation and internal URL
+correctly. An absent admin report does not imply a missing API assignment.
+
+The bundle context validator requires all declared service ports, including
+Mailpit SMTP target 1025, before returning Vite's route context. Its closed
+diagnostic does not distinguish an unrecognized published mapping, an
+unconfirmed loopback/Compose match or a missing/ambiguous target binding.
+The failure-time native status service rows, allocation list, Compose path and
+corresponding Compose bytes/file identity were not retained. The later
+generated Compose file is not that missing input. Multiple context operations
+can refresh a checkout's generated Compose snapshot, but no retained paired
+input demonstrates that this caused the refusal. Mixed-sequence routing,
+port-format changes and timeout exhaustion are likewise not established causes.
+
+The smallest bundle-owned follow-up is source-only qualification of finite
+per-predicate status/Compose agreement evidence and their snapshot association,
+preserving strict loopback equality and refusal. A correction requires a
+demonstrated counterexample; a generic capability proposal belongs to the
+Effigy owner only if the supported source surface cannot provide the needed
+association. This diagnosis grants no runtime retry or cleanup authority.
 
 All three scoped downs returned zero. Independent exact child/group/socket/
 route absence was not established, so cleanup remains unverified and VM/images/

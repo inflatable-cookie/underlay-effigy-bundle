@@ -161,6 +161,13 @@ VM/images/volumes remain held; later lifecycle, dev:test and default-container
 acceptance remain unqualified. No child-exit refusal was found in the captured
 bounded log tails; that does not establish absence of other errors.
 
+Retained evidence localizes the admin successor failure to the bundle's SMTP
+service-port context check, before Vite creation or listener-report writing.
+The current API assignment was received correctly. The diagnostic is
+`loopback_binding_unavailable`; the exact status mappings and Compose bytes
+used in that check were not retained. No port-parser repair, timeout increase,
+Compose race or native child-exit defect is established by that evidence.
+
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
 compares them with the current composed API declaration through a bounded,
