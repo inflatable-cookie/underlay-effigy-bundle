@@ -755,3 +755,25 @@ logs are unavailable because no qualified finite backend log surface exists;
 the timeout-only native logs fallback is removed. Absence of logs is not proof
 of absence of errors. The existing bounded, sanitized API file-tail observation
 remains separate from backend service logs.
+
+Current-source production evidence covers three disposable Reference identities
+with nine initially ready API/front/admin listeners, verified private HTTPS,
+front/admin public origins, gateway HMR WebSocket upgrades, and exact browser
+CORS preflight. The shared production bootstrap reached its bounded stages.
+Reference registration/login, media creation and upload initiation/finalisation
+returned their expected statuses; signed upload/read/delete succeeded with exact
+bytes and finalised state `ready`. This evidence does not certify the default
+container or disposable-test execution paths.
+
+Restart evidence remains partial. After the exact owned API listener was stopped,
+the API published a new generation/address and its route followed that address.
+Neither front nor admin successor generation was established within the bounded
+dependent check. Their bounded transition observations contain
+`dependency_unavailable` in the published phase without a successor record;
+these observations are not ownership or cleanup authority. Both sibling scoped
+downs returned zero, while main down refused unavailable front/admin listener
+records. Independent child/group/socket/route absence was not established.
+Keep the uncertain resources held; do not infer stopped ownership from missing
+records, force terminal states, rebase listener baselines or retry remote
+mutations. The underlying dependent restart/record-loss cause is not established;
+it requires owning source/evidence assessment before further execution.

@@ -139,6 +139,14 @@ must refuse. MinIO image availability is not a precondition.
 Current owner/generation, production bootstrap/CORS and whole-profile acceptance
 require fresh runtime proof; historical storage receipts cannot supply those gates.
 
+Current-source disposable Reference evidence covers production bootstrap, three
+instances with HTTPS origins/HMR and browser CORS, and registration/login/media
+upload, finalisation, read and delete. Complete lifecycle acceptance remains
+unqualified: the API acquired a new address/generation and route target after
+restart, but front/admin successor generations were not established. Main scoped
+down refused unavailable front/admin listener records. Those resources remain
+held; interruption, dev:test and default-container acceptance are not established.
+
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
 compares them with the current composed API declaration through a bounded,
