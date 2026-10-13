@@ -27,7 +27,8 @@ The ruling preserves the shared rollback below.
 2. Before merging, assemble it from a consumer: point a consumer checkout's
    `[bundle]` at the branch, run its container build and plan (for example
    `effigy container up`), and confirm that the stack starts and the default
-   inputs behave as before. For opt-in profile changes, also assemble one
+   inputs match their documented behavior, including explicitly authorized storage
+   changes. For opt-in profile changes, also assemble one
    disposable consumer with the opt-in inputs, verify the exact-source gate,
    and run the named profile selectors and cleanup path against its isolated
    runtime.
