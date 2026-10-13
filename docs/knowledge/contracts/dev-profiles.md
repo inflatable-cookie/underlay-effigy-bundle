@@ -736,3 +736,13 @@ current runtime evidence. Historical storage success supplies no current
 owner/generation or changed bootstrap/CORS credit. Cleanup uses newly proven
 scoped resources only; VM/images/volumes remain held. No retirement follows from
 down0 or empty inventory, and old held resources remain protected.
+
+The opt-in launcher tasks currently omit the explicit bucket and declared-route
+bindings required by the newly connected bootstrap caller. Managed host-process
+environments are separate from launcher-task environments. Bucket validation
+rejects missing/invalid input before MC guards or mutations, but currently occurs
+after service startup. Controls that supply these values directly do not qualify
+the exported task binding. The complete rendered caller contract, validation
+before effects and safe per-field refusal evidence must be qualified together.
+The existing service-log fallback has a timeout but no qualified cumulative
+capture bound; its output cannot supply a bounded-log or absence-of-error proof.
