@@ -998,6 +998,14 @@ def _input_shape(name, value):
         for label in value.split('.')))
 
 
+def _launcher_source_refused(journal,reason):
+    for name in _LAUNCHER_FIELDS:
+        journal.append('launcher_input_agreement',field=name,source_state='unavailable',
+                       source_present=None,source_string_type=None,source_shape_agreement=None,agreement=False)
+    journal.append('launcher_source_refusal',reason=reason)
+    raise ProfileError('Profile launcher input source refused') from None
+
+
 def _validate_launcher_inputs(identity, repo, env, profile):
     container=PROFILE_CONTAINERS[profile][0]
     journal=_silo_journal(repo,container)
@@ -1012,8 +1020,11 @@ def _validate_launcher_inputs(identity, repo, env, profile):
     # declarations. Config inspection has no backend/service/gateway effects.
     path='containers.'+container+'.host_processes'
     verify_unchanged(identity)
-    capture=silo_client.bounded_run([identity.binary,'--repo',str(repo),'--json',
-                                   'config','--inspect','--path',path],cwd=repo,env=env,timeout=120)
+    try:
+        capture=silo_client.bounded_run([identity.binary,'--repo',str(repo),'--json',
+                                       'config','--inspect','--path',path],cwd=repo,env=env,timeout=120)
+    except (OSError,subprocess.SubprocessError):
+        _launcher_source_refused(journal,'capture_unavailable')
     journal.append('launcher_source_capture',outcome=capture['outcome'],exit=capture['exit'],
                    stdout_bytes=capture['stdout_bytes'],stderr_bytes=capture['stderr_bytes'])
     try:
@@ -1030,11 +1041,7 @@ def _validate_launcher_inputs(identity, repo, env, profile):
         bindings=[p.get('env') for p in apps if p['name']=='api']
         if not all(isinstance(b,dict) for b in bindings):raise ValueError()
     except (KeyError,TypeError,ValueError,UnicodeError,AttributeError):
-        for name in _LAUNCHER_FIELDS:
-            journal.append('launcher_input_agreement',field=name,source_state='unavailable',
-                           source_present=None,source_string_type=None,source_shape_agreement=None,agreement=False)
-        journal.append('launcher_source_refusal',reason='typed_declarations_unavailable')
-        raise ProfileError('Profile launcher input source refused') from None
+        _launcher_source_refused(journal,'typed_declarations_unavailable')
     valid=True
     for name in _LAUNCHER_FIELDS:
         values=[b.get(name) for b in bindings]

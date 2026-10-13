@@ -100,7 +100,8 @@ def rendered_launcher_controls(checkout, base_env, tasks, launcher, emit):
             capture={**genuine,'stdout':output,'stdout_bytes':len(output)}
             if kind=='native_failure':capture['exit']=1
             with patch.object(launcher.silo_client,'bounded_run',return_value=capture):before_effects(env,False)
-        emit({'task':task,'native_schema_refusals':5,'backend_effects':False})
+        with patch.object(launcher.silo_client,'bounded_run',side_effect=OSError('seeded-secret')):before_effects(env,False)
+        emit({'task':task,'native_schema_refusals':5,'capture_launch_refusals':1,'backend_effects':False})
         text=journal_path.read_text()
         if 'seeded-secret' in text:raise ValueError('launcher_control_privacy_refused')
         records=[strict_json(line) for line in text.splitlines()]

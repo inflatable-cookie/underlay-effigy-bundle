@@ -139,11 +139,14 @@ must refuse. MinIO image availability is not a precondition.
 Current owner/generation, production bootstrap/CORS and whole-profile acceptance
 require fresh runtime proof; historical storage receipts cannot supply those gates.
 
-The opt-in launcher task currently does not explicitly bind
-`EFFIGY_PROFILE_SILO_BUCKET` or the declared route inputs used by its bootstrap
-context. Host-process environment declarations do not bind the launcher task.
-The bootstrap rejects a missing or invalid bucket before its MC stages; the
-rendered task-to-launcher input contract must be qualified before profile use.
+Both opt-in launcher tasks explicitly bind the bucket and all seven declared
+route names. Before service startup, the launcher validates their shapes and
+compares them with the current composed API declaration through a bounded,
+read-only Effigy config inspection. Missing, malformed, mismatched or unknown
+source inputs refuse with finite field presence/type/agreement diagnostics;
+raw values, environments and config envelopes are not journalled. The same
+bounded bootstrap journal records invalid bucket or context fields before MC
+operations. Source-only rendered caller controls do not certify runtime readiness.
 
 The exported production `scripts/dev/silo_client.py` owns the default and opt-in MC recipe:
 client command-local HOME `/root` before MC initialization, global config-dir

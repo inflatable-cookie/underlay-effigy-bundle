@@ -786,13 +786,13 @@ class ListenerSnapshotTests(unittest.TestCase):
             weakened = current.replace('state.get("status") != "ready"', 'state.get("status") != "starting"')
             self.assertNotEqual(digest, optin._source_function_sha256(weakened, name))
 
-    def test_log_capture_budget_is_finite_and_does_not_follow(self):
-        import subprocess
-        with patch.object(optin.RUNTIME, "run", side_effect=subprocess.TimeoutExpired("suppressed", 5)) as run:
-            optin.capture_storage_service_logs(self.checkout, {}, self.journal)
-        self.assertEqual(run.call_args.kwargs["timeout"], 5)
-        self.assertNotIn("--follow", run.call_args.args[0])
-        self.assertEqual(self.rows()[-1]["exception_type"], "TimeoutExpired")
+    def test_service_logs_are_unavailable_without_finite_backend_capture(self):
+        with patch.object(optin.RUNTIME,'run',side_effect=AssertionError('backend effect forbidden')) as run:
+            optin.capture_storage_service_logs(self.checkout,{},self.journal)
+        run.assert_not_called()
+        row=self.rows()[-1]
+        self.assertEqual(row['event'],'service_log_unavailable')
+        self.assertEqual(row['reason'],'no_qualified_finite_log_surface')
 
 
 

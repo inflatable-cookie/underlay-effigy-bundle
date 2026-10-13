@@ -737,12 +737,21 @@ owner/generation or changed bootstrap/CORS credit. Cleanup uses newly proven
 scoped resources only; VM/images/volumes remain held. No retirement follows from
 down0 or empty inventory, and old held resources remain protected.
 
-The opt-in launcher tasks currently omit the explicit bucket and declared-route
-bindings required by the newly connected bootstrap caller. Managed host-process
-environments are separate from launcher-task environments. Bucket validation
-rejects missing/invalid input before MC guards or mutations, but currently occurs
-after service startup. Controls that supply these values directly do not qualify
-the exported task binding. The complete rendered caller contract, validation
-before effects and safe per-field refusal evidence must be qualified together.
-The existing service-log fallback has a timeout but no qualified cumulative
-capture bound; its output cannot supply a bounded-log or absence-of-error proof.
+Both opt-in launcher tasks explicitly bind the bucket and all seven declared
+route inputs. Managed host-process and launcher-task environments remain
+separate. Before service effects, the launcher records field presence/type/shape
+and compares those values with the composed API declaration using the verified
+absolute binary and bounded read-only config capture. Missing, malformed,
+valid-but-mismatched or unavailable source data refuses before startup. Only
+fixed field names, booleans, capture counts and closed reasons enter the owner
+0600/no-follow/single-link/128KiB journal; raw values/config/environments stay in
+memory. Invalid bootstrap bucket/context fields also record finite evidence
+before MC operations.
+
+The source-only controls consume genuine Effigy-rendered launcher environments
+and challenge each binding before the service-effect boundary. They do not
+qualify runtime bootstrap/CORS, publication, lifecycle or cleanup. Silo service
+logs are unavailable because no qualified finite backend log surface exists;
+the timeout-only native logs fallback is removed. Absence of logs is not proof
+of absence of errors. The existing bounded, sanitized API file-tail observation
+remains separate from backend service logs.
