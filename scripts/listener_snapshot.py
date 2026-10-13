@@ -17,6 +17,74 @@ _frame = ContextVar("listener_snapshot_frame", default=None)
 _sequence = 0
 _MAX_BYTES = 65536
 _STATUSES = {"starting", "ready", "failed", "stopped", "stopping", "unavailable"}
+
+_EXIT_REFUSAL = re.compile(
+    r"owned child exit observation refused: category=(status_unavailable|invalid_utf8|empty|multiple_tokens|unknown_state); "
+    r"owned_pid=([0-9]{1,10}); status_code=(None|Some\(-?[0-9]{1,10}\)); "
+    r"stdout_bytes=([0-9]{1,10}); stdout_sha256=([0-9a-f]{64}); "
+    r"stderr_bytes=([0-9]{1,10}); stderr_sha256=([0-9a-f]{64}); "
+    r"utf8=(true|false); tokens=([0-9]{1,10}); elapsed_ms=([0-9]{1,10})$")
+_EXIT_CAPTURE = re.compile(
+    r"owned child exit observation failed: (Deadline|Launch|"
+    r"(?:ReadFailure|IncompleteOutput) \{ stream: (?:Stdout|Stderr) \}|"
+    r"Overflow \{ stream: (?:Stdout|Stderr), limit_bytes: [0-9]{1,10}, retained_bytes: [0-9]{1,10} \}); "
+    r"owned_pid=([0-9]{1,10}); elapsed_ms=([0-9]{1,10})$")
+
+
+def owned_exit_projection(line):
+    """Decode only reviewed fixed structural diagnostics, never raw log text."""
+    marker = "owned child exit observation "
+    if marker not in line:
+        return None
+    message = marker + line.split(marker, 1)[1]
+    match = _EXIT_REFUSAL.fullmatch(message)
+    if match:
+        category, pid, status, out_bytes, out_hash, err_bytes, err_hash, utf8, tokens, elapsed = match.groups()
+        return {"kind": "refused", "category": category, "observed_pid": int(pid),
+                "status_code": None if status == "None" else int(status[5:-1]),
+                "stdout_bytes": int(out_bytes), "stdout_sha256": out_hash,
+                "stderr_bytes": int(err_bytes), "stderr_sha256": err_hash,
+                "utf8": utf8 == "true", "tokens": int(tokens), "elapsed_ms": int(elapsed)}
+    match = _EXIT_CAPTURE.fullmatch(message)
+    if match:
+        failure, pid, elapsed = match.groups()
+        result = {"kind": "capture_failed", "failure": failure.split(" ", 1)[0],
+                  "observed_pid": int(pid), "elapsed_ms": int(elapsed)}
+        if "stream:" in failure:
+            result["stream"] = "stdout" if "Stdout" in failure else "stderr"
+        if result["failure"] == "Overflow":
+            values = re.findall(r"(?:limit_bytes|retained_bytes): ([0-9]+)", failure)
+            result.update(limit_bytes=int(values[0]), retained_bytes=int(values[1]))
+        return result
+    return {"kind": "unclassified", "line_bytes": len(line.encode()),
+            "line_sha256": hashlib.sha256(line.encode()).hexdigest()}
+
+
+def capture_owned_exit_observations(checkout, sink):
+    """Bounded file-only evidence before cleanup; no process/route authority."""
+    for role in ("api", "front", "admin"):
+        path = checkout / ".effigy/runtime/host-processes/hybrid_services/effigy" / (role + ".log")
+        record = {"role": role, "authority": "observation_only", "path": str(path)}
+        try:
+            fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(fd, "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise ValueError("unsafe log file")
+                stream.seek(max(0, info.st_size - _MAX_BYTES))
+                raw = stream.read(_MAX_BYTES)
+            lines = raw.splitlines()
+            if info.st_size > _MAX_BYTES and lines:
+                lines = lines[1:]
+            records = [item for item in (owned_exit_projection(line.decode("utf-8", errors="replace"))
+                       for line in lines) if item is not None]
+            record.update(read="bounded_tail", tail_bytes=len(raw), file_bytes=info.st_size,
+                          device=info.st_dev, inode=info.st_ino, tail_sha256=hashlib.sha256(raw).hexdigest(),
+                          tail_truncated=info.st_size > _MAX_BYTES, observations=records[-16:],
+                          observations_omitted=max(0, len(records) - 16))
+        except (OSError, ValueError):
+            record.update(read="unavailable", observations=[])
+        sink("owned_child_exit_observation_snapshot", **record)
 _PHASES = {
     "report": {"not_observed", "absent", "unreadable", "unsafe", "schema_or_generation_mismatch", "invalid_address", "bind_mismatch", "accepted"},
     "ownership": {"not_reached", "no_owner_observed", "exclusive_owner_observed", "supervisor_changed", "child_unavailable", "child_changed", "supervisor_unavailable", "ancestry_changed", "ancestry_unavailable", "identity_unavailable", "identity_changed", "listener_outside_generation", "socket_inspection_failed", "exclusivity_unproven"},

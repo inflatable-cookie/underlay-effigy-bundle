@@ -763,6 +763,41 @@ class ListenerSnapshotTests(unittest.TestCase):
         for value in ("UNAVAILABLE", "unknown", None, {}, self.secret):
             self.assertEqual(self.snapshots._typed({"status": value})["status"], "unknown")
 
+    def test_owned_exit_structural_capture_excludes_log_payload_and_bounds_tail(self):
+        import os
+        text = (Path(os.environ["UNDERLAY_PROFILE_EFFIGY_SOURCE"]) / "src/runner/host_process.rs").read_text()
+        self.assertIn("owned child exit observation refused: category={category}; owned_pid={pid}; status_code={:?}; stdout_bytes={}; stdout_sha256={}; stderr_bytes={}; stderr_sha256={}; utf8={}; tokens={tokens}; elapsed_ms={}", text)
+        self.assertIn("owned child exit observation failed: {failure:?}; owned_pid={pid}; elapsed_ms={}", text)
+        message = ("owned child exit observation refused: category=multiple_tokens; owned_pid=123; "
+                   "status_code=Some(0); stdout_bytes=4; stdout_sha256=" + "a" * 64 +
+                   "; stderr_bytes=0; stderr_sha256=" + "b" * 64 + "; utf8=true; tokens=2; elapsed_ms=4")
+        projected = self.snapshots.owned_exit_projection(message)
+        self.assertEqual(projected["tokens"], 2)
+        self.assertEqual(projected["status_code"], 0)
+        self.assertEqual(projected["category"], "multiple_tokens")
+        for variant in ("Deadline", "Launch", "ReadFailure { stream: Stdout }",
+                        "IncompleteOutput { stream: Stderr }",
+                        "Overflow { stream: Stdout, limit_bytes: 64, retained_bytes: 65 }"):
+            result = self.snapshots.owned_exit_projection(
+                "owned child exit observation failed: " + variant + "; owned_pid=123; elapsed_ms=4")
+            self.assertEqual(result["kind"], "capture_failed")
+        self.assertEqual(self.snapshots.owned_exit_projection(message + self.secret)["kind"], "unclassified")
+        log = self.directory / "front.log"
+        log.write_text(self.secret * 3000 + "\n" + message + "\n")
+        captured = []
+        self.snapshots.capture_owned_exit_observations(self.checkout, lambda event, **fields: captured.append(fields))
+        front = captured[1]
+        self.assertTrue(front["tail_truncated"])
+        self.assertLessEqual(front["tail_bytes"], 65536)
+        self.assertEqual(front["observations"], [projected])
+        self.assertEqual(front["authority"], "observation_only")
+        self.assertNotIn(self.secret, json.dumps(captured))
+        log.unlink()
+        log.symlink_to(self.state_path)
+        captured.clear()
+        self.snapshots.capture_owned_exit_observations(self.checkout, lambda event, **fields: captured.append(fields))
+        self.assertEqual(captured[1]["read"], "unavailable")
+
     def test_absent_malformed_permission_and_unknown_documents(self):
         for helper in ("managed_listener_state", "listener_state"):
             for kind in ("absent", "malformed", "permission_denied", "nonobject"):

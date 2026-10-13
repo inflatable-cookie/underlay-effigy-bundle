@@ -797,3 +797,11 @@ separately. Readiness still requires `ready`; down still holds `unavailable`
 even when owner fields are empty. Unknown/malformed states refuse. No projection
 converts an unavailable generation to stopped, clears its history or grants
 signal/route/group settlement authority.
+
+Before cleanup, qualification reads at most a 64KiB tail from each known
+API/front/admin host-process log without following links. It retains only the
+reviewed owned-child exit diagnostic categories, PID/count/digest/status fields,
+capture failure variants and elapsed time, with explicit tail/record truncation.
+Unrecognized diagnostic text becomes a byte count and digest. Raw log text is
+not copied; unavailable files remain unavailable. These structural observations
+do not establish remote cancellation, authorize signals or prove group absence.

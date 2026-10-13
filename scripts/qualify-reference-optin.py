@@ -1919,6 +1919,8 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
     finally:
         if diagnostics is not None:
             try:
+                for checkout in checkouts:
+                    listener_snapshot.capture_owned_exit_observations(checkout, diagnostics.append)
                 capture_profile_context_errors(checkouts, diagnostics)
                 diagnostics.append("service_log_capture_started", checkout=str(checkouts[0]))
                 capture_storage_service_logs(checkouts[0], env, diagnostics)
