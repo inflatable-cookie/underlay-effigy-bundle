@@ -144,5 +144,3 @@ def prepare_published_images(runtime_root: Path, environment: dict[str, str], *,
     receipt.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(f"PASS published Silo platform/release contract; receipt: {receipt}", flush=True)
     return result
-
-

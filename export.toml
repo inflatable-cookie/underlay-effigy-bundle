@@ -101,8 +101,8 @@ catalog = "mailpit"
 
 [containers.{{ inputs.container_name }}.services.silo]
 catalog = "silo"
-api_port = "127.0.0.1:9000"
-console_port = "127.0.0.1:9001"
+api_port = 9000
+console_port = 9001
 
 [containers.{{ inputs.container_name }}.services.silo_client]
 catalog = "silo-mc"

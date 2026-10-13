@@ -158,6 +158,8 @@ def make_reference_instances(source: Path, root: Path) -> list[Path]:
 
 
 def point_bundle_at_task_branch(checkout: Path) -> None:
+    from dev.profile_launcher import _prepare_silo_override
+    _prepare_silo_override(checkout.resolve(strict=True))
     manifest_path = checkout / "effigy.toml"
     manifest = manifest_path.read_text(encoding="utf-8")
     bundle_section = manifest_section(manifest, "bundle")

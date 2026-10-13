@@ -133,7 +133,9 @@ UNDERLAY_BOOTSTRAP_MC_SOURCE_ROOT=/path/to/immutable-mc-source \
 
 The preconditions selector assembles default Reference main and explicit opt-in
 worktrees without a backend, verifies named Silo/client mappings, and checks
-copied fragments and digest pins. MinIO image availability is not a precondition.
+copied fragments, digest pins and native generated Compose health, alias,
+config-mount and volume boundaries. Mutations of those genuine generated inputs
+must refuse. MinIO image availability is not a precondition.
 Current owner/generation, production bootstrap/CORS and whole-profile acceptance
 require fresh runtime proof; historical storage receipts cannot supply those gates.
 

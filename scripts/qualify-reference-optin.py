@@ -2063,6 +2063,7 @@ def main() -> int:
             raise RuntimeError("new lifecycle diagnostics must use a separate directory; retained receipts are immutable")
         if list(diagnostic_dir.iterdir()):
             raise RuntimeError("new lifecycle diagnostic directory must be empty")
+    if diagnostic_dir is None:raise RuntimeError("full-profile finite diagnostics directory required before effects")
     fixture_root = RUNTIME.mktemp_root()
     print(f"PRIVATE OPT-IN REFERENCE ROOT: {fixture_root}", flush=True)
     diagnostics = (StorageDiagnosticJournal(diagnostic_dir / "storage-diagnostics.jsonl", fixture_root)

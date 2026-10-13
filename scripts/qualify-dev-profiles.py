@@ -236,6 +236,8 @@ def inspect_bundle(checkouts: list[Path]) -> None:
     identities = []
     domains = []
     for checkout in checkouts:
+        from dev.profile_launcher import _prepare_silo_override
+        _prepare_silo_override(checkout.resolve(strict=True))
         scope = effigy_json(checkout, "container", "scope", "--json")["result"]["scope"]
         hosts = effigy_json(checkout, "container", "hosts", "--json")["result"]
         identities.append(scope.get("token") or "primary")

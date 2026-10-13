@@ -20,6 +20,40 @@ def load(name, filename):
     return module
 
 
+def generated_storage_contract(checkout, image, client_image, emit):
+    path=checkout/'.effigy/runtime/compose/.effigy-compose.generated.yml'
+    if path.is_symlink() or checkout.resolve() not in path.resolve(strict=True).parents:raise ValueError('compose_boundary_refused')
+    raw=path.read_bytes()
+    if len(raw)>1048576:raise ValueError('compose_bound_refused')
+    return generated_storage_projection(raw,image,client_image,emit)
+
+
+def generated_storage_projection(raw, image, client_image, emit):
+    text=raw.decode('utf-8')
+    def block(name):
+        match=re.search(r'(?ms)^  '+name+r':\n(.*?)(?=^  [A-Za-z0-9_-]+:|^volumes:|\Z)',text)
+        if match is None:raise ValueError('compose_service_refused')
+        return match[1]
+    server=block('silo');client=block('silo_client')
+    tests=re.findall(r'(?m)^ +test:\n((?: +- [^\n]*\n)+)',server)
+    ready_items=[line.strip()[2:] for line in tests[0].splitlines()] if len(tests)==1 else []
+    fields={
+        'server_pin':f'image: {image}' in server,
+        'client_pin':f'image: {client_image}' in client,
+        'ready_health':'healthcheck:' in server and ready_items==['CMD','mc','ready','local'],
+        'server_loopback_alias':'@127.0.0.1:9000' in server,
+        'distinct_silo_data':'-silo-data:/data' in server and '-minio-data' not in text,
+        'client_config_mount_absent':'volumes:' not in client,
+        'client_overrides_absent':all(name not in client for name in ('MC_CONFIG_DIR','MC_CONFIG_ENV_FILE','MC_HOST_local','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY')),
+        'obsolete_service_absent':re.search(r'(?m)^  minio:',text) is None,
+    }
+    # The actual generated native Compose is inspected in memory. Never retain
+    # its environment/config envelope, only fixed predicates and a digest.
+    receipt={'compose_sha256':hashlib.sha256(raw).hexdigest(),'predicates':fields}
+    emit(receipt)
+    if not all(fields.values()):raise ValueError('compose_contract_refused')
+    return receipt
+
 def main():
     binary=require_effigy_binary()
     reference=load('precondition_reference','qualify-reference-profiles.py')
@@ -69,10 +103,32 @@ def main():
                 for filename in ('service.toml','compose.fragment.yml'):
                     if (target/filename).read_bytes()!=(source/filename).read_bytes():raise ValueError('storage_catalog_mismatch')
                 if image not in (target/'service.toml').read_text():raise ValueError('storage_image_mismatch')
+            for name,container in containers.items():
+                if not isinstance(container,dict) or not container.get('services'):continue
+                hosts=call(checkout,'container',name,'hosts')
+                routes=hosts.get('routes')
+                if not isinstance(routes,list) or any(not isinstance(r,dict) or r.get('service')=='minio' for r in routes):raise ValueError('storage_hosts_refused')
+                generated_storage_contract(checkout,IMAGE,CLIENT_IMAGE,lambda projection:receipt.setdefault('generated_compose',[]).append({'checkout':str(checkout),'container':name,**projection}))
+                raw=(checkout/'.effigy/runtime/compose/.effigy-compose.generated.yml').read_bytes()
+                challenges={
+                    'wrong_server_pin':raw.replace(IMAGE.encode(),b'foreign/server',1),
+                    'wrong_client_pin':raw.replace(CLIENT_IMAGE.encode(),b'foreign/client',1),
+                    'wrong_ready_command':raw.replace(b'- ready',b'- unqualified',1),
+                    'wrong_service_name':raw.replace(b'  silo:\n',b'  minio:\n',1),
+                    'foreign_data_adoption':raw.replace(b'-silo-data:/data',b'-minio-data:/data',1),
+                    'empty_client_proxy':raw.replace(b'  silo_client:\n',b'  silo_client:\n    environment:\n      HTTP_PROXY: ""\n',1),
+                    'foreign_config_mount':raw.replace(b'  silo_client:\n',b'  silo_client:\n    volumes:\n      - /foreign:/root/.mc\n',1),
+                }
+                for challenge,data in challenges.items():
+                    if data==raw:raise ValueError('compose_control_unexercised')
+                    try:generated_storage_projection(data,IMAGE,CLIENT_IMAGE,lambda projection:None)
+                    except ValueError:receipt.setdefault('refusal_controls',[]).append({'container':name,'challenge':challenge,'refused':True})
+                    else:raise ValueError('compose_control_false_pass')
+
             receipt.setdefault('storage',[]).append({'checkout':str(checkout),'named_silo':True,'named_client':True,'catalogs_match':True,'digest_pins_match':True,'existing_data_adopted':False})
     except Exception as error:
         receipt['failure_frames']=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name} for f in traceback.extract_tb(error.__traceback__) if Path(f.filename).name in ('qualify-profile-preconditions.py','silo_client.py','qualify-reference-optin.py')]
-        failure=str(error) if isinstance(error,ValueError) and str(error) in {'obsolete_storage_service','storage_identity_refused','storage_catalog_mismatch','storage_image_mismatch','typed_composition_unavailable','optin_composition_unavailable','default_composition_changed','native_precondition_refused','native_precondition_schema','binary_changed'} else type(error).__name__
+        failure=str(error) if isinstance(error,ValueError) and str(error) in {'obsolete_storage_service','storage_identity_refused','storage_catalog_mismatch','storage_image_mismatch','storage_hosts_refused','compose_boundary_refused','compose_bound_refused','compose_service_refused','compose_contract_refused','compose_control_unexercised','compose_control_false_pass','typed_composition_unavailable','optin_composition_unavailable','default_composition_changed','native_precondition_refused','native_precondition_schema','binary_changed'} else type(error).__name__
     receipt['failure']=failure
     path=root/'preconditions.json';path.write_text(json.dumps(receipt,indent=2)+'\n');path.chmod(0o600)
     print('PRECONDITION RESULT: '+str(failure or 'passed')+'; runtime effects=false',flush=True)

@@ -61,7 +61,12 @@ class BootstrapTests(unittest.TestCase):
                      patch.dict(os.environ,{**env,'EFFIGY_GATEWAY_PRIVATE_STATE_ROOT':str(root),'EFFIGY_PROFILE_FRONT_DECLARED':'front','EFFIGY_PROFILE_ADMIN_DECLARED':'admin'}), \
                      patch.object(sys,'argv',['storage_launcher','reconcile','--repo',str(root),'--container',container]):
                     self.assertEqual(storage_launcher.main(),0)
-            else:launcher._bootstrap_silo(identity,root,env,container,context)
+            else:
+                profile='hybrid' if container=='hybrid_services' else 'disposable_test'
+                with patch.object(launcher,'_start_services',return_value={'context':context}), \
+                     patch.object(launcher,'_profile_env',return_value=env), \
+                     patch.object(launcher,'_profile_root',return_value=root):
+                    self.assertEqual(launcher._start_profile(identity,root,env,profile),context)
         return seen
 
     def test_both_profiles_real_shell_recipe_cors_and_exclusive_cleanup(self):
