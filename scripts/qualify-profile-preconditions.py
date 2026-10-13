@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-backend current-source assembly and legacy image availability gate."""
+"""No-backend current-source default and opt-in Silo assembly gate."""
 import hashlib
 import importlib.util
 import json
@@ -9,8 +9,6 @@ import re
 import subprocess
 import sys
 import traceback
-import urllib.error
-import urllib.request
 
 from qualification_runtime import require_effigy_binary, SUPPORTED_EFFIGY_SOURCE, SUPPORTED_EFFIGY_SHA256
 from dev.silo_client import bounded_run, strict_json
@@ -53,27 +51,28 @@ def main():
                 if not {'hybrid_services','disposable_test'}<=set(containers):raise ValueError('optin_composition_unavailable')
             elif {'hybrid_services','disposable_test'}&set(containers):raise ValueError('default_composition_changed')
             receipt['assemblies'].append({'checkout':str(checkout),'profile':'default' if not index else 'explicit_optin','container_names':sorted(set(containers)&{'default','stack','hybrid_services','disposable_test'}),'unknown_container_count':len(set(containers)-{'default','stack','hybrid_services','disposable_test'}),'exported_silo_client_asset':(Path(__file__).parent/'dev/silo_client.py').is_file()})
-        # Supported extraction only writes into this newly owned checkout. It
-        # does not inspect a live backend or substitute Silo for legacy MinIO.
-        call(checkouts[0],'service','extract','minio','--dir','infra/dev/catalog')
-        catalog=checkouts[0]/'infra/dev/catalog/minio'
-        source=Path(os.environ['UNDERLAY_PROFILE_EFFIGY_SOURCE'])/'crates/effigy-catalog/catalog/minio'
-        for filename in ('service.toml','compose.fragment.yml'):
-            if (catalog/filename).read_bytes()!=(source/filename).read_bytes():raise ValueError('legacy_catalog_source_mismatch')
-        version='RELEASE.2025-09-07T16-13-09Z'
-        if ('default = "'+version+'"') not in (catalog/'service.toml').read_text():raise ValueError('legacy_image_pin_unknown')
-        receipt['legacy_catalog_digest']=hashlib.sha256((catalog/'compose.fragment.yml').read_bytes()).hexdigest()
-        with urllib.request.urlopen('https://auth.docker.io/token?service=registry.docker.io&scope=repository:minio/minio:pull',timeout=20) as response:
-            token=strict_json(response.read(65536).decode())['token']
-        request=urllib.request.Request('https://registry-1.docker.io/v2/minio/minio/manifests/'+version,headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.docker.distribution.manifest.v2+json'})
-        try:
-            with urllib.request.urlopen(request,timeout=20) as response:status=response.status
-        except urllib.error.HTTPError as error:status=error.code
-        receipt['legacy_image']={'repository':'minio/minio','tag':version,'manifest_http_status':status,'authenticated_operator_credentials_used':False,'replacement_image_used':False}
-        if status!=200:raise ValueError('legacy_image_unavailable_before_effects')
+        from dev import profile_launcher as launcher
+        from silo_fixture import IMAGE, CLIENT_IMAGE
+        for checkout in checkouts:
+            launcher._prepare_silo_override(checkout)
+            value=call(checkout,'config','--inspect','--path','containers')
+            containers=value['selected_value']['value']
+            for name,container in containers.items():
+                if not isinstance(container,dict):continue
+                services=container.get('services',{})
+                if not services:continue
+                if 'minio' in services:raise ValueError('obsolete_storage_service')
+                if services.get('silo',{}).get('catalog')!='silo' or services.get('silo_client',{}).get('catalog')!='silo-mc':raise ValueError('storage_identity_refused')
+            for catalog,image in (('silo',IMAGE),('silo-mc',CLIENT_IMAGE)):
+                target=checkout/'infra/dev/catalog'/catalog
+                source=Path(__file__).parent/'dev/catalog'/catalog
+                for filename in ('service.toml','compose.fragment.yml'):
+                    if (target/filename).read_bytes()!=(source/filename).read_bytes():raise ValueError('storage_catalog_mismatch')
+                if image not in (target/'service.toml').read_text():raise ValueError('storage_image_mismatch')
+            receipt.setdefault('storage',[]).append({'checkout':str(checkout),'named_silo':True,'named_client':True,'catalogs_match':True,'digest_pins_match':True,'existing_data_adopted':False})
     except Exception as error:
         receipt['failure_frames']=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name} for f in traceback.extract_tb(error.__traceback__) if Path(f.filename).name in ('qualify-profile-preconditions.py','silo_client.py','qualify-reference-optin.py')]
-        failure=str(error) if isinstance(error,ValueError) and str(error) in {'legacy_image_unavailable_before_effects','legacy_catalog_source_mismatch','legacy_image_pin_unknown','typed_composition_unavailable','optin_composition_unavailable','default_composition_changed','native_precondition_refused','native_precondition_schema','binary_changed'} else type(error).__name__
+        failure=str(error) if isinstance(error,ValueError) and str(error) in {'obsolete_storage_service','storage_identity_refused','storage_catalog_mismatch','storage_image_mismatch','typed_composition_unavailable','optin_composition_unavailable','default_composition_changed','native_precondition_refused','native_precondition_schema','binary_changed'} else type(error).__name__
     receipt['failure']=failure
     path=root/'preconditions.json';path.write_text(json.dumps(receipt,indent=2)+'\n');path.chmod(0o600)
     print('PRECONDITION RESULT: '+str(failure or 'passed')+'; runtime effects=false',flush=True)

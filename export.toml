@@ -1,5 +1,5 @@
 [manifest]
-minimum_effigy_version = "{% if inputs.profiles.enabled %}0.14.1{% else %}0.13.1{% endif %}"
+minimum_effigy_version = "0.14.1"
 extend = ["bootstrap.children", "secrets"]
 
 {% set resolved_project_name = inputs.project_name or inputs.workspace_subdir ~ "-" ~ bundle.name %}
@@ -99,18 +99,23 @@ connection_label = "{{ resolved_project_name }}"
 [containers.{{ inputs.container_name }}.services.mailpit]
 catalog = "mailpit"
 
-[containers.{{ inputs.container_name }}.services.minio]
-catalog = "minio"
+[containers.{{ inputs.container_name }}.services.silo]
+catalog = "silo"
+api_port = "127.0.0.1:9000"
+console_port = "127.0.0.1:9001"
+
+[containers.{{ inputs.container_name }}.services.silo_client]
+catalog = "silo-mc"
 
 [containers.{{ inputs.container_name }}.dns]
 routes = [
   { domain = "{{ route_domain(inputs.host, inputs.routes.front, '') }}", tls = true, port = {{ inputs.front_port }}, service = "{{ inputs.workspace_service_name }}" },
   { domain = "{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}", tls = true, port = {{ inputs.admin_port }}, service = "{{ inputs.workspace_service_name }}" },
   { domain = "{{ route_domain(inputs.host, inputs.routes.api, 'api') }}", tls = true, port = {{ inputs.api_port }}, service = "{{ inputs.workspace_service_name }}" },
-  { domain = "{{ route_domain(inputs.host, inputs.routes.s3, 's3') }}", tls = true, port = 9000, service = "minio" },
+  { domain = "{{ route_domain(inputs.host, inputs.routes.s3, 's3') }}", tls = true, port = 9000, service = "silo" },
   { domain = "dbgate.{{ inputs.host }}", tls = true, port = 3000, service = "dbgate" },
   { domain = "mailpit.{{ inputs.host }}", tls = true, port = 8025, service = "mailpit" },
-  { domain = "minio.{{ inputs.host }}", tls = true, port = 9001, service = "minio" },
+  { domain = "{{ route_domain(inputs.host, inputs.routes.silo, 'silo') }}", tls = true, port = 9001, service = "silo" },
 ]
 
 [secrets]
@@ -185,30 +190,19 @@ run = [
   { task = "{{ sel_front }}/health" },
 ]
 
-[tasks."minio:reconcile"]
-run = """
-container_id="$(docker ps \
-  --filter label=com.docker.compose.project={{ resolved_project_name }} \
-  --filter label=com.docker.compose.service=minio \
-  --format '{{"{{"}}.ID{{"}}"}}' \
-  | head -n 1)"
-if [ -z "$container_id" ]; then
-  printf '%s\n' 'minio container not found for project {{ resolved_project_name }}' 1>&2
-  exit 1
-fi
-docker exec -w / "$container_id" sh -lc '
-  set -eu
-  mc alias set local http://127.0.0.1:9000 minioadmin minioadmin >/dev/null 2>&1
-  until mc ready local >/dev/null 2>&1; do sleep 1; done
-  mc mb local/{{ resolved_project_name }}-media --ignore-existing >/dev/null
-  mc anonymous set download local/{{ resolved_project_name }}-media >/dev/null
-  cat > /tmp/effigy-minio-cors.json <<'"'"'EOF'"'"'
-[{"AllowedOrigins":["https://{{ route_domain(inputs.host, inputs.routes.front, '') }}","https://{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}"],"AllowedMethods":["GET","HEAD","PUT"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag","x-amz-request-id","x-amz-id-2"],"MaxAgeSeconds":3000}]
-EOF
-  mc cors set local/{{ resolved_project_name }}-media /tmp/effigy-minio-cors.json >/dev/null
-'
-"""
+# Bundle-local catalogs are installed without overwriting foreign definitions.
+[tasks."silo:prepare"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/storage_launcher.py" prepare --repo {repo} --container {{ inputs.container_name }}'
 run_in = "host"
+
+[tasks."silo:admit"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/storage_launcher.py" admit --repo {repo} --container {{ inputs.container_name }}'
+run_in = "host"
+
+[tasks."silo:reconcile"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/storage_launcher.py" reconcile --repo {repo} --container {{ inputs.container_name }}'
+run_in = "host"
+env = { EFFIGY_PROFILE_SILO_BUCKET = "{{ inputs.databases|first }}-media", EFFIGY_PROFILE_FRONT_DECLARED = "{{ route_domain(inputs.host, inputs.routes.front, '') }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}" }
 
 [tasks.validate]
 run = [
@@ -229,7 +223,7 @@ run = [
   { task = "{{ sel_docs }}/qa:northstar" },
 {% endif %}]
 
-[tasks.dev]
+[tasks."dev:container:session"]
 mode = "tui"
 container_lifecycle = true
 secrets = "required"
@@ -246,6 +240,9 @@ concurrent = [
 
 # A stable name for the legacy container-backed development path. This alias
 # remains available when opt-in profiles are omitted.
+[tasks.dev]
+run = [{ task = "silo:prepare" }, { task = "silo:admit" }, { task = "container up --detach" }, { task = "silo:reconcile" }, { task = "dev:container:session" }]
+
 [tasks."dev:container"]
 run = [{ task = "dev" }]
 
@@ -465,8 +462,10 @@ env = { UNDERLAY_PROFILE_EFFIGY_SOURCE = "{{ inputs.profiles.effigy_source }}", 
 [bootstrap]
 run = [
   { task = "secrets init" },
+  { task = "silo:prepare" },
+  { task = "silo:admit" },
   { task = "container up --detach" },
-  { rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" },
+  { task = "silo:reconcile" },
 {% if inputs.workspace.js_root %}  { task = "workspace:js:prepare" },
 {% elif inputs.sources.siblings %}  { task = "bootstrap deps sync {% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}{% if inputs.dirs.api %} {{ inputs.dirs.api }}{% else %} app-api{% endif %}{% if inputs.dirs.client %} {{ inputs.dirs.client }}{% else %} app-client{% endif %}{% if inputs.dirs.ui %} {{ inputs.dirs.ui }}{% else %} app-ui{% endif %}{% if inputs.dirs.front %} {{ inputs.dirs.front }}{% else %} app-front{% endif %}{% if inputs.dirs.admin %} {{ inputs.dirs.admin }}{% else %} app-admin{% endif %}" },
 {% endif %}

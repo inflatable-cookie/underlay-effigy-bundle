@@ -77,7 +77,7 @@ BOUND_FAILURES={'deadline','stdout_overflow','stderr_overflow','read_failure','i
 
 
 def bounded_arguments(service,command,container="hybrid_services"):
-    if container not in ("hybrid_services","disposable_test"):raise ValueError("bounded_container_refused")
+    if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_-]{0,63}",container):raise ValueError("bounded_container_refused")
     if service not in ('silo','silo_client'):raise ValueError('bounded_service_refused')
     return ['container',container,'shell','--service',service,'--command',command,'--bounded',
             '--deadline-ms',str(BOUNDS['deadline_ms']),'--stdout-limit-bytes',str(BOUNDS['stdout_limit_bytes']),

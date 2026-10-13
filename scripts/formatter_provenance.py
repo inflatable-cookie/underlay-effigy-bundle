@@ -48,9 +48,13 @@ def version_arguments(env, fixture):
     if supplied != root or supplied.is_symlink() or root.stat().st_uid != __import__('os').getuid() or root.stat().st_mode & 0o077:
         raise ValueError('formatter_private_scope_refused')
     home = Path(env['COLIMA_HOME'])
-    if (home.is_symlink() or home.resolve(strict=True) != root / 'colima'
+    correlation = (root.name == 'fixture' and root.parent.name.startswith('ur.005-storage.')
+                   and home.resolve(strict=True) == root / 'colima')
+    profile = (re.fullmatch(r'ur\.[A-Za-z0-9]{6}',root.name) is not None
+               and env.get('UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT') == str(root)
+               and home.resolve(strict=True) == root / 'colima-home')
+    if (home.is_symlink() or not (correlation or profile)
             or Path(env['HOME']).resolve(strict=True) != root / 'home'
-            or root.name != 'fixture' or not root.parent.name.startswith('ur.005-storage.')
             or home.stat().st_mode & 0o077
             or any(key in env for key in ('DOCKER_HOST', 'DOCKER_CONTEXT', 'COLIMA_PROFILE'))):
         raise ValueError('formatter_private_scope_refused')

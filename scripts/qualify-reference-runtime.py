@@ -109,7 +109,7 @@ def wait_loopback_service(port: int, service: str, timeout_secs: int = 120) -> d
     while time.monotonic() < deadline:
         attempts += 1
         try:
-            if service == "minio":
+            if service in {"minio", "silo"}:
                 connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
                 connection.request("GET", "/minio/health/ready")
                 response = connection.getresponse()
@@ -1664,59 +1664,15 @@ def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid
         connection.close()
 
 
-def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_origin: str,
-                *, container: str = "hybrid", service: str = "minio",
-                client_service: str | None = None, bucket_name: str | None = None,
-                cleanup_bucket: bool = True) -> dict:
-    def shell(command: str) -> str:
-        return service_shell(EFFIGY, checkout, env, command, container=container,
-                             service=client_service or service)
-
-    minio_version = service_shell(EFFIGY, checkout, env, "silo --version",
-                                  container=container, service=service)
-    mc_version = shell("mc --version")
-    status = effigy_json(EFFIGY, checkout, env, "container", container, "status", "--json")
-    compose_path = Path(status["compose_file"])
-    if not compose_path.is_absolute():
-        compose_path = checkout / compose_path
-    compose = compose_path.read_text(encoding="utf-8")
-
-    def service_block(name: str) -> str | None:
-        match = re.search(
-            rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:|^volumes:|\Z)",
-            compose,
-        )
-        return match.group(1) if match else None
-
-    server_block = service_block(service)
-    if server_block is None or f"image: {IMAGE}" not in server_block:
-        raise RuntimeError(f"generated {container} compose does not pin the published Silo image for {service}")
-    if client_service is not None:
-        client_block = service_block(client_service)
-        if client_block is None or f"image: {CLIENT_IMAGE}" not in client_block:
-            raise RuntimeError(
-                f"generated {container} compose does not pin the published Silo client image for {client_service}"
-            )
-    if RELEASE not in minio_version or RELEASE not in mc_version:
-        raise RuntimeError("the running catalog service did not expose the pinned Silo and MC releases")
-    with socket.create_connection(("127.0.0.1", minio_port), timeout=10):
-        pass
-    print(f"PASS host loopback reached the published Silo API listener 127.0.0.1:{minio_port}", flush=True)
-    shell("mc ready local")
-    bucket = bucket_name or "underlay-reference-qualification"
-    shell(f"mc mb local/{bucket} --ignore-existing")
-    invalid_status, _, _ = _s3_request(minio_port, "GET", f"/{bucket}/", invalid_credentials=True)
-    if invalid_status != 403:
-        raise RuntimeError(f"Silo accepted invalid signed fixture credentials: HTTP {invalid_status}")
-    payload = "underlay-reference-published-silo-proof"
-    shell(f"printf %s {json.dumps(payload)} | mc pipe local/{bucket}/probe.txt")
-    mc_put_status, _, received = _s3_request(
-        minio_port, "GET", f"/{bucket}/probe.txt",
-    )
-    if mc_put_status != 200 or received.decode("utf-8") != payload:
-        raise RuntimeError(
-            f"mc PUT followed by host-signed S3 GET returned HTTP {mc_put_status} or changed bytes"
-        )
+def prove_silo(checkout: Path, env: dict[str, str], minio_port: int, allowed_origin: str,
+               *, container: str, service: str, client_service: str,
+               bucket_name: str, cleanup_bucket: bool = False) -> dict:
+    # The production selector already ran the shared bounded bootstrap. This
+    # proof observes its bucket/ACL/CORS and uses host-signed object requests;
+    # it never substitutes handwritten/unbounded MC mutations.
+    bucket=bucket_name
+    invalid_status, _, _ = _s3_request(minio_port,'GET',f'/{bucket}/',invalid_credentials=True)
+    if invalid_status != 403:raise RuntimeError('Silo invalid credential refusal unproved')
     cors_connection = http.client.HTTPConnection("127.0.0.1", minio_port, timeout=10)
     try:
         cors_connection.request(
@@ -1731,51 +1687,44 @@ def prove_minio(checkout: Path, env: dict[str, str], minio_port: int, allowed_or
         cors_headers = {key.lower(): value for key, value in cors_response.getheaders()}
         cors_response.read()
         if cors_headers.get("access-control-allow-origin") != allowed_origin:
-            raise RuntimeError("MinIO did not allow the configured disposable browser origin")
+            raise RuntimeError("Silo did not allow the configured disposable browser origin")
         if "PUT" not in cors_headers.get("access-control-allow-methods", "").upper():
-            raise RuntimeError("MinIO CORS preflight did not allow the S3 PUT method")
+            raise RuntimeError("Silo CORS preflight did not allow the S3 PUT method")
         allowed_headers = cors_headers.get("access-control-allow-headers", "").lower()
         if not all(header in allowed_headers for header in ("authorization", "x-amz-content-sha256", "x-amz-date")):
-            raise RuntimeError("MinIO CORS preflight did not allow the signed S3 request headers")
+            raise RuntimeError("Silo CORS preflight did not allow the signed S3 request headers")
         print("PASS published Silo bucket CORS preflight for the exact browser origin, PUT, and signed headers",
               flush=True)
     finally:
         cors_connection.close()
 
-    payload = b"host-signed-reference-minio-loopback-proof"
-    object_path = f"/{bucket}/probe.txt"
-    put_status, _, _ = _s3_request(minio_port, "PUT", object_path, payload)
-    if put_status not in (200, 201):
-        raise RuntimeError(f"host-signed MinIO object PUT returned HTTP {put_status}")
-    get_status, _, received = _s3_request(minio_port, "GET", object_path)
-    if get_status != 200 or received != payload:
-        raise RuntimeError(f"host-signed MinIO object GET returned HTTP {get_status} or changed bytes")
-    delete_status, _, _ = _s3_request(minio_port, "DELETE", object_path)
-    if delete_status not in (200, 204):
-        raise RuntimeError(f"host-signed MinIO object DELETE returned HTTP {delete_status}")
-    print(f"PASS host-to-MinIO signed S3 PUT/GET/DELETE through 127.0.0.1:{minio_port}", flush=True)
-    if cleanup_bucket:
-        shell(f"mc rb local/{bucket}")
-    # A foreign browser origin must receive no usable CORS grant.
-    connection = http.client.HTTPConnection("127.0.0.1", minio_port, timeout=10)
+    payload = b'host-signed-reference-silo-loopback-proof'
+    object_path=f'/{bucket}/proof-'+__import__('secrets').token_hex(16)
+    put_status,_,_=_s3_request(minio_port,'PUT',object_path,payload)
+    if put_status not in (200,201):raise RuntimeError('Silo host PUT refused')
+    get_status,_,received=_s3_request(minio_port,'GET',object_path)
+    if get_status!=200 or received!=payload:raise RuntimeError('Silo host GET bytes refused')
+    connection=http.client.HTTPConnection('127.0.0.1',minio_port,timeout=10)
     try:
-        connection.request("OPTIONS", f"/{bucket}/foreign-probe", headers={
-            "Origin": "https://foreign.invalid", "Access-Control-Request-Method": "PUT"})
-        response = connection.getresponse()
-        foreign_headers = {key.lower(): value for key, value in response.getheaders()}
-        foreign_status = response.status
-        response.read()
-        if foreign_headers.get("access-control-allow-origin"):
-            raise RuntimeError("Silo granted CORS access to an unconfigured foreign browser origin")
-    finally:
-        connection.close()
-    print(f"PASS published Silo catalog health, pinned versions and CORS for {allowed_origin}", flush=True)
-    return {"product": "PGSTY Silo", "release": RELEASE, "loopback_port": minio_port,
-            "health": "mc ready local exit 0", "bootstrap": "owned bucket created and removed",
-            "signed_put": put_status, "signed_get": get_status, "signed_delete": delete_status,
-            "bytes_equal": True, "allowed_origin": allowed_origin,
-            "foreign_preflight_status": foreign_status, "foreign_cors_grant": False,
-            "invalid_credentials_status": invalid_status}
+        connection.request('GET',object_path)
+        response=connection.getresponse()
+        if response.status!=200 or response.read(65536)!=payload:raise RuntimeError('Silo anonymous download refused')
+    finally:connection.close()
+    delete_status,_,_=_s3_request(minio_port,'DELETE',object_path)
+    if delete_status not in (200,204):raise RuntimeError('Silo host DELETE refused')
+    connection=http.client.HTTPConnection('127.0.0.1',minio_port,timeout=10)
+    try:
+        connection.request('OPTIONS',f'/{bucket}/foreign-probe',headers={
+            'Origin':'https://foreign.invalid','Access-Control-Request-Method':'PUT'})
+        response=connection.getresponse();foreign_status=response.status
+        if response.getheader('access-control-allow-origin'):raise RuntimeError('Silo foreign CORS grant refused')
+        response.read(65536)
+    finally:connection.close()
+    return {'product':'PGSTY Silo','release':RELEASE,'bootstrap':'exported production bounded recipe',
+            'signed_put':put_status,'signed_get':get_status,'signed_delete':delete_status,
+            'bytes_equal':True,'anonymous_download':True,'allowed_origin':allowed_origin,
+            'foreign_preflight_status':foreign_status,'foreign_cors_grant':False,
+            'invalid_credentials_status':invalid_status}
 
 
 def observe_routes(checkout: Path, gateway_root: Path, env: dict[str, str],

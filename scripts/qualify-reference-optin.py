@@ -1537,7 +1537,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                 or retained_inputs.get("retained_acceptance", {}).get("storage_gate") != "passed"):
             raise RuntimeError("remaining-lifecycle mode requires the exact retained acceptance input match")
         receipts["retained_acceptance_input_match"] = retained_inputs
-    floor_template = '[manifest]\nminimum_effigy_version = "{% if inputs.profiles.enabled %}0.14.1{% else %}0.13.1{% endif %}"'
+    floor_template = '[manifest]\nminimum_effigy_version = "0.14.1"'
     if floor_template not in (ROOT / "export.toml").read_text(encoding="utf-8"):
         raise RuntimeError("profile input must raise the manifest floor only to 0.14.1")
     try:
@@ -1601,7 +1601,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                 endpoint_checks = [
                     RUNTIME.wait_loopback_service(postgres_port, "postgres"),
                     RUNTIME.wait_loopback_service(smtp_port, "mailpit"),
-                    RUNTIME.wait_loopback_service(silo_port, "minio"),
+                    RUNTIME.wait_loopback_service(silo_port, "silo"),
                 ]
             checkout_routes = _effective_checkout_routes(
                 effigy_json(checkout, env, "container", "hosts", "--json")
@@ -1637,7 +1637,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
             gateway_port = int(record["gateway_port"])
             if not remaining_lifecycle:
                 RUNTIME.observe_routes(checkout, gateway_root, env, states, gateway_port)
-                RUNTIME.prove_minio(checkout, env, int(record["ports"]["silo"]),
+                RUNTIME.prove_silo(checkout, env, int(record["ports"]["silo"]),
                                     f"https://{record['domains']['front']}:{gateway_port}",
                                     container="hybrid_services", service="silo", client_service="silo_client",
                                     bucket_name="acme-media", cleanup_bucket=False)
@@ -2151,12 +2151,23 @@ def main() -> int:
             )
             if compile_result.returncode != 0:
                 raise RuntimeError("instrumented disposable Reference auth fixture compile failed")
+        from formatter_provenance import bind_host, bound_colima, observe
+        bind_host(runtime_env)
+        for key in ('DOCKER_HOST','DOCKER_CONTEXT','COLIMA_PROFILE'):
+            if key in runtime_env:raise RuntimeError('foreign runtime override refused')
         colima_start_attempted = True
-        RUNTIME.run(["colima", "start", "--profile", "effigy", "--runtime", "containerd",
+        RUNTIME.run([bound_colima(runtime_env), "start", "--profile", "effigy", "--runtime", "containerd",
                      "--cpu", "6", "--memory", "8", "--disk", "64"],
                     env=runtime_env, timeout=1200)
         started_colima = True
-        image_receipt = prepare_published_images(fixture_root, runtime_env)
+        if diagnostics is None:raise RuntimeError('full-profile finite diagnostics required')
+        observe(runtime_env,fixture_root,diagnostics)
+        import importlib.util as _import_util
+        _spec=_import_util.spec_from_file_location('full_image_interfaces',ROOT/'scripts/qualify-storage-correlation.py')
+        _image=_import_util.module_from_spec(_spec);_spec.loader.exec_module(_image)
+        image_receipt = prepare_published_images(fixture_root,runtime_env,
+            client_probe=lambda shape:_image.client_image_provenance(runtime_env,diagnostics,shape))
+        _image.image_interfaces(runtime_env,diagnostics,__import__('secrets').token_hex(16))
         if diagnostics is not None:
             diagnostics.append("pinned_images_prepared", silo_image=IMAGE,
                                silo_release=RELEASE, silo_client_image=CLIENT_IMAGE)

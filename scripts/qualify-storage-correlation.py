@@ -52,6 +52,7 @@ def client_image_provenance(env,journal,shape):
 def offline_client_recipe(nonce, markers):
     path='/root/underlay-'+nonce
     return [guard_command('silo_client')+'; '+environment_guard('silo_client'),
+            'set -eu; command -v rm >/dev/null; set -C; printf %s private > /tmp/underlay-tools-'+nonce+'; trap '+__import__('shlex').quote('rm -f /tmp/underlay-tools-'+nonce)+' EXIT; test -f /tmp/underlay-tools-'+nonce,
             mc_command(['alias','set','local','http://silo:9000','minioadmin','minioadmin','--api','S3v4','--path','auto'],json_output=True),
             mc_command(['alias','list','local'],json_output=True),
             file_producer(path,b'challenge'),
@@ -61,7 +62,7 @@ def offline_client_recipe(nonce, markers):
 def offline_client_interface(env,journal,nonce):
     from silo_fixture import CLIENT_IMAGE
     from storage_correlation import stat_projection
-    labels=('guard','alias_set','alias_list','producer','stat','cat')
+    labels=('guard','tools','alias_set','alias_list','producer','stat','cat')
     markers=['UNDERLAY_'+secrets.token_hex(16).upper() for _ in labels]
     commands=offline_client_recipe(nonce,markers)
     outer='UNDERLAY_'+secrets.token_hex(16).upper()
@@ -110,7 +111,7 @@ def image_interfaces(env,journal,nonce):
             journal.append('client_command_input',operation='image_local_stat',service='silo_client',**input_record)
         stat_projection(region, 'underlay-'+nonce,9,journal)
         # Help exercises genuine flags/builtins without alias signature probes.
-        for operation in ('alias list','pipe','cat','mb','stat'):
+        for operation in ('alias list','pipe','cat','mb','stat','ready','anonymous','cors set'):
             marker='UNDERLAY_'+secrets.token_hex(16).upper()
             command=mc_command(operation.split()+['--help'],'silo_client' if image==CLIENT_IMAGE else 'silo')
             if image==CLIENT_IMAGE:command=client_command_input(command,marker)

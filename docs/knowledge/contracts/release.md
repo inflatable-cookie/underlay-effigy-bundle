@@ -37,7 +37,9 @@ The ruling preserves the shared rollback below.
 
 ## Verify
 
-- A consumer on default inputs sees no change.
+- Default inputs retain container execution and non-storage behavior. The
+  explicitly authorized Silo storage replacement uses a fresh distinct volume;
+  existing MinIO data is not migrated or adopted.
 - A consumer opting into a new input sees the documented effect.
 - A consumer with `sources.siblings = false` resolves bundle tasks without
   sibling catalogs or checkout paths.

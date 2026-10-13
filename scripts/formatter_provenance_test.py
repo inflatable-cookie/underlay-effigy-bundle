@@ -39,6 +39,19 @@ class FormatterTests(unittest.TestCase):
             with self.assertRaises(ValueError): probe.version_arguments(env, fixture)
             with self.assertRaises(ValueError): probe.version_arguments({**env, 'PATH': '/missing'}, fixture)
 
+    def test_explicit_profile_fixture_scope_is_exact(self):
+        with tempfile.TemporaryDirectory(prefix='ur.') as temporary:
+            parent=Path(temporary)
+            fixture=parent/'ur.A1b2C3';fixture.mkdir(mode=0o700)
+            for name in ('home','colima-home'):(fixture/name).mkdir(mode=0o700)
+            executable=parent/'colima';executable.write_text('#!/bin/sh\nexit 93\n');executable.chmod(0o700)
+            env=dict(os.environ,PATH=str(parent),HOME=str(fixture/'home'),COLIMA_HOME=str(fixture/'colima-home'),UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT=str(fixture))
+            for key in ('DOCKER_HOST','DOCKER_CONTEXT','COLIMA_PROFILE'):env.pop(key,None)
+            probe.bind_host(env)
+            self.assertEqual(probe.version_arguments(env,fixture)[0],str(executable))
+            for key in ('UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT','HOME','COLIMA_HOME'):
+                with self.assertRaises(ValueError):probe.version_arguments({**env,key:str(parent)},fixture)
+
     def test_metadata_source_and_unknown_secret_refusals(self):
         valid = (probe.QUALIFIED_VERSION + '|' + probe.QUALIFIED_COMMIT + '|linux|arm64\n').encode()
         self.assertEqual(probe.version_projection(valid)['git_commit'], probe.QUALIFIED_COMMIT)

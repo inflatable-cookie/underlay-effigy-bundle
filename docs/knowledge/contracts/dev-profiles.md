@@ -11,10 +11,9 @@ disposable profile containers. Named database volumes remain owned by that
 profile for normal checkout cleanup. It never runs full QA.
 
 Profile declarations are rendered only when `profiles.enabled = true`; its
-default is false. The unchanged `dev` task and omitted-input composition remain
-container-based. Switching a consumer's `dev` default and permanent Reference
-source adoption require separate explicit work. Unsupported profile admission
-does not change the container-only path.
+default is false. The `dev` task and omitted-input composition remain container-based;
+default storage explicitly changes from MinIO to Silo. Switching a consumer's `dev` default and permanent Reference
+source adoption require separate explicit work. Storage and profile startup both require exact-source admission.
 
 The bundle inputs `profiles.effigy_source` and `profiles.effigy_binary` must
 name the clean qualified source checkout and absolute executable. Before any
@@ -26,8 +25,8 @@ exact-source admission is macOS arm64 only; new-source runtime acceptance is
 still incomplete. Unknown, changed, wrong-platform or
 unavailable identities fail before runtime effects, with actionable input
 guidance. Each nested Effigy operation uses that verified absolute path, never
-`PATH`. The effective Effigy floor rises to `0.14.1` only when profiles are
-enabled; default-input consumers retain the existing `0.13.1` floor. The
+`PATH`. The effective Effigy floor is `0.14.1` in all assemblies because the
+Silo bootstrap requires bounded native execution. The
 floor is supplemental; it cannot prove this exact capability because old
 `+local` builds can satisfy the opt-in floor.
 
@@ -37,14 +36,13 @@ arguments. `profiles.test_timeout_secs` defaults to 900 and is bounded to
 profile's exact down and route-withdrawal operations; uncertainty retains the
 owned scope for explicit recovery through `dev:test:down`.
 
-On first opt-in start, the launcher installs the bundle-owned local Silo
+Before default/container or opt-in startup, the launcher installs the bundle-owned local Silo
 server and MC client catalogs under `infra/dev/catalog/silo` and
 `infra/dev/catalog/silo-mc` only when those exact paths are absent. Conflicting
 local catalogs are preserved and cause refusal before startup. Both images use
-approved digest-pinned PGSTY releases; the shared catalog and default MinIO
-stack remain unchanged. The local overrides remain until the operator stops
-the profile. They are not a shared catalog migration or an upstream MinIO
-availability fix. `profiles.silo_bucket` selects the application's actual
+approved digest-pinned PGSTY releases; default storage now names Silo and its
+client explicitly. The shared catalog is not published or changed. The local overrides remain until the operator stops
+the profile. They are not a shared catalog publication or an existing-data migration. `profiles.silo_bucket` selects the application's actual
 development bucket; its safe default is the first configured database name
 followed by `-media`.
 
@@ -714,14 +712,27 @@ known-bucket404/NoSuchKey. Numeric DNS/IP/container IDs remain unobserved; no
 historical cause is inferred and original production default HOME/autoprobe is
 not qualified by explicit recipe proof.
 
-### Container parity and current acceptance limit
+### Silo default storage boundary
 
-No-backend current-source disposable Reference default main and two explicit
-opt-in worktree assemblies pass. The unchanged legacy catalog declares genuine
-`minio/minio:RELEASE.2025-09-07T16-13-09Z`; anonymous manifest access currently
-returns401. Silo substituted under MinIO's name is not container parity. Required
-new-production bootstrap genuine image/runtime/CORS, current-source full-profile/
-Reference finalisation/lifecycle/dev:test/container acceptance remain pending.
-Historical pilot evidence cannot replace these gates. Cleanup uses newly proven
-scoped resources only; VM/images/volumes stay held, no retire/purge authority
-follows from down0 or empty inventory. Old held resources remain protected.
+The bundle explicitly replaces the fresh default/container MinIO service with
+`silo` and `silo_client`, using the same pinned PGSTY fragments as opt-in profiles.
+No Silo image is installed under a MinIO name. The distinct Silo volume does not
+adopt existing MinIO objects, volumes or credentials. Shared catalog publication
+and existing consumer data migration are separate work. Non-storage defaults,
+container execution and the `dev:container` escape remain.
+
+Default startup prepares only exact bundle-owned catalog files, then verifies
+the qualified absolute binary and requires an owned private gateway root before
+service effects. Bounded bootstrap uses the same exported MC recipe as profiles,
+with `<first database>-media` and exactly the effective front/admin HTTPS CORS
+origins. No qualification-script import or unbounded replacement bootstrap is
+allowed. The minimum Effigy version is 0.14.1; exact-source admission remains
+stronger than that floor.
+
+No-effect disposable assembly checks named services, fragments and pins. Actual
+production bootstrap, default-container build/start, current nine listeners,
+Reference media, lifecycle, dev:test and ownership-preserving shutdown require
+current runtime evidence. Historical storage success supplies no current
+owner/generation or changed bootstrap/CORS credit. Cleanup uses newly proven
+scoped resources only; VM/images/volumes remain held. No retirement follows from
+down0 or empty inventory, and old held resources remain protected.

@@ -17,7 +17,7 @@ spec.loader.exec_module(launcher)
 
 
 class BootstrapTests(unittest.TestCase):
-    def exercise(self,root,container='hybrid_services',override=None,negative=False):
+    def exercise(self,root,container='hybrid_services',override=None,negative=False,default_caller=False):
         seen=[]
         identity=launcher.BinaryIdentity('source','/owned/effigy','digest',1,2,3,4)
         context={'routes':{'front':'front.example.test','admin':'admin.example.test'},'https_port':443}
@@ -52,14 +52,23 @@ class BootstrapTests(unittest.TestCase):
             envelope={'schema':'effigy.command.v1','schema_version':1,'ok':value['ok'],'result':value if value['ok'] else None,'error':None if value['ok'] else {'details':value,'message':'seeded-secret'}}
             return {'outcome':'complete','exit':code,'stdout':json.dumps(envelope).encode(),'stdout_bytes':0,'stderr_bytes':0}
         with patch.object(launcher,'verify_unchanged'),patch.object(shared,'bounded_run',side_effect=transport):
-            launcher._bootstrap_silo(identity,root,env,container,context)
+            if default_caller:
+                import storage_launcher
+                with patch.object(storage_launcher,'profiles',launcher), \
+                     patch.object(launcher,'verify_binary',return_value=identity), \
+                     patch.object(launcher,'_json_command',return_value={'routes':[{'declared':'front','effective':'front.example.test'},{'declared':'admin','effective':'admin.example.test'}]}), \
+                     patch.object(launcher,'_gateway_json',return_value={'https_addr':'127.0.0.1:443'}), \
+                     patch.dict(os.environ,{**env,'EFFIGY_GATEWAY_PRIVATE_STATE_ROOT':str(root),'EFFIGY_PROFILE_FRONT_DECLARED':'front','EFFIGY_PROFILE_ADMIN_DECLARED':'admin'}), \
+                     patch.object(sys,'argv',['storage_launcher','reconcile','--repo',str(root),'--container',container]):
+                    self.assertEqual(storage_launcher.main(),0)
+            else:launcher._bootstrap_silo(identity,root,env,container,context)
         return seen
 
     def test_both_profiles_real_shell_recipe_cors_and_exclusive_cleanup(self):
-        for container in ('hybrid_services','disposable_test'):
+        for container in ('stack','hybrid_services','disposable_test'):
             with tempfile.TemporaryDirectory(prefix='underlay-bootstrap-') as temporary:
                 root=Path(temporary).resolve()
-                seen=self.exercise(root,container)
+                seen=self.exercise(root,container,default_caller=container=="stack")
                 self.assertEqual(seen,[('silo',0),('silo_client',0)]+[('silo_client',0)]*7)
                 self.assertEqual(list(root.glob('cors-*')),[])
                 path=root/'.effigy/runtime/dev-profiles'/container/'silo-bootstrap.jsonl'
@@ -81,11 +90,37 @@ class BootstrapTests(unittest.TestCase):
             self.assertIn('unavailable_native_failure_omits_command_bytes',text)
             self.assertNotIn('seeded-secret',text)
 
+    def test_pinned_ready_acl_cors_source_interfaces(self):
+        import hashlib
+        root=Path(os.environ['UNDERLAY_BOOTSTRAP_MC_SOURCE_ROOT'])
+        expected={
+            'ready-main.go':'445274728b834cf05f02db69e16be165e585f16173cdf3b7bf9c58e3ddf20045',
+            'anonymous-main.go':'375df7b8dde81c444c84612baccdf8f58fb70d68af2759a6593ba97cc25d0c2a',
+            'cors-main.go':'e9706faf8a7a756d8c823e79fecb791f352792aa7b24cff30966e63332463afd',
+            'cors-set.go':'a7b31722c69b362c663d5da1e91b7593482c6a1ae746c0bda652934b94d926f9'}
+        for name,digest in expected.items():self.assertEqual(hashlib.sha256((root/name).read_bytes()).hexdigest(),digest)
+        self.assertIn('if healthResult.Healthy',(root/'ready-main.go').read_text())
+        self.assertIn('set PERMISSION TARGET',(root/'anonymous-main.go').read_text())
+        self.assertIn('ALIAS/BUCKET CORSFILE',(root/'cors-set.go').read_text())
+        self.assertIn('len(ctx.Args()) != 2',(root/'cors-set.go').read_text())
+
+    def test_default_admission_refuses_before_native_or_mutation(self):
+        import storage_launcher
+        with tempfile.TemporaryDirectory(prefix='underlay-bootstrap-') as temporary:
+            root=Path(temporary).resolve()
+            with patch.object(storage_launcher,'profiles',launcher), \
+                 patch.object(launcher,'verify_binary',side_effect=launcher.ProfileError('refused')), \
+                 patch.object(launcher,'_json_command') as native, \
+                 patch.object(launcher,'_bootstrap_silo') as bootstrap, \
+                 patch.object(sys,'argv',['storage_launcher','admit','--repo',str(root),'--container','stack']):
+                with self.assertRaises(launcher.ProfileError):storage_launcher.main()
+                native.assert_not_called();bootstrap.assert_not_called()
+
     def test_shared_capture_accounting_rejects_forged_success(self):
         # Native envelope/marker/overflow controls remain covered by the real
         # routing/storage suites; unknown selection cannot gain prefix credit.
         for text in ('{}','{"schema":"effigy.command.v1","ok":true}', 'seeded-secret'):
             with self.assertRaises(ValueError):shared.bounded_payload(text,0,'silo_client')
-        with self.assertRaises(ValueError):shared.bounded_arguments('silo_client','ignored','foreign')
+        with self.assertRaises(ValueError):shared.bounded_arguments('silo_client','ignored','../foreign')
 
 if __name__=='__main__':unittest.main()

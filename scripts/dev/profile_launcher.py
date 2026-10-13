@@ -988,7 +988,7 @@ def _bootstrap_silo(
             "</CORSRule></CORSConfiguration>",
         )
     )
-    if container not in ('hybrid_services','disposable_test'):
+    if not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]{0,63}',container):
         raise ProfileError('Silo bootstrap container refused')
     # Catalog override preparation has already refused foreign/mutated assets.
     # Fresh catalog declares only server /data; client has no mounts.
@@ -1244,6 +1244,9 @@ def _start_services(identity: BinaryIdentity, repo: Path, env: dict[str, str], p
 def _start_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: str) -> dict:
     result = _start_services(identity, repo, env, profile)
     context = result["context"]
+    if not result.get("already_running"):
+        _bootstrap_silo(identity,repo,_profile_env(repo,_profile_root(repo,profile),env,profile),
+                        PROFILE_CONTAINERS[profile][0],context)
     print(
         f"PROFILE READY: {profile}; private HTTPS port={context['https_port']}; "
         f"routes={json.dumps(context['routes'], sort_keys=True)}",

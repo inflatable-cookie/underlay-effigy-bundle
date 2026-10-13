@@ -29,7 +29,7 @@ Key required inputs:
 Optional inputs:
 - `browser_runtime` — Workspace image browser layer (`"none"` by default,
   `"chromium"` for the opt-in Chromium system libraries). Requires
-  Effigy `>= 0.13.1`; older releases reject this bundle revision on the
+  Effigy `>= 0.14.1`; older releases reject this bundle revision on the
   `minimum_effigy_version` floor instead of silently ignoring the setting.
 - `sources.siblings` — `true` by default, preserving the sibling Underlay and
   Poodle checkout workflow. Set it to `false` when using released packages;
@@ -82,20 +82,25 @@ and qualified macOS arm64 SHA-256
 `be6ef9733e308b1c410c79d0d70bb8ee1f0141f7b4cc67bd6fe67744629d93eb` before
 starting services, the gateway, or cleanup. The current exact-source admission supports
 macOS arm64; unsupported platforms and changed/unknown binaries
-are refused with the container profile still available. Child Effigy calls
+are refused before storage or profile startup. Child Effigy calls
 use the verified absolute binary, never a `PATH` fallback.
 
-The project-local Silo server and MC client catalogs are installed only after
-opt-in and only when neither `infra/dev/catalog/silo` nor
-`infra/dev/catalog/silo-mc` conflicts with the bundle-owned versions. They use
-the approved published images, provision `profiles.silo_bucket` (default
-`<first database>-media`), and keep the shared MinIO catalog and container
-default unchanged. Stop the profile through its selector before removing the
-generated local overrides.
-Opt-in assembly raises the effective Effigy minimum to `0.14.1`; omitted or
-disabled profile inputs keep the existing `0.13.1` floor. The exact source and
-binary gate still rejects same-version local builds without the qualified
-managed-listener and private-gateway capabilities.
+Default/container storage now uses explicitly named `silo` and `silo_client`
+services instead of MinIO. The bundle installs its pinned PGSTY server/client
+fragments under `infra/dev/catalog/silo` and `infra/dev/catalog/silo-mc`, refusing
+conflicting files. Silo uses a distinct per-project `silo-data` volume; existing
+MinIO volumes and objects are neither adopted nor migrated. Shared Effigy
+catalog publication is separate. All non-storage container services remain.
+
+`dev` and `dev:container` prepare those fragments, admit the exact qualified
+binary, start the container stack, run the bounded Silo bootstrap, then enter
+the container development session. Default bootstrap uses `<first database>-media`;
+opt-in profiles can set `profiles.silo_bucket`. Both set anonymous download and
+CORS for exactly the effective front/admin HTTPS origins. Default runtime needs
+`UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and an owned
+`EFFIGY_GATEWAY_PRIVATE_STATE_ROOT`; missing inputs refuse before service startup.
+The manifest floor is `0.14.1` for all assemblies because storage bootstrap uses
+native bounded execution. Semver alone never certifies the exact capability.
 
 The bundle also owns Rust/Vite managed-listener adapters and a SvelteKit
 development public-origin hook in `scripts/dev/`. The hook validates a
@@ -119,6 +124,7 @@ read-only Reference source. Run covering selectors through that artifact:
 
 ```sh
 "$UNDERLAY_PROFILE_EFFIGY_BIN" proof:dev-profiles:profile-contract-tests
+UNDERLAY_BOOTSTRAP_MC_SOURCE_ROOT=/path/to/immutable-mc-source \
 "$UNDERLAY_PROFILE_EFFIGY_BIN" proof:dev-profiles:silo-bootstrap-tests
 "$UNDERLAY_PROFILE_EFFIGY_BIN" proof:dev-profiles:lifecycle-contract-tests
 "$UNDERLAY_PROFILE_EFFIGY_BIN" proof:dev-profiles:profile-compile
@@ -126,14 +132,12 @@ read-only Reference source. Run covering selectors through that artifact:
 ```
 
 The preconditions selector assembles default Reference main and explicit opt-in
-worktrees without a backend, then verifies unchanged legacy image availability.
-Current anonymous `minio/minio:RELEASE.2025-09-07T16-13-09Z` manifest access
-returns401. Silo under MinIO's name does not count as container parity. Required
-current-source full-profile, Reference finalisation, lifecycle, dev:test and
-container acceptance remain unqualified; historical pilot receipts cannot be
-transferred to new owners/generations or changed bootstrap inputs.
+worktrees without a backend, verifies named Silo/client mappings, and checks
+copied fragments and digest pins. MinIO image availability is not a precondition.
+Current owner/generation, production bootstrap/CORS and whole-profile acceptance
+require fresh runtime proof; historical storage receipts cannot supply those gates.
 
-The exported production `scripts/dev/silo_client.py` owns the opt-in MC recipe:
+The exported production `scripts/dev/silo_client.py` owns the default and opt-in MC recipe:
 client command-local HOME `/root` before MC initialization, global config-dir
 `/root/.mc`, alias-set API `S3v4` / path `auto`. Client MC/proxy environment
 overrides must remain absent even empty. Server HOME `/tmp`, config-dir

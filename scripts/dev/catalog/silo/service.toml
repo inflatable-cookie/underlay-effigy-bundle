@@ -1,11 +1,11 @@
 [service]
 name = "silo"
-description = "Opt-in published PGSTY Silo object storage for isolated Underlay profiles"
+description = "Published PGSTY Silo object storage for Underlay development"
 
 [params.image]
 type = "string"
 default = "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46"
-description = "Digest-pinned published PGSTY Silo server image. This local profile override does not change the shared MinIO catalog."
+description = "Digest-pinned published PGSTY Silo server image. Bundle-owned fragment; no shared catalog publication or existing data migration."
 
 [params.root_user]
 type = "string"

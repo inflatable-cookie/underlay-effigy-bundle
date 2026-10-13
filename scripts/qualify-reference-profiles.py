@@ -200,8 +200,8 @@ def prove_reference_configuration(checkouts: list[Path]) -> None:
     export_template = (REPO / "export.toml").read_text(encoding="utf-8")
     if not re.search(r'(?m)^name = "profiles\.enabled"\ntype = "bool"\n[^\n]*\ndefault = false$', bundle_inputs):
         raise RuntimeError("profiles.enabled must default to false in the bundle input schema")
-    if '[manifest]\nminimum_effigy_version = "{% if inputs.profiles.enabled %}0.14.1{% else %}0.13.1{% endif %}"' not in export_template:
-        raise RuntimeError("profile input must raise the manifest floor only to 0.14.1; defaults remain 0.13.1")
+    if '[manifest]\nminimum_effigy_version = "0.14.1"' not in export_template:
+        raise RuntimeError("Silo bounded bootstrap requires the 0.14.1 assembly floor")
     assert 'catalog = "workspace-rust-bun"' in effective_manifest
     for port in (41001, 41002, 41003):
         assert f'"{port}:{port}"' in effective_manifest

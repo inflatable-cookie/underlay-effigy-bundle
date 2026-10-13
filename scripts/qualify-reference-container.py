@@ -70,23 +70,6 @@ def gateway_json(binary: str, env: dict[str, str], gateway_root: Path, *args: st
     return envelope.get("result") or {}
 
 
-def fixture_minio_catalog(effigy: str, checkout: Path, env: dict[str, str]) -> tuple[bytes, str]:
-    run([effigy, "--repo", str(checkout), "service", "extract", "minio",
-         "--dir", "infra/dev/catalog", "--json"], cwd=checkout, env=env, timeout=60)
-    fragment = checkout / "infra/dev/catalog/minio/compose.fragment.yml"
-    original = fragment.read_bytes()
-    marker = b"image: minio/minio:{{ version }}"
-    if original.count(marker) != 1:
-        raise RuntimeError("Reference MinIO catalog differs from the pinned published image declaration")
-    return original, hashlib.sha256(original).hexdigest()
-
-
-def restore_catalog(checkout: Path, original: bytes) -> bool:
-    fragment = checkout / "infra/dev/catalog/minio/compose.fragment.yml"
-    fragment.write_bytes(original)
-    return hashlib.sha256(fragment.read_bytes()).hexdigest() == hashlib.sha256(original).hexdigest()
-
-
 def services_up(status: dict) -> dict[str, str]:
     return {str(item.get("name")): str(item.get("status"))
             for item in status.get("services", []) if isinstance(item, dict)}
@@ -126,7 +109,6 @@ def main() -> int:
         "cleanup": [],
     }
     checkout: Path | None = None
-    catalog_baseline: bytes | None = None
     gateway_attempted = False
     profile_started = False
     stack_attempted = False
@@ -137,24 +119,6 @@ def main() -> int:
         receipts["default_ports_available"] = occupied == []
         if occupied:
             raise RuntimeError(f"default Reference ports are occupied; startup held safely: {occupied}")
-
-        gateway_attempted = True
-        gateway_json(effigy, runtime_env, gateway_root, "setup-tls")
-        gateway_status = gateway_json(
-            effigy, runtime_env, gateway_root, "up",
-            "--dns-addr", "127.0.0.1:0", "--proxy-addr", "127.0.0.1:0",
-            "--https-addr", "127.0.0.1:0",
-        )
-        if gateway_status.get("private") is not True or gateway_status.get("running") is not True:
-            raise RuntimeError("the disposable private gateway did not report running")
-        receipts["private_gateway"] = {
-            "https_addr": gateway_status.get("https_addr"),
-            "ca_installed": (gateway_status.get("tls") or {}).get("ca_installed"),
-        }
-
-        run(["colima", "start", "--profile", "effigy", "--runtime", "containerd",
-             "--cpu", "6", "--memory", "8", "--disk", "64"], env=runtime_env, timeout=1200, output=True)
-        profile_started = True
 
         reference_root = private_home / "reference"
         reference_root.mkdir(mode=0o700)
@@ -191,14 +155,38 @@ def main() -> int:
             raise RuntimeError("private Reference default inputs or siblings=false task resolution changed")
         receipts["default_dev_plan"] = plan_receipt
 
-        catalog_baseline, fixture_catalog_hash = fixture_minio_catalog(effigy, checkout, runtime_env)
-        receipts["catalog_override"] = {
-            "published_default_image": "minio/minio:{{ version }}",
-            "fixture_image": "minio/minio:RELEASE.2025-09-07T16-13-09Z",
-            "fixture_fragment_sha256": fixture_catalog_hash,
-            "default_ports_preserved": True,
-            "default_catalog_modified_only_in_disposable_clone": False,
+        run([effigy,'--repo',str(checkout),'silo:prepare'],cwd=checkout,env=runtime_env,timeout=60)
+        run([effigy,'--repo',str(checkout),'silo:admit'],cwd=checkout,env=runtime_env,timeout=60)
+        from formatter_provenance import bind_host, bound_colima, observe
+        from reference_storage_probe import StorageDiagnosticJournal
+        import sys
+        interface_spec=importlib.util.spec_from_file_location('container_image_interfaces',REPO/'scripts/qualify-storage-correlation.py')
+        interfaces=importlib.util.module_from_spec(interface_spec);sys.modules[interface_spec.name]=interfaces;interface_spec.loader.exec_module(interfaces)
+        packet=Path(subprocess.run(['mktemp','-d',str(Path.home()/'ur.005-container.XXXXXX')],check=True,capture_output=True,text=True).stdout.strip())
+        journal=StorageDiagnosticJournal(packet/'storage-diagnostics.jsonl',fixture_root)
+        bind_host(runtime_env)
+        gateway_attempted = True
+        gateway_json(effigy, runtime_env, gateway_root, "setup-tls")
+        gateway_status = gateway_json(
+            effigy, runtime_env, gateway_root, "up",
+            "--dns-addr", "127.0.0.1:0", "--proxy-addr", "127.0.0.1:0",
+            "--https-addr", "127.0.0.1:0",
+        )
+        if gateway_status.get("private") is not True or gateway_status.get("running") is not True:
+            raise RuntimeError("the disposable private gateway did not report running")
+        receipts["private_gateway"] = {
+            "https_addr": gateway_status.get("https_addr"),
+            "ca_installed": (gateway_status.get("tls") or {}).get("ca_installed"),
         }
+
+        run([bound_colima(runtime_env), "start", "--profile", "effigy", "--runtime", "containerd",
+             "--cpu", "6", "--memory", "8", "--disk", "64"], env=runtime_env, timeout=1200, output=True)
+        profile_started = True
+
+        receipts['formatter']=observe(runtime_env,fixture_root,journal)
+        from silo_fixture import prepare_published_images, IMAGE, CLIENT_IMAGE
+        prepare_published_images(fixture_root,runtime_env,client_probe=lambda shape:interfaces.client_image_provenance(runtime_env,journal,shape))
+        interfaces.image_interfaces(runtime_env,journal,__import__('secrets').token_hex(16))
         stack_attempted = True
         up = effigy_json(effigy, checkout, runtime_env, "container", "up", "--detach", "--json", timeout=5400)
         status = effigy_json(effigy, checkout, runtime_env, "container", "status", "--json", timeout=180)
@@ -213,7 +201,7 @@ def main() -> int:
             "result_schema": up.get("schema"),
             "services": effective,
             "compose_file": str(compose_path),
-            "published_minio_pull_proven": False,
+            "storage_product": "PGSTY Silo",
         }
         compose = compose_path.read_text(encoding="utf-8")
         workspace_service = re.search(
@@ -239,8 +227,9 @@ def main() -> int:
             "workspace_toolchain_markers": {
                 marker: marker in dockerfile_text for marker in ("FROM rust:", "ARG BUN_VERSION", "BUN_INSTALL")
             },
-            "minio_image_override": None,
-            "minio_image_in_compose": "minio/minio:RELEASE.2025-09-07T16-13-09Z" in compose,
+            "silo_server_pin": IMAGE in compose,
+            "silo_client_pin": CLIENT_IMAGE in compose,
+            "obsolete_storage_service": bool(re.search(r"(?m)^  minio:",compose)),
         })
         if not receipts["container_up"]["workspace_service_has_build"]:
             raise RuntimeError("default stack did not generate a built workspace service")
@@ -252,9 +241,10 @@ def main() -> int:
             raise RuntimeError("generated default workspace image is missing its pinned Rust/Bun toolchain")
         if not receipts["container_up"]["workspace_rust_bun_catalog_mapping"]:
             raise RuntimeError("bundle default no longer maps the workspace service to workspace-rust-bun")
-        if not receipts["container_up"]["minio_image_in_compose"]:
-            raise RuntimeError("default stack did not preserve the declared legacy MinIO image")
-        print("PASS private Reference default container build/startup with unchanged workspace and legacy service images", flush=True)
+        if not receipts['container_up']['silo_server_pin'] or not receipts['container_up']['silo_client_pin'] or receipts['container_up']['obsolete_storage_service']:
+            raise RuntimeError('default stack storage identity refused')
+        run([effigy,'--repo',str(checkout),'silo:reconcile'],cwd=checkout,env=runtime_env,timeout=180)
+        print('PASS private Reference default container build/startup and production Silo bootstrap',flush=True)
     except Exception as error:
         failure = f"{type(error).__name__}: {error}"
         print(f"REFERENCE DEFAULT-CONTAINER QUALIFICATION BLOCKED: {failure}", flush=True)
@@ -274,17 +264,8 @@ def main() -> int:
                     raise RuntimeError("private default container stack scoped shutdown is uncertain")
             except Exception as error:
                 receipts["cleanup"].append({"container_cleanup_error": f"{type(error).__name__}: {error}"})
-        if checkout is not None and catalog_baseline is not None:
-            try:
-                receipts["cleanup"].append({
-                    "minio_catalog_restored": restore_catalog(checkout, catalog_baseline),
-                })
-            except Exception as error:
-                receipts["cleanup"].append({"minio_catalog_restore_error": type(error).__name__})
-        cleanup_verified = bool(checkout is not None and not any(
-            item.get("container_cleanup_error") or item.get("minio_catalog_restore_error")
-            for item in receipts["cleanup"]
-        ))
+        cleanup_verified = bool(checkout is not None and stack_attempted and not any(
+            item.get('container_cleanup_error') for item in receipts['cleanup']))
         if profile_started and checkout is not None:
             try:
                 inventory_result = json.loads(run(
