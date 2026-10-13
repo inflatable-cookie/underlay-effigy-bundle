@@ -805,3 +805,23 @@ capture failure variants and elapsed time, with explicit tail/record truncation.
 Unrecognized diagnostic text becomes a byte count and digest. Raw log text is
 not copied; unavailable files remain unavailable. These structural observations
 do not establish remote cancellation, authorize signals or prove group absence.
+
+Fresh `77d22adc` Reference evidence proves initial nine listeners across three
+identities, verified HTTPS/public origins/HMR, production Silo bootstrap/browser
+CORS and real registration/login/media upload-finalisation/read/delete. The API
+restart published a changed generation/address and updated its route target.
+Front successor generations were observed; a further replacement followed
+another published `dependency_unavailable`/`owner_unverified` observation, so
+the baseline must not be silently rebased. Admin also has a successor-launched
+transition, but its recorded successor state is `failed`, report `absent`,
+ownership `child_unavailable`, and route `not_reached`. The bounded dependent
+gate did not establish a ready admin successor. These facts do not identify
+the underlying child failure or the collapsed ownership predicate's cause.
+
+All three scoped downs returned zero. Independent exact child/group/socket/
+route absence was not established, so cleanup remains unverified and VM/images/
+volumes remain held. The bounded tails from all nine host-process logs contain
+no recognized child-exit refusal diagnostic; this is limited to those tails and
+that diagnostic schema, not absence-of-error evidence. Interruption/recovery,
+collision/uncertainty, verified isolated teardown, dev:test and default-container
+execution were not reached after the first restart refusal.

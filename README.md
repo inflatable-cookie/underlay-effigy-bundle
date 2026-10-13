@@ -151,6 +151,16 @@ The current `77d22adc` gate requires fresh runtime evidence. Snapshot projection
 preserve `unavailable` as an observed state without granting ready/stopped or
 cleanup credit; a missing report remains distinct from an existing state file.
 
+Fresh `77d22adc` evidence also covers three-instance initial HTTPS/origins/HMR,
+production Silo bootstrap/CORS and real Reference media operations. Restart
+remains incomplete: the API changed address/generation and route target; front
+changed generation, while admin's launched successor reached `failed` with an
+absent report and `child_unavailable` ownership observation. All three scoped
+downs returned zero, but independent cleanup absence was not established.
+VM/images/volumes remain held; later lifecycle, dev:test and default-container
+acceptance remain unqualified. No child-exit refusal was found in the captured
+bounded log tails; that does not establish absence of other errors.
+
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
 compares them with the current composed API declaration through a bounded,
