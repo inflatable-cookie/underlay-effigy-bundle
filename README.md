@@ -208,8 +208,13 @@ unchanged 128 MiB/t4/p4 costs: hash preparation 5,126 ms, worker scheduling 86 Â
 verification `valid` 3,970 ms, join 3,971 ms. The nine-second total includes hash
 preparation, which login does not repeat. This one observation is neither an SLA
 nor an explanation of the retained 8,053 ms verification. Services were not run.
-The next request-proof decision needs an explicit finite auth-phase budget and
-bounded pre/post capture policy; no socket-timeout or crypto change is implied.
+Register and login qualification each use a fixed 20-second absolute client
+operation budget, including preparation, TLS, request, bounded headers/body and
+session decoding. This is a finite functional proof policy, not a production
+latency promise. Other request limits and auth costs stay unchanged. The private
+client refuses incomplete/late responses and captures only bounded closed phases;
+a timed-out mutation stays uncertain and is never resent. See the
+[auth operation contract](docs/knowledge/contracts/dev-profiles.md#absolute-auth-operation-policy).
 
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and

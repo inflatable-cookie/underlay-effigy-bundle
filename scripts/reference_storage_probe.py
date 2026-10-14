@@ -17,6 +17,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit
+import auth_operation
 
 
 _FRAMING_HEADERS = ("content-length", "transfer-encoding", "connection", "content-type")
@@ -272,6 +273,23 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
                    "Content-Type": "application/json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        if operation in ("register", "login"):
+            if diagnostics is None:
+                raise RuntimeError("auth operation requires a durable private diagnostic sink")
+            op_id = diagnostics.begin(operation, method, path_template, public_name=api_domain,
+                                      connect_address=f"127.0.0.1:{gateway_port}")
+            def emit(event, **fields):
+                diagnostics.append("auth_" + event, operation=operation, operation_id=op_id, **fields)
+            api_log = checkout / ".effigy/runtime/host-processes/hybrid_services/effigy/api.log"
+            auth_operation.capture(api_log, checkout.resolve(), emit)
+            try:
+                result = auth_operation.request(api_domain, gateway_port, gateway_root / "ca/rootCA.pem",
+                                                operation, payload, origin, emit)
+            finally:
+                auth_operation.capture(api_log, checkout.resolve(), emit, post=True)
+            outcomes.append({"operation":operation, "method":method, "status":200,
+                             "absolute_budget_ms":20000, "session_schema_valid":True})
+            return result
         status, body, op_id = request(api_domain, method, path,
                                       json.dumps(payload).encode() if payload is not None else None, headers,
                                       operation=operation, path_template=path_template)
@@ -319,20 +337,8 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
         raise
     if diagnostics:
         diagnostics.append("service_setup_completed", operation="fixture_admin_role_grant", service="postgres")
-    try:
-        session = api("login", "POST", "/v1/auth/login", "/v1/auth/login",
-                      {"email": email, "password": password})
-    except TimeoutError as error:
-        if diagnostics is not None:
-            diagnostics.append("auth_server_phase_capture_wait_started",
-                               operation="login", exception_type=type(error).__name__, wait_seconds=15)
-        # The client deadline is unchanged. Give this one in-flight server request
-        # a bounded opportunity to finish its auth phases before log capture.
-        time.sleep(15)
-        if diagnostics is not None:
-            diagnostics.append("auth_server_phase_capture_wait_completed",
-                               operation="login", wait_seconds=15)
-        raise
+    session = api("login", "POST", "/v1/auth/login", "/v1/auth/login",
+                  {"email": email, "password": password})
     token = session["data"]["access_token"]
     media = api("media_create", "POST", "/v1/admin/media", "/v1/admin/media", {"kind": "image", "visibility": "public",
                 "title": "Disposable Silo qualification", "original_filename": "qualification.png"})["data"]

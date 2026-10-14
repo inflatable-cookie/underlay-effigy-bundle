@@ -1033,9 +1033,60 @@ preparation failures, with no compilation/CPU credit. Source controls now cover
 genuine archives/source artifacts, corruption/identity/path/type/limit/source
 mutations, lock/profile/phase refusal and finite local capture counterexamples.
 
-The next bundle-owned request-proof proposal is an explicitly selected finite
-absolute auth-phase budget plus bounded pre/post capture of verifier/join/handler
-observations after refusal, without replaying mutations or turning missing phases
-into success. The numeric budget must be selected separately; this single CPU
-sample supplies no SLA or automatic increase of the eight-second socket default.
-No public auth/crypto/config change or fresh service acceptance allowance follows.
+### Absolute auth operation policy
+
+The qualification owner selects **20.000 seconds** for each registration and
+login client operation. The allowance includes preparation, process creation,
+loopback connection, verified private CA and effective-name SNI, send, headers,
+body and complete JSON/session validation. Observed 4–8 second verification
+samples plus connection/scheduling/response margin motivate this finite functional
+proof policy; they provide no maximum, SLA or production latency contract.
+Other HTTP/media/storage/readiness checks keep their existing eight-second socket
+limits. Underlay/Reference auth source, parameters, credentials and roles do not
+change. The standalone CPU proof is not repeated by the request proof.
+
+`auth_operation.py` is qualification-only; production assets never import it.
+An inherited-memory child waits behind a private pipe gate until the parent
+records its fresh unreaped session/group identity and intent. The parent starts
+one monotonic deadline before preparation/fork, caps stdout IPC at 96 KiB and
+stderr at 16 KiB before collection, and refuses late or incomplete output even
+when a server worker later reports valid verification. Tokens and credentials
+stay in memory/private pipes; neither raw output nor its secret-derived digest
+is persisted. Closed phases distinguish preparation, connect, TLS, send,
+headers, body, decode and completion. Only a zero-exit, fully decoded session
+inside the deadline succeeds. This client owns no application listener.
+
+Headers have a 16 KiB total and 32-field cap; bodies have a 64 KiB cap. The
+consumed Axum JSON response has Content-Length and application/json framing.
+Unknown framing, partial/empty/oversized bodies, duplicate framing fields, invalid
+JSON/session/user/role schemas and HTTP errors refuse. The reviewed cookie helper
+appends two distinct Set-Cookie identities: this repeatable HTTP field gets at
+most two entries, with duplicate cookie identities refused. No cookie value is
+recorded. Strict TLS name/CA verification and explicit loopback routing remain
+mandatory; no insecure path or arbitrary auth-budget override exists.
+
+On deadline/capture failure, termination is limited to the new unreaped direct
+child whose current session/group still matches. A lost/changed identity supplies
+no guessed signal authority. Reaping a client does not cancel or roll back its
+remote registration/login mutation; failure stops the batch without resend.
+Group absence is not independently inferred from leader reaping. Synchronous
+filesystem calls and OS scheduling during an individual call remain explicit
+limits; checks at subsequent boundaries refuse deadline overrun rather than
+crediting it as success.
+
+One pre-request tail and one post-result/refusal window (at most 3 seconds of
+polling) read only the admitted new checkout's fixed API file. No backend/log
+command or HTTP replay supplies this evidence. No-follow, owned regular
+single-link files provide at most 64 KiB per read and the last 16 closed
+phase/outcome observations. Whole-tail digest/bytes, missing file, partial line,
+truncation and observation limits are explicit; unknown/duplicate phase evidence
+refuses. Server elapsed clocks stay distinct from client elapsed clocks. Late
+worker/join/handler observations never replace HTTP/session success. File I/O
+midcall is not claimed interruptible. Registration has no login instrumentation,
+so unavailable register phases remain unavailable.
+
+`proof:dev-profiles:auth-operation-controls` exercises private TLS peers, trickled
+headers, partial bodies, late completion, short absolute deadlines at every
+phase, strict names/CA, malformed/framing/schema/capture refusal, seeded-secret
+privacy, unknown group refusal and bounded file windows. These controls launch
+no Reference application or backend and grant no service acceptance credit.

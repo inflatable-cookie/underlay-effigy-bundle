@@ -286,9 +286,10 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
     effigy_digest = _sha256_bytes(effigy_path.read_bytes())
     if effigy_digest != "5febcae9e40625898beab1f7f5dd93c8fbb67df083b1d16466dabcca89dae8c8":
         raise RuntimeError("retained lifecycle inputs require the reviewed private Effigy binary")
+    raise RuntimeError("current absolute auth policy and shared inventory cannot reuse historical lifecycle acceptance")
     stable_files = (
         "bundle.toml", "export.toml", "scripts/qualify-reference-runtime.py",
-        "scripts/reference_storage_probe.py", "scripts/silo_fixture.py",
+        "scripts/reference_storage_probe.py", "scripts/auth_operation.py", "scripts/silo_fixture.py",
         "scripts/qualification_runtime.py", "scripts/dev/managed-rust-listener.py",
         "scripts/dev/sveltekit-public-origin.mjs", "scripts/dev/ui-setup.rhai",
         "scripts/dev/catalog/silo/service.toml", "scripts/dev/catalog/silo/compose.fragment.yml",
