@@ -1596,3 +1596,13 @@ and refuses later configuration, credential, hook, alternate or root changes
 before the configured test. The operator environment and host caches remain
 unchanged. These offline host inputs do not attest container build inputs or
 replace actual default-container parity and independent cleanup proofs.
+
+Original-route admission also validates the newly generated Lima configuration
+before using its mounted checkout and guest transport. Its current closed reader
+rejects any tab anywhere in that configuration and compares the mount location
+as a literal string. Generated configurations can contain tabs outside the
+mount block and a trailing slash on the same declared private location. These
+inputs therefore remain unsupported by this qualification reader. Any correction
+needs the owning producer contract and path/ownership controls; backend startup
+success alone must not bypass admission or grant service-absence or VM cleanup
+credit. Refused backends remain held when independent cleanup cannot be admitted.
