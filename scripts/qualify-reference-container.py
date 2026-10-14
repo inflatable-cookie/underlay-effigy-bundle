@@ -37,15 +37,8 @@ RUNTIME_SPEC.loader.exec_module(RUNTIME)
 
 def run(args: list[str], *, env: dict[str, str], cwd: Path | None = None,
         timeout: int = 900, expected: int = 0, output: bool = False, private: bool = False) -> subprocess.CompletedProcess[str]:
-    print(f"COMMAND: argc={len(args)}", flush=True)
-    import qualification_batch
-    timeout=qualification_batch.cap(timeout)
-    result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True,
-                            timeout=timeout, check=False)
-    print(f"EXIT: {result.returncode}", flush=True)
-    print(f"OUTPUT: captured stdout={len(result.stdout.encode())} bytes stderr={len(result.stderr.encode())} bytes", flush=True)
-    if result.returncode != expected:raise RuntimeError("native_command_nonzero")
-    return result
+    return RUNTIME.run(args, cwd=cwd, env=env, timeout=timeout, expected=expected,
+                       print_output=output and not private)
 
 
 def effigy_json(binary: str, checkout: Path, env: dict[str, str], *args: str,
@@ -142,11 +135,12 @@ def main() -> int:
         "container_up": None,
         "cleanup": [],
         "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
-                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","generated_profile.py","qualification_refusal.py","auth_operation.py","private_cargo_cache.py")},
+                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","generated_profile.py","qualification_refusal.py","auth_operation.py","private_cargo_cache.py","reference_api_preparation.py")},
     }
     from reference_storage_probe import StorageDiagnosticJournal
     packet=Path(subprocess.run(['mktemp','-d',str(Path.home()/'ur.005-container.XXXXXX')],check=True,capture_output=True,text=True).stdout.strip())
     journal=StorageDiagnosticJournal(packet/'storage-diagnostics.jsonl',fixture_root)
+    RUNTIME.COMMAND_DIAGNOSTICS = journal
     def emit_refusal(event, **fields):
         journal.append(event, **fields)
         receipts.setdefault("refusals",[]).append(fields["projection"])

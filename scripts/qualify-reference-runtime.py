@@ -35,13 +35,41 @@ assert SPEC and SPEC.loader
 SPEC.loader.exec_module(REFERENCE)
 
 
+COMMAND_DIAGNOSTICS = None
+COMMAND_SEQUENCE = 0
+
 def run(args: list[str], *, cwd: Path | None = None, env: dict[str, str], timeout: int = 600,
         expected: int | None = 0, print_output: bool = True) -> subprocess.CompletedProcess[str]:
     # Private native argv, error text and command output never enter public logs.
     print(f"COMMAND: argc={len(args)}", flush=True)
     import qualification_batch
-    result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True,
-                            timeout=qualification_batch.cap(timeout))
+    global COMMAND_SEQUENCE
+    COMMAND_SEQUENCE += 1
+    sequence = COMMAND_SEQUENCE
+    try:
+        result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True,
+                                timeout=qualification_batch.cap(timeout))
+    except subprocess.TimeoutExpired as error:
+        if COMMAND_DIAGNOSTICS is not None:
+            try:
+                COMMAND_DIAGNOSTICS.append('qualification_command_observation', command_id=sequence,
+                    completion='deadline_unknown', exit=None, leader_reaped='unknown',
+                    stdout_observed_bytes=None if error.stdout is None else len(error.stdout),
+                    stderr_observed_bytes=None if error.stderr is None else len(error.stderr),
+                    remote_cancellation_verified=False, group_absence='unverified')
+            except Exception:
+                pass  # Primary timeout remains primary; no mutation replay authority.
+        raise
+    if COMMAND_DIAGNOSTICS is not None:
+        try:
+            COMMAND_DIAGNOSTICS.append('qualification_command_observation', command_id=sequence,
+                completion='completed', exit=result.returncode, leader_reaped=True,
+                stdout_observed_bytes=len(result.stdout.encode()), stderr_observed_bytes=len(result.stderr.encode()),
+                remote_cancellation_verified=False, group_absence='unverified')
+        except Exception:
+            if expected is not None and result.returncode != expected:
+                raise RuntimeError('qualification_native_command_refused_publication_unavailable') from None
+            raise
     print(f"EXIT: {result.returncode}; stdout_bytes={len(result.stdout.encode())}; stderr_bytes={len(result.stderr.encode())}", flush=True)
     if expected is not None and result.returncode != expected:
         raise RuntimeError("qualification_native_command_refused")

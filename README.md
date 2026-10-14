@@ -381,3 +381,9 @@ original fields and clocks; partial, reordered or oversized records refuse.
 An admitted journal does not resolve managed-child ownership failures. A startup
 reporting an unavailable child identity leaves kernel-bound settlement and
 independent cleanup unproven, even when a later scoped down returns zero.
+
+Qualification separates the configured API typecheck from a default-feature
+`acme-api/build -- -p acme-api --locked --offline` link before backend startup.
+The linked Darwin arm64 executable, source instrumentation, lock, compiler and
+private target are checked before host launch. This preparation does not replace
+the default stack's Linux container build or extend listener readiness limits.

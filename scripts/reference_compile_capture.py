@@ -24,6 +24,9 @@ def diagnostic_summary(stdout, stderr):
         'tool_unavailable': ('cargo: command not found', 'cargo: not found'),
         'rustup_toolchain_unavailable': ('no default is configured', 'toolchain is not installed'),
         'rust_compile_error': ('error[E',),
+        'linker_failure': ('linking with', 'linker command failed', 'Undefined symbols for architecture'),
+        'build_completed': ('Finished `dev` profile',),
+        'dependency_offline_unavailable': ('attempting to make an HTTP request, but --offline was specified', 'no matching package named'),
         'network_resolution': ('Could not resolve host', 'failed to resolve address'),
     }
     found = sorted(name for name, needles in categories.items() if any(s in text for s in needles))

@@ -1687,3 +1687,21 @@ are not absence proofs. A successful earlier configured check does not diagnose
 the later child failure or qualify its host build. Such ownership uncertainty
 stops relaunch and retains the original scope; no compiler/core cause, retry or
 VM-stop authority is inferred from it.
+
+Host qualification now prepares the runnable default-feature `acme-api` package
+through its existing configured build selector before any backend starts. The
+separate workspace/all-features check remains a typecheck. Linking has its own
+bounded capture and compiler/linker categories; successful exit and both stream
+EOFs precede executable admission. The private debug artifact must be an owned,
+regular, nonsymlink Darwin arm64 Mach-O executable. Lock, instrumented source,
+manifest, compiler and private Cargo inputs are bound across preparation and
+launch. All three checkouts carry the same instrumentation. Cargo still launches
+through the configured API selector and may relink for each checkout; a shared
+target is not an immutable artifact for every checkout. The 480-second adapter
+and 540-second outer readiness clocks are unchanged. Default Linux container
+builds retain their own real compilation and never consume this host artifact.
+
+Qualification command observations publish closed exit/count/completion fields
+before propagating a failed command. A timeout retains unknown completion and
+remote cancellation; local client completion does not prove group or service
+absence. Failed publication and missing output remain unavailable evidence.

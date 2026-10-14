@@ -25,6 +25,7 @@ from datetime import datetime
 
 from qualification_runtime import require_effigy_binary
 from reference_compile_capture import capture as capture_compile
+import reference_api_preparation
 import qualification_batch
 from qualification_refusal import publish as publish_refusal
 from private_cargo_cache import initialize as initialize_private_cargo, verify as verify_private_cargo, summary as cargo_summary
@@ -676,11 +677,7 @@ def record_reference_auth_build_identity(
     fixture_root = Path(env["UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT"]).resolve(strict=True)
     if not target.is_relative_to(fixture_root):
         raise RuntimeError("Reference auth build target escaped the disposable fixture root")
-    candidates = (
-        target / "debug/acme-api",
-        checkout / "apps/acme-api/target/debug/acme-api",
-        checkout / "target/debug/acme-api",
-    )
+    candidates = (target / "debug/acme-api",)
     binary = next((candidate for candidate in candidates if candidate.is_file()), None)
     if binary is None:
         raise RuntimeError("instrumented Reference API build artifact was not retained in the private fixture")
@@ -696,7 +693,7 @@ def record_reference_auth_build_identity(
         "binary_bytes": metadata.st_size,
         "binary_sha256": _sha256_file(binary),
         "cargo_target_dir": str(target),
-        "compile_selector": "acme-api/check",
+        "compile_selector": "acme-api/build",
     }
     if diagnostics is not None:
         diagnostics.append("reference_auth_build_identity", **result)
@@ -1592,7 +1589,19 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
 
         for checkout in checkouts:
             started.add(checkout)
+            if auth_patch_receipt is not None:
+                preparation = getattr(sys.modules[__name__], 'API_PREPARATION', None)
+                if preparation is None:
+                    raise RuntimeError('api_preparation_missing_before_launch')
+                reference_api_preparation.admit_launch(preparation, checkout, env, auth_patch_receipt,
+                    lambda event, **fields: diagnostics.append(event, **fields))
             selector(checkout, "dev:hybrid", env, timeout=1800)
+            if auth_patch_receipt is not None:
+                # Cargo may relink for a different checkout in the private shared target.
+                # Bind its current result; do not label the original artifact immutable.
+                API_PREPARATION['artifact'] = reference_api_preparation.artifact(API_PREPARATION['inputs'])
+                diagnostics.append('reference_api_launch_artifact', checkout=str(checkout),
+                                   artifact=API_PREPARATION['artifact'])
             if checkout == checkouts[0] and auth_patch_receipt is not None:
                 api_build_identity = record_reference_auth_build_identity(
                     checkout, env, diagnostics, auth_patch_receipt)
@@ -2020,7 +2029,7 @@ def verify_disposable_action(checkout, env, foreign, service_observer):
     qualification_cleanup.require_product_cleanup(proof)
     proof['action_exit']=None if action_unknown else result.returncode
     proof['qualification_sources']={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','reference_compile_capture.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
+                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','reference_compile_capture.py','reference_api_preparation.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
     qualification_cleanup.write_private(root/'absence.json',root,proof)
     if action_unknown:raise qualification_cleanup.CleanupUnknown('configured_action_unknown')
     if result.returncode!=0:raise qualification_cleanup.CleanupUnknown('configured_action_failed')
@@ -2114,13 +2123,14 @@ def main() -> int:
     diagnostics = (StorageDiagnosticJournal(diagnostic_dir / "storage-diagnostics.jsonl", fixture_root)
                    if diagnostic_dir is not None else None)
     ACTIVE_DIAGNOSTICS = diagnostics
+    RUNTIME.COMMAND_DIAGNOSTICS = diagnostics
     listener_snapshot.configure(diagnostics.append if diagnostics is not None else None)
     transition_snapshot.configure(diagnostics.append if diagnostics is not None else None, fixture_root)
     if diagnostics is not None:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","reference_api_preparation.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
                            effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",
@@ -2162,6 +2172,11 @@ def main() -> int:
     for checkout in checkouts:
         REFERENCE.point_bundle_at_task_branch(checkout)
     auth_patch_receipt = install_reference_auth_trace_fixture(checkouts[0], diagnostics)
+    for checkout in checkouts[1:]:
+        sibling_patch = install_reference_auth_trace_fixture(checkout, None)
+        if any(sibling_patch[key] != auth_patch_receipt[key] for key in
+               ('reference_source_commit','patch_sha256','cargo_lock_sha256','files')):
+            raise RuntimeError('api_preparation_checkout_instrumentation_mismatch')
     if not remaining_lifecycle:
         REFERENCE.prove_reference_configuration(checkouts)
     for checkout in checkouts:
@@ -2203,6 +2218,14 @@ def main() -> int:
             capture_reference_compile(
                 EFFIGY, checkouts[0], runtime_env, auth_patch_receipt, diagnostics,
             )
+        api_preparation = reference_api_preparation.prepare(
+            EFFIGY, checkouts[0], runtime_env, auth_patch_receipt,
+            lambda event, **fields: diagnostics.append(event, **fields))
+        globals()["API_PREPARATION"] = api_preparation
+        for checkout in checkouts:
+            reference_api_preparation.admit_launch(
+                api_preparation, checkout, runtime_env, auth_patch_receipt,
+                lambda event, **fields: diagnostics.append(event, **fields))
         verify_private_cargo(runtime_env, cargo_receipt)
         from formatter_provenance import bind_host, bound_colima, observe, version_arguments
         bind_host(runtime_env)
