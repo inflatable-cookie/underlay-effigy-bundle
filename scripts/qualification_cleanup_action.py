@@ -60,6 +60,11 @@ def main():
     association,_=services.read(root/'association.json',root)
     from private_caller_environment import verify_context
     verify_context(env,association['context'])
+    from private_cargo_cache import verify_environment
+    cargo_admission = str(Path(env.get("CARGO_HOME", "")) / "admission.json")
+    if cargo_admission not in association["files"]:
+        raise cleanup.CleanupUnknown("ready_cargo_context_changed")
+    verify_environment(env)
     q=load_qualifier();q.EFFIGY=q.require_effigy_binary(env=env)
     observer=ListenerObserver(q,checkout,env)
     fixture=Path(association['context']['cwd'])

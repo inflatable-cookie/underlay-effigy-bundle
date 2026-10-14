@@ -1572,3 +1572,27 @@ agent; it does not grant credential access, dependency URL changes or permission
 to populate a cache from unrelated held resources. That failure needs an admitted
 build-input solution before product startup. Historical exit-only observations
 remain unknown and are not retroactively assigned this cause.
+
+Qualification builds can admit an exact-lock private offline Cargo cache. The
+shared initializer runs in both Reference qualifiers before configured Cargo
+work. It reads only the locked public Git objects and registry archives/index
+records, checks registry archives against Cargo.lock checksums and selected
+index entries, and reconstructs private Git stores bound to the locked commits
+and trees. The tag requested by Cargo remains bound to the unchanged lock; no
+manifest, dependency URL, version or lockfile is rewritten. The Underlay tag is
+also checked against the admitted local repository.
+
+The initializer copies no host Cargo configuration, credentials, Git hooks,
+alternates or compiled targets. It checks bounded source reads for mutation,
+refuses unknown sources and missing or changed inputs, and records the private
+input hashes before the build. Archive reads are limited to 64 MiB and public
+index records to 8 MiB. The child uses an explicit private Cargo home/target,
+offline mode and two build jobs. Configured Cargo remains responsible for actual
+resolution and compilation; cache admission alone supplies no compile credit.
+
+The ready-action association includes the original cache admission file. The
+wrapper requires that exact Cargo context, verifies its frozen input hashes,
+and refuses later configuration, credential, hook, alternate or root changes
+before the configured test. The operator environment and host caches remain
+unchanged. These offline host inputs do not attest container build inputs or
+replace actual default-container parity and independent cleanup proofs.

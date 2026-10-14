@@ -184,7 +184,11 @@ sys.exit(85)
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         fixture=Path(tempfile.mkdtemp(dir=self.root)).resolve();fixture.chmod(0o700);calls=[];checkouts=[]
         def instances(source,parent):
+            from private_cargo_cache_test import CacheTests
+            _, cargo_source, _, _ = CacheTests.fixture(self, root=fixture)
             checkout=parent/'main';checkout.mkdir(mode=0o700)
+            api=checkout/'apps/acme-api';api.mkdir(parents=True)
+            (api/'Cargo.lock').write_bytes((cargo_source/'apps/acme-api/Cargo.lock').read_bytes())
             subprocess.run(['git','init','-q',str(checkout)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             (checkout/'effigy.toml').write_text('siblings = false\n');checkouts.append(checkout);return [checkout]
         def producer(args,**kwargs):
@@ -204,7 +208,10 @@ sys.exit(85)
         def run(args,**kwargs):
             if args==['git','-C',str(self.root),'rev-parse','HEAD']:return SimpleNamespace(returncode=0,stdout='a'*40+'\n')
             return real_run(args,**kwargs)
-        with patch.dict(os.environ,{'UNDERLAY_PROFILE_EFFIGY_SOURCE':str(self.root)},clear=True),patch.object(module,'require_effigy_binary',return_value=str(self.colima)),patch.object(module,'selected_tools',return_value=(self.colima,self.lima,self.ssh)),patch.object(module.REFERENCE,'reference_source',return_value=self.root),patch.object(module.REFERENCE,'make_reference_instances',instances),patch.object(module.REFERENCE,'point_bundle_at_task_branch',return_value=None),patch.object(module.REFERENCE,'initialize_reference_fixture_secrets',return_value={'vaults':[]}),patch.object(module.RUNTIME,'mktemp_root',return_value=fixture),patch.object(module.RUNTIME,'fixed_default_ports_available',return_value=[]),patch.object(module,'run',producer),patch.object(module.subprocess,'run',run):
+        from private_cargo_cache import initialize
+        def cache(checkout, home, target, env):
+            return initialize(checkout,home,target,env,host_cache=fixture/'host')
+        with patch.object(module,'initialize_private_cargo',side_effect=cache),patch.dict(os.environ,{'UNDERLAY_PROFILE_EFFIGY_SOURCE':str(self.root)},clear=True),patch.object(module,'require_effigy_binary',return_value=str(self.colima)),patch.object(module,'selected_tools',return_value=(self.colima,self.lima,self.ssh)),patch.object(module.REFERENCE,'reference_source',return_value=self.root),patch.object(module.REFERENCE,'make_reference_instances',instances),patch.object(module.REFERENCE,'point_bundle_at_task_branch',return_value=None),patch.object(module.REFERENCE,'initialize_reference_fixture_secrets',return_value={'vaults':[]}),patch.object(module.RUNTIME,'mktemp_root',return_value=fixture),patch.object(module.RUNTIME,'fixed_default_ports_available',return_value=[]),patch.object(module,'run',producer),patch.object(module.subprocess,'run',run):
             self.assertEqual(module.main(),1)
         receipt=json.loads((fixture/'default-container-receipts.json').read_text())
         self.assertEqual(receipt['refusal_class'],'foreign_source_capture_unqualified')

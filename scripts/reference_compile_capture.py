@@ -96,7 +96,8 @@ def capture(args, *, cwd, env, timeout=600):
             refusal = refusal or 'leader_settlement_unknown'
         result = {'schema': 'underlay.reference.compile-capture.v1',
                   'exit': process.returncode, 'refusal': refusal,
-                  'identity_admitted': identity_admitted, 'leader_reaped': process.returncode is not None,
+                  'identity_admitted': identity_admitted, 'original_child_identity': original,
+                  'leader_reaped': process.returncode is not None,
                   'group_absence': 'unverified', 'remote_cancellation': 'not_applicable',
                   'elapsed_ms': round((time.monotonic() - started) * 1000),
                   'stdout': {'read_bytes': counts['stdout'], 'retained_bytes': len(buffers['stdout']), 'eof': eof['stdout']},

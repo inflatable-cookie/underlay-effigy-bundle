@@ -18,6 +18,13 @@ from container_identity_observer import Refusal
 
 class HandoffControls(RouteControls):
     def ready(self):
+        from private_cargo_cache_test import CacheTests
+        from private_cargo_cache import initialize
+        _, cargo_source, public_cache, _ = CacheTests.fixture(self, root=self.root)
+        self.env["UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT"] = str(self.root)
+        self.env, _ = initialize(cargo_source, self.backend.paths["HOME"] / ".cargo",
+                                self.backend.paths["HOME"] / ".cargo-target", self.env,
+                                host_cache=public_cache)
         other=self.backend.paths['HOME']/'other';other.mkdir(mode=0o700)
         (other/'effigy.toml').write_text('independent foreign config\n');(other/'effigy.toml').chmod(0o600)
         import subprocess
@@ -34,7 +41,7 @@ class HandoffControls(RouteControls):
         self.receipts=self.checkout/'ready-proof';self.receipts.mkdir(mode=0o700)
         self.manifest=self.checkout/'effigy.toml';self.original=self.manifest.read_bytes()
         self.changed=self.original+b'# exact predeclared ready action\n'
-        stamp=handoff.prepare(reader,self.receipts,self.manifest,self.changed)
+        stamp=handoff.prepare(reader,self.receipts,self.manifest,self.changed,cargo_env=self.env)
         self.manifest.write_bytes(self.changed)
         rows += [row('a','fixture',self.checkout,'api'),row('b','fixture',self.checkout,'portless')]
         self.model['records']={r['id']:r for r in rows};self.write()
@@ -52,6 +59,10 @@ class HandoffControls(RouteControls):
             self.assertEqual(argv[-1],'acme-api/test');self.assertEqual(kw['timeout'],900)
             events.append('test');return SimpleNamespace(returncode=0)
         fake=SimpleNamespace(require_effigy_binary=lambda **kw:'/qualified/effigy',RUNTIME=SimpleNamespace(run=action))
+        late=dict(self.env,CARGO_HOME=str(self.root/'foreign-cargo'))
+        with patch.object(wrapper,'load_qualifier') as dispatch,patch.dict(os.environ,late,clear=True),patch.object(sys,'argv',['wrapper',str(self.checkout),str(self.receipts)]):
+            with self.assertRaisesRegex(host.CleanupUnknown,'ready_cargo_context_changed'):wrapper.main()
+            dispatch.assert_not_called()
         with patch.object(wrapper,'load_qualifier',return_value=fake),patch.object(wrapper,'ListenerObserver',HostObserver),patch.dict(os.environ,self.env,clear=True),patch.object(sys,'argv',['wrapper',str(self.checkout),str(self.receipts)]):
             self.assertEqual(wrapper.main(),0)
         events.append('launcher-down')

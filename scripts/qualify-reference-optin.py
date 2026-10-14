@@ -26,6 +26,7 @@ from datetime import datetime
 from qualification_runtime import require_effigy_binary
 from reference_compile_capture import capture as capture_compile
 import qualification_batch
+from private_cargo_cache import initialize as initialize_private_cargo, verify as verify_private_cargo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1993,7 +1994,7 @@ def verify_disposable_action(checkout, env, foreign, service_observer):
     if count!=1:raise qualification_cleanup.CleanupUnknown('configured_action_shape')
     command=shlex.join([interpreter.executable,str(SCRIPTS/'qualification_cleanup_action.py'),str(checkout),str(root)])
     changed+='\n[tasks."qualification:cleanup-action"]\nrun = '+json.dumps(command)+'\nrun_in = "host"\n'
-    association_stamp=services.prepare(service_observer,root,manifest_path,changed.encode())
+    association_stamp=services.prepare(service_observer,root,manifest_path,changed.encode(),cargo_env=env)
     manifest_path.write_text(changed)
     action_unknown=False
     try:
@@ -2117,7 +2118,7 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","private_cargo_cache.py")},
                            effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",
@@ -2172,6 +2173,13 @@ def main() -> int:
                 raise RuntimeError("Reference fixture did not assemble opt-in production profile declarations")
         install_reference_silo_fixture(checkout)
         RUNTIME.install_public_origin_fixture(checkout)
+    runtime_env, cargo_receipt = initialize_private_cargo(
+        checkouts[0], private_cargo_home, private_cargo_target, runtime_env,
+    )
+    REFERENCE.PRIVATE_CHILD_ENV = runtime_env
+    RUNTIME.REFERENCE.PRIVATE_CHILD_ENV = runtime_env
+    diagnostics.append("private_cargo_inputs", receipt=cargo_receipt)
+    verify_private_cargo(runtime_env, cargo_receipt)
     REFERENCE.initialize_reference_fixture_secrets(checkouts, runtime_env)
     if not remaining_lifecycle:
         REFERENCE.prove_worktree_plans(checkouts, runtime_env)
@@ -2192,6 +2200,7 @@ def main() -> int:
             capture_reference_compile(
                 EFFIGY, checkouts[0], runtime_env, auth_patch_receipt, diagnostics,
             )
+        verify_private_cargo(runtime_env, cargo_receipt)
         from formatter_provenance import bind_host, bound_colima, observe, version_arguments
         bind_host(runtime_env)
         version_arguments(runtime_env,fixture_root)

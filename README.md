@@ -346,3 +346,10 @@ and Rust error codes without raw compiler payloads. The pinned Reference depende
 use SSH; a fresh Cargo cache can require authentication that the isolated child
 environment does not inherit. A failed compile stops the attempt; assembly and private vault
 checks alone provide no runtime or cleanup acceptance.
+
+The disposable Reference qualifiers can prepare an exact-lock private offline
+Cargo cache from admitted public host-cache inputs. Registry checksums and locked
+Git commits/trees are verified before the configured build; credentials, host
+configuration and compiled targets are excluded. The same frozen private Cargo
+context reaches the ready-action wrapper. Cache admission is preparation evidence;
+the configured build and full runtime/cleanup proofs must still pass.

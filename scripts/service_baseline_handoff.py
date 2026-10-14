@@ -16,7 +16,7 @@ SCHEMA='underlay.ready-service-association.v1'
 BASELINE='underlay.ready-service-baseline.v1'
 SOURCES=('service_baseline_handoff.py','qualification_cleanup_action.py','qualification_cleanup.py',
          'container_identity_observer.py','fresh_backend_admission.py','original_container_route.py',
-         'qualification_runtime.py','qualify-reference-optin.py','qualification_batch.py','qualify-reference-runtime.py','private_caller_environment.py','qualify-reference-profiles.py')
+         'qualification_runtime.py','qualify-reference-optin.py','qualification_batch.py','qualify-reference-runtime.py','private_caller_environment.py','private_cargo_cache.py','qualify-reference-profiles.py')
 
 
 def digest(value):return hashlib.sha256(json.dumps(value,sort_keys=True).encode()).hexdigest()
@@ -99,7 +99,7 @@ class Association:
         return observer
 
 
-def prepare(observer, root, manifest, ready_bytes):
+def prepare(observer, root, manifest, ready_bytes, *, cargo_env=None):
     """Called by the ORIGINAL creator before dev:test, never by a late reader."""
     backend=getattr(observer,'original_admission',None)
     if backend is None or backend.original_route is None:raise Refusal('handoff_original_factory_required')
@@ -109,6 +109,10 @@ def prepare(observer, root, manifest, ready_bytes):
     paths=[backend.path,backend.prepared_path,backend.start_record[0],
            backend.profile_binding['config'],backend.profile_binding['colima_config']]
     paths += [row[0] for row in backend.policy_records.values()]
+    if cargo_env is not None:
+        from private_cargo_cache import verify_environment
+        verify_environment(cargo_env)
+        paths.append(Path(cargo_env['CARGO_HOME'])/'admission.json')
     for path in paths:
         files[str(path)]={'identity':identity(path),'sha256':file_sha(path,1048576)}
     # The ready wrapper task is the ONLY predeclared manifest edit. The child

@@ -14,6 +14,7 @@ import traceback
 from pathlib import Path
 
 from qualification_runtime import require_effigy_binary
+from private_cargo_cache import initialize as initialize_private_cargo, verify as verify_private_cargo
 import container_identity_observer
 from fresh_backend_admission import FreshBackend, selected_tools
 from private_caller_environment import construct as private_environment
@@ -140,7 +141,7 @@ def main() -> int:
         "container_up": None,
         "cleanup": [],
         "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
-                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py")},
+                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","private_cargo_cache.py")},
     }
     checkout: Path | None = None
     gateway_attempted = False
@@ -162,6 +163,13 @@ def main() -> int:
         checkout = checkouts[0]
         for item in checkouts:
             REFERENCE.point_bundle_at_task_branch(item)
+        runtime_env, cargo_receipt = initialize_private_cargo(
+            checkout, private_home / ".cargo", private_home / ".cargo-target", runtime_env,
+        )
+        REFERENCE.PRIVATE_CHILD_ENV = runtime_env
+        RUNTIME.REFERENCE.PRIVATE_CHILD_ENV = runtime_env
+        receipts["private_cargo_inputs"] = cargo_receipt
+        verify_private_cargo(runtime_env, cargo_receipt)
         secrets = REFERENCE.initialize_reference_fixture_secrets([checkout], runtime_env)
         receipts["fixture_secrets"] = {
             "vault_count": len(secrets.get("vaults", [])),
