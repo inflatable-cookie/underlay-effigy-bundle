@@ -1656,3 +1656,15 @@ subclasses and unknown values stay unknown. Primary request failure survives a
 secondary evidence refusal, and unavailable journal publication does not replace
 the original decoder predicate. No raw lines or new cleanup/signal authority are
 provided by those records.
+
+The current-request formatter boundary has passed real register/login and signed
+storage/media observations with all 26 login phase records present and required
+markers complete before last-16 display retention. This does not certify the
+whole lifecycle. The fixed journal budget can refuse a later distinct snapshot
+after three profiles start and restart observation begins. Its durable capacity
+record preserves used/requested/cap byte counts and collapsed duplicate counts.
+The sticky guard then refuses subsequent commands, including cleanup dispatch.
+An outer unknown RuntimeError projection remains separate from that recorded
+capacity predicate. Earlier successful stages, a log prefix or an unavailable
+late record supply no independent cleanup or retirement credit. No budget reset,
+larger cap, replay or independent native cleanup bypass is implied.

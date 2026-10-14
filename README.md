@@ -370,3 +370,6 @@ Valid register/login HTTP observations alone do not satisfy that gate. An
 unclassified authentication refusal stops the batch before later lifecycle and
 default-container stages. Scoped down returning zero does not establish
 independent service, host, socket or route absence; uncertain resources stay held.
+The diagnostic journal also has a fixed sticky capacity guard. Exhausting its
+reserved append budget stops later commands, including cleanup dispatch; earlier
+successful stages do not establish whole-product acceptance or resource absence.
