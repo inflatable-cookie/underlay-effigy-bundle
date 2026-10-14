@@ -1,6 +1,7 @@
 """Closed owning refusal evidence; never native payload or cleanup authority."""
 import ast
 from container_identity_observer import Refusal
+from auth_operation import AuthRefusal, REASONS as AUTH_REASONS, SHAPE_CLASSES
 from pathlib import Path
 
 STAGES=frozenset(('profile_binding','route_admission','route_transport','route_correspondence',
@@ -25,6 +26,7 @@ def project(error,stage):
     if stage not in STAGES:raise ValueError('refusal_stage_unqualified')
     args=getattr(error,'args',())
     reason=args[0] if type(error) is Refusal and len(args)==1 and type(args[0]) is str and args[0] in REASONS else 'unknown'
+    if type(error) is AuthRefusal and type(error.reason) is str and error.reason in AUTH_REASONS:reason='auth_operation_'+error.reason
     evidence=getattr(error,'evidence',None);fields={}
     if type(evidence) is dict:
         for key in COUNTS:
@@ -34,7 +36,20 @@ def project(error,stage):
             if type(evidence.get(key)) is bool:fields[key]=evidence[key]
         code=evidence.get('exit_code')
         if type(code) is int and -128<=code<=255:fields['exit_code']=code
-    return {'schema':'underlay.qualification.refusal.v1','stage':stage,'reason_id':reason,
+    shape={}
+    if type(error) is AuthRefusal:
+        source=error.protocol_shape
+        if type(source) is dict and source.get('class') in SHAPE_CLASSES:
+            shape['class']=source['class']
+            count=source.get('sgr_count')
+            if type(count) is int and 0<=count<=32:shape['sgr_count']=count
+            if type(source.get('sgr_count_over_limit')) is bool:shape['sgr_count_over_limit']=source['sgr_count_over_limit']
+    auth_evidence={}
+    if type(error) is AuthRefusal:
+        if getattr(error,'auth_window',None) in ('pre','post'):auth_evidence['window']=error.auth_window
+        if type(getattr(error,'auth_capture_available',None)) is bool:auth_evidence['capture_available']=error.auth_capture_available
+        if type(getattr(error,'publication_unavailable',None)) is bool:auth_evidence['publication_unavailable']=error.publication_unavailable
+    return {'auth_evidence':auth_evidence,'protocol_shape':shape,'schema':'underlay.qualification.refusal.v1','stage':stage,'reason_id':reason,
             'exception_type':type(error).__name__[:64],'capture_available':type(evidence) is dict,
             'capture':fields,'settlement':getattr(error,'settlement_observation','unknown') if getattr(error,'settlement_observation','unknown') in ('unknown','leader_reaped') else 'unknown',
             'nonce_cleanup':getattr(error,'nonce_cleanup_observation','unknown') if getattr(error,'nonce_cleanup_observation','unknown') in ('unknown','verified') else 'unknown',

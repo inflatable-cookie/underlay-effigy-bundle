@@ -157,3 +157,15 @@ run_in = "host"
 [tasks."proof:dev-profiles:generated-profile-identity-control"]
 run = "python3 scripts/generated_profile_test.py GeneratedControls.test_original_inode_owner_symlink_and_rewrite_guards"
 run_in = "host"
+
+[tasks."proof:dev-profiles:auth-formatter-producer-control"]
+run = "python3 scripts/auth_formatter_producer_test.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:auth-caller-control"]
+run = "python3 scripts/auth_operation_test.py AuthTests.test_actual_auth_caller_current_markers_primary_and_privacy"
+run_in = "host"
+
+[tasks."proof:dev-profiles:auth-evidence-journal-controls"]
+run = "python3 scripts/silo_fixture_test.py StorageDiagnosticTests ReferenceAuthTracePatchTests"
+run_in = "host"

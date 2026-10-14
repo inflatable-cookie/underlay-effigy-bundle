@@ -142,7 +142,7 @@ def main() -> int:
         "container_up": None,
         "cleanup": [],
         "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
-                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
+                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","generated_profile.py","qualification_refusal.py","auth_operation.py","private_cargo_cache.py")},
     }
     from reference_storage_probe import StorageDiagnosticJournal
     packet=Path(subprocess.run(['mktemp','-d',str(Path.home()/'ur.005-container.XXXXXX')],check=True,capture_output=True,text=True).stdout.strip())

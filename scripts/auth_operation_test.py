@@ -174,39 +174,100 @@ class AuthTests(unittest.TestCase):
         path.unlink()
 
     def test_genuine_retained_formatter_and_shared_decoder(self):
-        path=Path('/Users/tom/ur.vx6BB8/home/reference/main/.effigy/runtime/host-processes/hybrid_services/effigy/api.log')
-        # The brief admits these retained source bytes, never queries a process.
+        path=Path('/Users/tom/ur.3AVM3Z/home/reference/main/.effigy/runtime/host-processes/hybrid_services/effigy/api.log')
         fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
         import stat,hashlib
         info=os.fstat(fd);self.assertTrue(stat.S_ISREG(info.st_mode));self.assertEqual(info.st_nlink,1)
         os.lseek(fd,max(0,info.st_size-65536),os.SEEK_SET);raw=os.read(fd,65536);os.close(fd)
-        self.assertEqual(hashlib.sha256(raw).hexdigest(),'ee614f059f02ae3f7fa4c5b507c35958818a40fcf9a7616546bd4144c6946d9f')
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),'e59161a9401cef053e69c7efa9ea0b4b8379287e379c17c88eb92e9a1c531437')
         from reference_storage_probe import sanitize_service_log_line
         lines=[line for line in raw.splitlines() if auth.TARGET.encode() in line]
         self.assertEqual(len(lines),26)
         observed=[auth.decode_trace(line) for line in lines]
-        self.assertTrue(all(value is not None for value in observed))
-        self.assertIn({'phase':'auth_verify_worker','elapsed_ms':7373,'outcome':'valid'},observed)
-        for line in lines:
-            self.assertTrue(sanitize_service_log_line(line.decode()).startswith('AUTH_DIAGNOSTIC'))
-        for line in (lines[0]+b' '+SEED.encode(),lines[0].replace(b'elapsed_ms: 0',b'elapsed_ms: true'),
-                     lines[0].replace(b'outcome:',b'outcome='),lines[0]+b', phase: "api_login_handler"',
-                     lines[0].replace(b'phase:',b'unknown:'),lines[0]+b'\xff'):
+        self.assertTrue({('auth_verify_worker','valid'),('auth_verify_join','ok'),('api_login_response','success')} <= {(x['phase'],x['outcome']) for x in observed})
+        for line in lines:self.assertTrue(sanitize_service_log_line(line.decode()).startswith('AUTH_DIAGNOSTIC'))
+        for line in (lines[0]+b' '+SEED.encode(),lines[0]+b'\xff',lines[0]+b'\x1b]payload\x07',
+                     lines[0].replace(b'fixture-auth-login',b'fixture-\x1b[0mauth-login'),lines[0]+b'\x1b[99m'):
             with self.assertRaises(auth.AuthRefusal):auth.decode_trace(line)
-        events=[];started=time.monotonic()
-        latest,complete=auth.capture(path,Path('/Users/tom/ur.vx6BB8/home/reference/main'),lambda e,**kw:events.append(kw),post=True)
-        self.assertTrue(complete);self.assertEqual(latest['total_observations'],26)
-        self.assertEqual(latest['observations_omitted'],10)
-        self.assertLess(time.monotonic()-started,.1)
-        # Retained bytes stay in memory; generated controlled files use no raw
-        # application log payload. Duplicate/partial fixtures are separate.
-        controlled=self.root/'genuine-control.log'
-        line=b'underlay_profile_auth_diagnostic: correlation: "fixture-auth-login", phase: "auth_verify_worker", elapsed_ms: 1, outcome: "valid"'
-        controlled.write_bytes(line+b'\n'+line+b'\n')
-        with self.assertRaises(auth.AuthRefusal):auth.tail(controlled,self.root)
-        controlled.write_bytes(line[:20])
-        self.assertTrue(auth.tail(controlled,self.root)['incomplete_line'])
-        controlled.unlink()
+
+    def test_current_operation_boundary_all_markers_and_typed_refusal(self):
+        from qualification_refusal import project
+        from reference_storage_probe import sanitize_service_log_line
+        path=self.root/'current.log'
+        def line(phase,outcome):return f'underlay_profile_auth_diagnostic: correlation: "fixture-auth-login", phase: "{phase}", elapsed_ms: 1, outcome: "{outcome}"\n'
+        required=''.join(line(p,o) for p,o in [('auth_verify_worker','valid'),('auth_verify_join','ok'),('api_login_response','success')])
+        path.write_text(required)
+        before,_=auth.capture(path,self.root,lambda *a,**k:None)
+        events=[]
+        with patch.object(auth,'POST_SECONDS',.08):
+            _,complete=auth.capture(path,self.root,lambda e,**k:events.append(k),post=True,baseline=before['baseline'])
+        self.assertFalse(complete);self.assertFalse(events[-1]['observations'])
+        extras=[p for p in sorted(auth.SERVER_PHASES) if p not in ('auth_verify_worker','auth_verify_join','api_login_response')]
+        with path.open('a') as f:f.write(required+''.join(line(p,'started') for p in extras))
+        latest,complete=auth.capture(path,self.root,lambda *a,**k:None,post=True,baseline=before['baseline'])
+        self.assertTrue(complete);self.assertGreater(latest['total_observations'],16)
+        self.assertEqual(len(latest['observations']),16)
+        self.assertEqual(latest['observations_omitted'],latest['total_observations']-16)
+        with path.open('a') as f:f.write(required)
+        events=[]
+        with self.assertRaises(auth.AuthRefusal) as caught:
+            auth.capture(path,self.root,lambda e,**k:events.append((e,k)),post=True,baseline=before['baseline'])
+        record=project(caught.exception,'runtime_profile')
+        self.assertEqual(record['reason_id'],'auth_operation_protocol')
+        self.assertEqual(record['protocol_shape']['class'],'duplicate')
+        self.assertEqual(record['auth_evidence']['window'],'post')
+        self.assertEqual(events[0][0],'protocol_refusal');self.assertNotIn(SEED,json.dumps(record))
+        with self.assertRaises(auth.AuthRefusal) as caught:
+            auth.capture(path,self.root,lambda *a,**k:(_ for _ in ()).throw(RuntimeError(SEED)),post=True,baseline=before['baseline'])
+        self.assertTrue(caught.exception.publication_unavailable)
+        old=path.with_suffix('.old');path.rename(old);path.write_text(required)
+        with self.assertRaises(auth.AuthRefusal):auth.tail(path,self.root,before['baseline'])
+        path.unlink();old.unlink()
+        seed=line('auth_verify_worker','valid').rstrip().encode()
+        for bad in (seed+b'\x1b[2J',seed+b'\x08',seed.replace(b'elapsed_ms: 1',b'elapsed_ms: 4294967296'),seed+b', secret: "hidden"',seed.replace(b'fixture-auth-login',b'foreign'),seed+b'\r'):
+            with self.assertRaises(auth.AuthRefusal):auth.decode_trace(bad)
+            self.assertFalse(sanitize_service_log_line(bad.decode()).startswith('AUTH_DIAGNOSTIC'))
+        class Derived(auth.AuthRefusal):pass
+        self.assertEqual(project(Derived('protocol'),'runtime_profile')['reason_id'],'unknown')
+        self.assertEqual(auth.AUTH_SECONDS,20);self.assertEqual(auth.POST_SECONDS,3)
+
+    def test_actual_auth_caller_current_markers_primary_and_privacy(self):
+        from reference_storage_probe import observed_auth_request, StorageDiagnosticJournal
+        from qualification_refusal import publish
+        checkout=self.root/'caller';path=checkout/'.effigy/runtime/host-processes/hybrid_services/effigy/api.log'
+        path.parent.mkdir(parents=True,exist_ok=True)
+        def line(p,o):return f'underlay_profile_auth_diagnostic correlation="fixture-auth-login" phase="{p}" elapsed_ms=1 outcome="{o}"\n'
+        markers=''.join(line(p,o) for p,o in [('auth_verify_worker','valid'),('auth_verify_join','ok'),('api_login_response','success')])
+        path.write_text(markers)
+        events=[]
+        def request(*a,**k):
+            with path.open('a') as f:f.write(markers)
+            return {'data':{'access_token':SEED}}
+        with patch.object(auth,'request',side_effect=request):
+            value=observed_auth_request(checkout,'api.fixture.test',1,self.cert,'login',{'password':SEED},'https://admin.fixture.test',lambda e,**k:events.append((e,k)))
+        self.assertEqual(value['data']['access_token'],SEED)
+        self.assertTrue(events[-1][1]['trace_complete']);self.assertNotIn(SEED,json.dumps(events))
+        with patch.object(auth,'request',return_value={}),patch.object(auth,'POST_SECONDS',.06):
+            with self.assertRaises(auth.AuthRefusal):observed_auth_request(checkout,'api.fixture.test',1,self.cert,'login',{},'https://admin.fixture.test',lambda *a,**k:None)
+        primary=auth.AuthRefusal('transport')
+        with patch.object(auth,'request',side_effect=primary),patch.object(auth,'POST_SECONDS',.06):
+            with self.assertRaises(auth.AuthRefusal) as caught:observed_auth_request(checkout,'api.fixture.test',1,self.cert,'login',{},'https://admin.fixture.test',lambda *a,**k:None)
+        self.assertIs(caught.exception,primary)
+        before,_=auth.capture(path,checkout,lambda *a,**k:None)
+        with path.open('a') as f:f.write(markers[:30])
+        latest,complete=auth.capture(path,checkout,lambda *a,**k:None,post=True,baseline=before['baseline'])
+        self.assertTrue(latest['incomplete_line']);self.assertFalse(complete)
+        diagnostic=Path(tempfile.mkdtemp(prefix='ur.005-auth-journal.')).resolve();diagnostic.chmod(0o700)
+        journal=StorageDiagnosticJournal(diagnostic/'storage-diagnostics.jsonl',checkout)
+        bad=auth.protocol_refusal('style',33)
+        record=publish(bad,'runtime_profile',journal.append);journal.close()
+        self.assertEqual(record['reason_id'],'auth_operation_protocol')
+        frames=(diagnostic/'storage-diagnostics.jsonl').read_text();self.assertNotIn(SEED,frames)
+        self.assertEqual(json.loads(frames)['projection']['protocol_shape']['sgr_count'],32)
+        # Non-SGR controls and style codes inside an enum are not normalization.
+        base=line('auth_verify_worker','valid').rstrip().encode()
+        for raw in (base.replace(b'valid',b'va\x1b[0mlid'),base+b'\x1b[0m'*33,base+b'\x1b[;m',base+b'\x1b[31m'):
+            with self.assertRaises(auth.AuthRefusal):auth.decode_trace(raw)
 
     def test_register_no_marker_wait_and_post_writer_deadline(self):
         path=self.root/'register.log';path.write_text('unrelated '+SEED+'\n')

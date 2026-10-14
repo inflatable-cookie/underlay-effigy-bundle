@@ -264,6 +264,30 @@ def framing_metadata(response) -> dict[str, str]:
     return allowed
 
 
+def observed_auth_request(checkout, domain, port, ca, operation, payload, origin, emit):
+    """Bind required evidence to the original live pre-request file interval."""
+    api_log=checkout / ".effigy/runtime/host-processes/hybrid_services/effigy/api.log"
+    before,_=auth_operation.capture(api_log,checkout.resolve(),emit,operation=operation)
+    baseline=before.get('baseline')
+    if baseline is None:raise auth_operation.protocol_refusal('source_boundary')
+    primary=None
+    try:result=auth_operation.request(domain,port,ca,operation,payload,origin,emit)
+    except BaseException as error:primary=error
+    try:
+        _,complete=auth_operation.capture(api_log,checkout.resolve(),emit,post=True,operation=operation,baseline=baseline)
+        if operation=='login' and not complete:
+            error=auth_operation.protocol_refusal('framing')
+            error.auth_window='post';error.auth_capture_available=True
+            try:emit('protocol_refusal',reason=error.reason,shape=error.protocol_shape,window='post',capture_available=True)
+            except BaseException:error.publication_unavailable=True
+            raise error
+    except BaseException:
+        if primary is not None:raise primary
+        raise
+    if primary is not None:raise primary
+    return result
+
+
 def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway_port, minio_port,
                            *, service_container="hybrid", diagnostics: StorageDiagnosticJournal | None = None,
                            diagnostic_context: dict | None = None):
@@ -331,15 +355,8 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
                                       connect_address=f"127.0.0.1:{gateway_port}")
             def emit(event, **fields):
                 diagnostics.append("auth_" + event, operation=operation, operation_id=op_id, **fields)
-            api_log = checkout / ".effigy/runtime/host-processes/hybrid_services/effigy/api.log"
-            auth_operation.capture(api_log, checkout.resolve(), emit, operation=operation)
-            try:
-                result = auth_operation.request(api_domain, gateway_port, gateway_root / "ca/rootCA.pem",
-                                                operation, payload, origin, emit)
-            finally:
-                observations,complete = auth_operation.capture(api_log, checkout.resolve(), emit, post=True, operation=operation)
-                if operation == "login" and not complete:
-                    raise auth_operation.AuthRefusal("protocol")
+            result=observed_auth_request(checkout,api_domain,gateway_port,gateway_root / "ca/rootCA.pem",
+                                         operation,payload,origin,emit)
             outcomes.append({"operation":operation, "method":method, "status":200,
                              "absolute_budget_ms":20000, "session_schema_valid":True})
             return result

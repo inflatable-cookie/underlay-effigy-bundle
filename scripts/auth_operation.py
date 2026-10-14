@@ -23,8 +23,9 @@ REASONS = {'deadline', 'transport', 'headers', 'body', 'schema', 'http_status',
 
 
 class AuthRefusal(RuntimeError):
-    def __init__(self, reason):
+    def __init__(self, reason, shape=None):
         self.reason = reason if reason in REASONS else 'protocol'
+        self.protocol_shape = shape if type(shape) is dict else {}
         super().__init__('auth_operation_' + self.reason)
 
 
@@ -299,23 +300,56 @@ OUTCOMES = {'started','ok','error','completed','success','validation_error','aut
             'join_error','found','not_found','locked','clear','recorded','recorded_and_locked','configured','not_configured'}
 
 
+SGR = re.compile(rb'\x1b\[([0-9;]*)m')
+SGR_CODES = {b'0', b'2', b'32', b'1;32'}
+SHAPE_CLASSES = {'framing','utf8','escape','style','token_boundary','grammar','enum','duplicate','source_boundary','style_order'}
+
+
+def protocol_refusal(kind, sgr_count=0):
+    return AuthRefusal('protocol', {'class':kind, 'sgr_count':min(sgr_count,32), 'sgr_count_over_limit':sgr_count>32})
+
+
 def decode_trace(raw):
-    if not isinstance(raw,bytes) or len(raw)>65536:
-        raise AuthRefusal('protocol')
+    if not isinstance(raw,bytes) or len(raw)>65536 or b'\n' in raw or b'\r' in raw:
+        raise protocol_refusal('framing')
     if TARGET.encode() not in raw:
         return None
-    try: line=raw.decode('utf-8')
-    except UnicodeError: raise AuthRefusal('protocol') from None
+    codes=[];parts=[];end=0;offset=0
+    for found in SGR.finditer(raw):
+        piece=raw[end:found.start()];parts.append(piece);offset+=len(piece)
+        codes.append((offset,found[1]));end=found.end()
+    parts.append(raw[end:]);plain=b''.join(parts)
+    if len(codes)>32 or any(code not in SGR_CODES for _,code in codes):
+        raise protocol_refusal('style',len(codes))
+    if any(byte<32 or byte==127 for byte in plain):
+        raise protocol_refusal('escape',len(codes))
+    try: line=plain.decode('utf-8')
+    except UnicodeError: raise protocol_refusal('utf8',len(codes)) from None
     found=TRACE_COLON.fullmatch(line) or TRACE_EQUAL.fullmatch(line)
-    if found is None:
-        raise AuthRefusal('protocol')
+    if found is None:raise protocol_refusal('grammar',len(codes))
+    # The locked pretty formatter styles timestamp, INFO, target and field
+    # names, then resets at the event end. Never erase codes inside values.
+    if codes:
+        timestamp=re.search(rb'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z',plain)
+        level=re.search(rb' INFO',plain)
+        if timestamp is None or level is None or TRACE_COLON.fullmatch(line) is None:
+            raise protocol_refusal('style_order',len(codes))
+        expected=[(timestamp.start(),b'2'),(timestamp.end(),b'0'),(level.start(),b'32'),(level.end(),b'0')]
+        for token in (TARGET.encode(),b'correlation',b'phase',b'elapsed_ms',b'outcome'):
+            matches=list(re.finditer(rb'(?<![a-zA-Z0-9_])'+re.escape(token)+rb'(?![a-zA-Z0-9_])',plain))
+            if len(matches)!=1:raise protocol_refusal('token_boundary',len(codes))
+            match=matches[0]
+            if plain[:match.start()].count(b'"')%2:raise protocol_refusal('token_boundary',len(codes))
+            expected.extend([(match.start(),b'1;32'),(match.end(),b'0'),(match.end(),b'32')])
+        expected.append((len(plain.rstrip(b' ')),b'0'))
+        if codes!=expected:raise protocol_refusal('style_order',len(codes))
     phase,elapsed,outcome=found.groups()
     if phase not in SERVER_PHASES or outcome not in OUTCOMES or int(elapsed)>4294967295:
-        raise AuthRefusal('protocol')
+        raise protocol_refusal('enum',len(codes))
     return {'phase':phase,'outcome':outcome,'elapsed_ms':int(elapsed)}
 
 
-def tail(path, root):
+def tail(path, root, baseline=None, baseline_only=False):
     path = Path(path); root = Path(root)
     if root.resolve() != root or path.parent.resolve() != path.parent or not path.is_relative_to(root):
         raise AuthRefusal('protocol')
@@ -324,9 +358,25 @@ def tail(path, root):
         before = os.fstat(fd)
         if not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or before.st_nlink != 1:
             raise AuthRefusal('protocol')
-        start = max(0, before.st_size - 65536); os.lseek(fd, start, os.SEEK_SET)
-        raw = os.read(fd, min(before.st_size,65536))
-        if start: raw = raw.partition(b'\n')[2]
+        if baseline is not None:
+            if (type(baseline) is not dict or set(baseline)!={'device','inode','offset'}
+                    or any(type(v) is not int or v<0 for v in baseline.values())
+                    or (before.st_dev,before.st_ino)!=(baseline['device'],baseline['inode'])
+                    or before.st_size<baseline['offset']):raise protocol_refusal('source_boundary')
+            start=baseline['offset']
+            if before.st_size-start>65536:raise protocol_refusal('framing')
+        else:start=max(0,before.st_size-65536)
+        os.lseek(fd,start,os.SEEK_SET)
+        raw=os.read(fd,min(before.st_size-start,65536))
+        after=os.fstat(fd)
+        if after.st_size<before.st_size or (after.st_dev,after.st_ino)!=(before.st_dev,before.st_ino):raise protocol_refusal('source_boundary')
+        if baseline_only:
+            if raw and not raw.endswith(b'\n'):raise protocol_refusal('framing')
+            return {'available':True,'bytes':len(raw),'tail_truncated':False,'incomplete_line':False,
+                    'observations':[],'observation_limit':False,'observations_omitted':0,'total_observations':0,
+                    'required_complete':False,'baseline':{'device':before.st_dev,'inode':before.st_ino,'offset':before.st_size}}
+
+        if start and baseline is None: raw = raw.partition(b'\n')[2]
         observations = []; keys = set()
         incomplete = bool(raw and not raw.endswith(b'\n'))
         lines = raw.splitlines()
@@ -335,25 +385,31 @@ def tail(path, root):
             observed=decode_trace(line)
             if observed is None: continue
             key=(observed['phase'],observed['outcome'])
-            if key in keys: raise AuthRefusal('protocol')
+            if key in keys: raise protocol_refusal('duplicate')
             keys.add(key);observations.append(observed)
         return {'available':True,'bytes':len(raw),'digest':hashlib.sha256(raw).hexdigest(),
-                'tail_truncated':bool(start), 'incomplete_line':incomplete, 'observations':observations[-16:], 'observation_limit':len(observations)>16, 'observations_omitted':max(0,len(observations)-16), 'total_observations':len(observations)}
+                'tail_truncated':bool(start) and baseline is None, 'incomplete_line':incomplete, 'observations':observations[-16:], 'observation_limit':len(observations)>16, 'observations_omitted':max(0,len(observations)-16), 'total_observations':len(observations), 'required_complete':{('auth_verify_worker','valid'),('auth_verify_join','ok'),('api_login_response','success')} <= keys}
     finally:
         os.close(fd)
 
 
-def capture(path, root, emit, *, post=False, operation='login'):
+def capture(path, root, emit, *, post=False, operation='login', baseline=None):
     started=time.monotonic(); end=started+POST_SECONDS
     if operation not in ('register','login'):raise AuthRefusal('protocol')
     reads=0
     while True:
         remaining(end)
-        try: latest=tail(path,root)
+        try: latest=tail(path,root,baseline=baseline,baseline_only=not post) if baseline is not None or not post else tail(path,root)
+        except AuthRefusal as error:
+            error.auth_window='post' if post else 'pre'
+            error.auth_capture_available=False
+            try:emit('protocol_refusal',reason=error.reason,shape=error.protocol_shape,window=error.auth_window,capture_available=False)
+            except BaseException:error.publication_unavailable=True
+            raise
         except OSError: latest={'available':False,'observations':[], 'reason':'file_unavailable'}
         reads+=1; remaining(end)
         facts={(x['phase'],x['outcome']) for x in latest['observations']}
-        complete=({('auth_verify_worker','valid'),('auth_verify_join','ok'),('api_login_response','success')} <= facts
+        complete=(baseline is not None and latest.get('required_complete',False)
                   and latest['available'] and not latest.get('tail_truncated') and not latest.get('incomplete_line'))
         # Register has no login instrumentation. One snapshot, no impossible
         # marker wait. An unavailable/incomplete login snapshot is never success.
@@ -363,10 +419,11 @@ def capture(path, root, emit, *, post=False, operation='login'):
             break
         time.sleep(min(.05,remaining(end)/2))
     remaining(end)
+    public={k:v for k,v in latest.items() if k not in ('baseline','required_complete')}
     emit('server_phase_window', window='post' if post else 'pre', operation_trace=operation,
          elapsed_ms=int((time.monotonic()-started)*1000), reads=reads,
          trace_applicability='not_applicable' if operation=='register' else 'login',
          trace_complete=complete if operation=='login' else False,
-         **latest, authority='observation_only', clock='server_elapsed_not_client_clock', acceptance='pending')
+         **public, current_operation_bound=baseline is not None, authority='observation_only', clock='server_elapsed_not_client_clock', acceptance='pending')
     remaining(end)
     return latest,complete

@@ -1633,3 +1633,26 @@ unknown authentication projection remains unknown; it is not a timeout or
 crypto defect diagnosis. No native retry follows that refusal. Scoped down exit
 zero remains separate from independently observed service/host/socket/route
 absence, foreign preservation and VM settlement.
+
+
+Authentication evidence uses the pinned pretty tracing formatter's source-backed
+SGR sequence (dim timestamp, green INFO, bold green target/field names and reset),
+with a bounded style count. Only that exact token-boundary sequence is normalized
+before the existing whole-line colon grammar. Supported plain colon/equal lines
+remain strict. OSC/cursor controls, backspaces, unknown/malformed styles, styles
+inside values, suffix fields, invalid UTF-8, correlation/phase/outcome mismatches
+and duplicate current-window phase/outcome pairs refuse. Parser and sanitizer
+share the decoder. This qualification reader change does not modify application
+logging, auth, Argon2 parameters or the 20-second client/3-second evidence policy.
+
+The original pre-request live log inode/device/offset binds the post-request
+window. Replacement, truncation and over-cap intervals refuse; old login markers
+are excluded. Required worker/join/response completeness is computed across the
+whole bounded current interval before last-16 display retention, with omitted
+counts explicit. Partial lines supply no completeness credit. Unbound historical
+snapshots are diagnostic only. Exact AuthRefusal types expose only their closed
+reason enum and protocol shape/count/window/availability fields before failure;
+subclasses and unknown values stay unknown. Primary request failure survives a
+secondary evidence refusal, and unavailable journal publication does not replace
+the original decoder predicate. No raw lines or new cleanup/signal authority are
+provided by those records.

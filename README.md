@@ -362,6 +362,10 @@ recorded before propagation, independently of child-settlement uncertainty.
 Backend startup alone supplies no service cleanup or runtime readiness credit.
 
 The full Reference proof also requires complete login server-phase evidence.
+Its shared reader/sanitizer accepts the locked pretty formatter’s exact SGR style
+sequence or supported plain full-line grammar. Other escapes, hidden values and
+extra fields refuse. A pre-request file identity and offset bind post-login
+markers to the current request; prior login markers cannot satisfy the gate.
 Valid register/login HTTP observations alone do not satisfy that gate. An
 unclassified authentication refusal stops the batch before later lifecycle and
 default-container stages. Scoped down returning zero does not establish
