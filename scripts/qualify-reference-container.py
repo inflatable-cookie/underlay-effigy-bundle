@@ -14,7 +14,7 @@ import traceback
 from pathlib import Path
 
 from qualification_runtime import require_effigy_binary
-from private_cargo_cache import initialize as initialize_private_cargo, verify as verify_private_cargo
+from private_cargo_cache import initialize as initialize_private_cargo, verify as verify_private_cargo, summary as cargo_summary
 import container_identity_observer
 from fresh_backend_admission import FreshBackend, selected_tools
 from private_caller_environment import construct as private_environment
@@ -168,7 +168,7 @@ def main() -> int:
         )
         REFERENCE.PRIVATE_CHILD_ENV = runtime_env
         RUNTIME.REFERENCE.PRIVATE_CHILD_ENV = runtime_env
-        receipts["private_cargo_inputs"] = cargo_receipt
+        receipts["private_cargo_inputs"] = cargo_summary(cargo_receipt)
         verify_private_cargo(runtime_env, cargo_receipt)
         secrets = REFERENCE.initialize_reference_fixture_secrets([checkout], runtime_env)
         receipts["fixture_secrets"] = {

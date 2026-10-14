@@ -216,3 +216,14 @@ def verify_environment(env):
     if type(receipt) is not dict or receipt.get('schema') != 'underlay.private-cargo-inputs.v1': raise CacheRefused('private_admission_schema')
     verify(env,receipt)
     return receipt
+
+
+def summary(receipt):
+    # The full public-input manifest stays in its own bounded private file.
+    # Do not spend the fixed runtime journal budget on hundreds of package rows.
+    return {'schema':receipt['schema'],'lock_sha256':receipt['lock_sha256'],
+            'registry_package_count':len(receipt['registry']),
+            'private_input_count':len(receipt['private_inputs']),
+            'git':receipt['git'],'offline':receipt['offline'],
+            'build_jobs':receipt['build_jobs'],
+            'admission_sha256':hashlib.sha256(json.dumps(receipt,sort_keys=True).encode()).hexdigest()}

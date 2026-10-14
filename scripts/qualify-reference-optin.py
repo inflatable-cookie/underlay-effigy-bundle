@@ -26,7 +26,7 @@ from datetime import datetime
 from qualification_runtime import require_effigy_binary
 from reference_compile_capture import capture as capture_compile
 import qualification_batch
-from private_cargo_cache import initialize as initialize_private_cargo, verify as verify_private_cargo
+from private_cargo_cache import initialize as initialize_private_cargo, verify as verify_private_cargo, summary as cargo_summary
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -2178,7 +2178,7 @@ def main() -> int:
     )
     REFERENCE.PRIVATE_CHILD_ENV = runtime_env
     RUNTIME.REFERENCE.PRIVATE_CHILD_ENV = runtime_env
-    diagnostics.append("private_cargo_inputs", receipt=cargo_receipt)
+    diagnostics.append("private_cargo_inputs", receipt=cargo_summary(cargo_receipt))
     verify_private_cargo(runtime_env, cargo_receipt)
     REFERENCE.initialize_reference_fixture_secrets(checkouts, runtime_env)
     if not remaining_lifecycle:
