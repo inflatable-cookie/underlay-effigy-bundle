@@ -185,3 +185,7 @@ run_in = "host"
 [tasks."proof:dev-profiles:api-preparation-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/reference_api_preparation_test.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:route-observation-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/route_observation_test.py"
+run_in = "host"

@@ -2029,7 +2029,7 @@ def verify_disposable_action(checkout, env, foreign, service_observer):
     qualification_cleanup.require_product_cleanup(proof)
     proof['action_exit']=None if action_unknown else result.returncode
     proof['qualification_sources']={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','reference_compile_capture.py','reference_api_preparation.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
+                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','reference_compile_capture.py','reference_api_preparation.py','route_observation.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
     qualification_cleanup.write_private(root/'absence.json',root,proof)
     if action_unknown:raise qualification_cleanup.CleanupUnknown('configured_action_unknown')
     if result.returncode!=0:raise qualification_cleanup.CleanupUnknown('configured_action_failed')
@@ -2124,13 +2124,15 @@ def main() -> int:
                    if diagnostic_dir is not None else None)
     ACTIVE_DIAGNOSTICS = diagnostics
     RUNTIME.COMMAND_DIAGNOSTICS = diagnostics
+    import route_observation
+    route_observation.configure(diagnostics.append)
     listener_snapshot.configure(diagnostics.append if diagnostics is not None else None)
     transition_snapshot.configure(diagnostics.append if diagnostics is not None else None, fixture_root)
     if diagnostics is not None:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","reference_api_preparation.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","reference_api_preparation.py","route_observation.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
                            effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",

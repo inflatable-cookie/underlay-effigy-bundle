@@ -3,6 +3,7 @@ import ast
 from container_identity_observer import Refusal
 from auth_operation import AuthRefusal, REASONS as AUTH_REASONS, SHAPE_CLASSES
 from pathlib import Path
+from route_observation import RouteObservationRefusal, REASONS as ROUTE_REASONS, safe_record
 
 STAGES=frozenset(('profile_binding','route_admission','route_transport','route_correspondence',
                   'route_metadata','route_help','runtime_profile','default_profile'))
@@ -27,6 +28,11 @@ def project(error,stage):
     args=getattr(error,'args',())
     reason=args[0] if type(error) is Refusal and len(args)==1 and type(args[0]) is str and args[0] in REASONS else 'unknown'
     if type(error) is AuthRefusal and type(error.reason) is str and error.reason in AUTH_REASONS:reason='auth_operation_'+error.reason
+    route_evidence={}
+    if type(error) is RouteObservationRefusal and error.reason in ROUTE_REASONS:
+        reason='route_observation_'+error.reason
+        route_evidence=safe_record(error.route_observation)
+        route_evidence={**route_evidence,'publication_unavailable':error.publication_unavailable}
     evidence=getattr(error,'evidence',None);fields={}
     if type(evidence) is dict:
         for key in COUNTS:
@@ -49,7 +55,7 @@ def project(error,stage):
         if getattr(error,'auth_window',None) in ('pre','post'):auth_evidence['window']=error.auth_window
         if type(getattr(error,'auth_capture_available',None)) is bool:auth_evidence['capture_available']=error.auth_capture_available
         if type(getattr(error,'publication_unavailable',None)) is bool:auth_evidence['publication_unavailable']=error.publication_unavailable
-    return {'auth_evidence':auth_evidence,'protocol_shape':shape,'schema':'underlay.qualification.refusal.v1','stage':stage,'reason_id':reason,
+    return {'route_observation':route_evidence,'auth_evidence':auth_evidence,'protocol_shape':shape,'schema':'underlay.qualification.refusal.v1','stage':stage,'reason_id':reason,
             'exception_type':type(error).__name__[:64],'capture_available':type(evidence) is dict,
             'capture':fields,'settlement':getattr(error,'settlement_observation','unknown') if getattr(error,'settlement_observation','unknown') in ('unknown','leader_reaped') else 'unknown',
             'nonce_cleanup':getattr(error,'nonce_cleanup_observation','unknown') if getattr(error,'nonce_cleanup_observation','unknown') in ('unknown','verified') else 'unknown',

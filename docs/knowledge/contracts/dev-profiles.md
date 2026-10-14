@@ -1705,3 +1705,15 @@ Qualification command observations publish closed exit/count/completion fields
 before propagating a failed command. A timeout retains unknown completion and
 remote cancellation; local client completion does not prove group or service
 absence. Failed publication and missing output remain unavailable evidence.
+
+Private route qualification uses closed stage/role predicates for gateway
+envelopes, route targets and certificate readiness, CA/SNI verification, HTTP
+framing/status, origin JSON and HMR handshakes. Headers are bounded to 16 KiB
+and 32 fields; HTML/Vite bodies to 1 MiB and origin JSON to 64 KiB. Each
+operation shares one absolute eight-second budget through capture, parsing and
+publication. Error HTTP status is checked before JSON decoding. Payloads,
+request URLs and WebSocket tokens remain in memory. A typed failure survives
+late journal failure and the outer privacy filter; unknown external failures
+remain unknown. Context checks retain the original private root, CA, gateway
+port and listener generation association. These observations supply no signal
+or cleanup authority and never certify a missing product stage.

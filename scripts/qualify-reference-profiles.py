@@ -429,55 +429,14 @@ class GatewayHTTPSConnection(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
 
 
-def gateway_request(
-    host: str,
-    port: int,
-    context: ssl.SSLContext,
-    path: str,
-    headers: dict[str, str] | None = None,
-) -> tuple[int, dict[str, str], bytes]:
-    connection = GatewayHTTPSConnection(host, port, context)
-    try:
-        connection.request("GET", path, headers=headers or {})
-        response = connection.getresponse()
-        return (
-            response.status,
-            {key.lower(): value for key, value in response.getheaders()},
-            response.read(),
-        )
-    finally:
-        connection.close()
+def gateway_request(host,port,context,path,headers=None):
+    from route_observation import exchange
+    return exchange(host,port,context,path,headers)
 
 
-def gateway_websocket_upgrade(
-    host: str, port: int, context: ssl.SSLContext, token: str
-) -> int:
-    connection = GatewayHTTPSConnection(host, port, context)
-    try:
-        connection.connect()
-        key = base64.b64encode(os.urandom(16)).decode("ascii")
-        connection.putrequest("GET", f"/?token={token}")
-        connection.putheader("Host", f"{host}:{port}")
-        connection.putheader("Connection", "Upgrade")
-        connection.putheader("Upgrade", "websocket")
-        connection.putheader("Sec-WebSocket-Key", key)
-        connection.putheader("Sec-WebSocket-Version", "13")
-        connection.putheader("Sec-WebSocket-Protocol", "vite-hmr")
-        connection.endheaders()
-        response = connection.getresponse()
-        response_headers = {key.lower(): value for key, value in response.getheaders()}
-        expected_accept = base64.b64encode(
-            hashlib.sha1(
-                (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")
-            ).digest()
-        ).decode("ascii")
-        if response.status != 101:
-            return response.status
-        if response_headers.get("sec-websocket-accept") != expected_accept:
-            raise RuntimeError("gateway HMR WebSocket returned an invalid handshake accept")
-        return response.status
-    finally:
-        connection.close()
+def gateway_websocket_upgrade(host,port,context,token):
+    from route_observation import exchange
+    return exchange(host,port,context,'/',websocket=True,token=token,operation='websocket')[0]
 
 
 def install_public_origin_hooks(checkouts: list[Path]) -> None:
@@ -576,39 +535,11 @@ def fixture_public_origin_observations(
             raise RuntimeError(
                 f"{app} public-origin wrapper was not installed before app startup"
             )
-    for name in ("front", "admin"):
-        if name not in states:
-            raise RuntimeError(f"cannot qualify {name} public origin without an owned ready route")
-        domain = states[name]["route_domain"]
-        origin = f"https://{domain}:{gateway_port}"
-        path = "/__qualification/origin?probe=public-origin"
-        code, _, body = gateway_request(
-            domain,
-            gateway_port,
-            context,
-            path,
-            {"Host": f"{domain}:{gateway_port}", "Origin": origin},
-        )
-        assert code == 200, (name, code)
-        result = json.loads(body)
-        print(
-            f"Reference {name} origin probe: status={code} path={result.get('requestPath')} "
-            f"Host={result.get('host')} Origin={result.get('origin')} "
-            f"X-Forwarded-Proto={result.get('forwardedProto')} "
-        f"X-Forwarded-Host={result.get('forwardedHost')} "
-        f"event.url.origin={result.get('urlOrigin')} "
-            f"request.url.origin={result.get('requestUrlOrigin')}",
-            flush=True,
-        )
-        expected = origin
-        if (
-            result.get("urlOrigin") != expected
-            or result.get("requestUrlOrigin") != expected
-            or result.get("requestPath") != "/__qualification/origin"
-            or result.get("requestSearch") != "?probe=public-origin"
-        ):
-            raise RuntimeError(f"{name} SvelteKit public-origin probe did not preserve configured HTTPS URL")
-    print("PASS actual Reference front/admin configured HTTPS origins through verified private gateway", flush=True)
+    import route_observation as routes
+    for name in ('front','admin'):
+        routes.Observation(name,'origin').gate(name in states,'state_schema',state_available=name in states)
+        routes.observe_origin(states[name],gateway_port,context,name)
+    print('PASS closed front/admin HTTPS origin observations',flush=True)
 
 
 @observed

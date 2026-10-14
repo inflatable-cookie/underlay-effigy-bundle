@@ -1751,55 +1751,18 @@ def prove_silo(checkout: Path, env: dict[str, str], silo_port: int, allowed_orig
 
 def observe_routes(checkout: Path, gateway_root: Path, env: dict[str, str],
                    states: dict[str, dict], gateway_port: int) -> None:
-    status = json.loads(run([EFFIGY, "--json", "gateway", "status", "--private-state-root", str(gateway_root)],
-                            env=env, print_output=False).stdout)["result"]
-    ca = gateway_root / "ca/rootCA.pem"
-    context = ssl.create_default_context(cafile=str(ca))
-    routes = {route["domain"]: route for route in status.get("routes", [])}
-    for name in ("api", "front", "admin"):
-        state = states[name]
-        domain = state["route_domain"]
-        route = routes.get(domain)
-        if not route or route.get("target") != state["address"] or route.get("cert_ready") is not True:
-            raise RuntimeError(f"Effigy route for {name} was not ready at the owned listener address")
-        path = "/v1/health" if name == "api" else "/"
-        code, _, _ = REFERENCE.gateway_request(domain, gateway_port, context, path,
-                                               {"Host": f"{domain}:{gateway_port}"})
-        if code != 200:
-            raise RuntimeError(f"verified private HTTPS route for {name} returned {code}")
-    print("PASS actual Reference API/front/admin listeners and CA-verified private HTTPS routes", flush=True)
-
-    for name in ("front", "admin"):
-        domain = states[name]["route_domain"]
-        origin = f"https://{domain}:{gateway_port}"
-        path = "/__qualification/origin?probe=public-origin"
-        code, _, body = REFERENCE.gateway_request(domain, gateway_port, context, path,
-                                                   {"Host": f"{domain}:{gateway_port}", "Origin": origin})
-        result = json.loads(body)
-        print(f"Reference {name}: path={result.get('requestPath')} Host={result.get('host')} "
-              f"Origin={result.get('origin')} forwarded-proto={result.get('forwardedProto')} "
-              f"forwarded-host={result.get('forwardedHost')} event-origin={result.get('urlOrigin')} "
-              f"request-origin={result.get('requestUrlOrigin')}", flush=True)
-        if code != 200 or result.get("urlOrigin") != origin or result.get("requestUrlOrigin") != origin:
-            raise RuntimeError(f"actual Reference {name} hook did not expose the configured HTTPS origin coherently")
-        if result.get("requestPath") != "/__qualification/origin" or result.get("requestSearch") != "?probe=public-origin":
-            raise RuntimeError(f"actual Reference {name} hook changed the request path or query")
-    print("PASS actual Reference front/admin event.url and request.url use configured HTTPS origins", flush=True)
-
-    for name in ("front", "admin"):
-        domain = states[name]["route_domain"]
-        client_status, _, body = REFERENCE.gateway_request(domain, gateway_port, context, "/@vite/client")
-        if client_status != 200:
-            raise RuntimeError(f"Reference {name} Vite client returned {client_status}")
-        client = body.decode("utf-8", errors="replace")
-        match = re.search(r"(?:wsToken|token)\s*[:=]\s*['\"]([^'\"]*)['\"]", client)
-        token = match.group(1) if match else ""
-        if str(gateway_port) not in client or "wss" not in client:
-            raise RuntimeError(f"Reference {name} Vite client did not advertise the gateway's wss endpoint")
-        ws = REFERENCE.gateway_websocket_upgrade(domain, gateway_port, context, token)
-        if ws != 101:
-            raise RuntimeError(f"Reference {name} HMR WebSocket upgrade returned {ws}")
-    print(f"PASS front/admin Vite HMR WebSockets upgraded with 101 through gateway port {gateway_port}", flush=True)
+    import route_observation as routes
+    status=routes.native_status([EFFIGY, '--json', 'gateway', 'status', '--private-state-root', str(gateway_root)],checkout,env)
+    routes.context_gate(status,gateway_root,gateway_port,states)
+    context=routes.ca_context(gateway_root/'ca/rootCA.pem')
+    routes.observe(status,states,gateway_port,context)
+    try:
+        current={role:REFERENCE.managed_listener_state(checkout,role,expected_route_domain=states[role]['route_domain'])[1]
+                 for role in ('api','front','admin')}
+    except (OSError,RuntimeError,AssertionError,KeyError):
+        routes.Observation(operation='gateway_status').fail('context_changed',generation_matches=False)
+    routes.context_gate(status,gateway_root,gateway_port,states,current)
+    print('PASS closed CA-verified route/origin/HMR observations',flush=True)
 
 
 def prove_silo_gateway_route(checkout: Path, gateway_root: Path, domains: dict[str, str], gateway_port: int) -> dict:
