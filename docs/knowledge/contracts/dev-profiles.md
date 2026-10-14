@@ -1277,3 +1277,30 @@ before any image-specific explanation. This is an owning proposal, not an
 implemented API, a demonstrated transport defect or execution permission;
 predicate edits, timer increases and remote mutation replay have no evidence
 basis here.
+
+### Client shell selection precedes command-local bindings
+
+The qualified native command builder passes the executable name `sh`, not an
+absolute `/bin/sh`, to Compose exec, followed by `-lc`. Selection therefore
+depends on the image/runtime effective search context before the supplied
+command executes. The native PATH prefix is text inside that login shell's
+command; the client's `HOME=/root` binding occurs still later inside the framed
+command body. Neither binding establishes which shell was selected or what
+login initialization ran first. Image entrypoint identity and successful MC
+interface checks establish neither property.
+
+The admitted Linux/arm64 client manifest is
+`sha256:c44abbbd8f1b31ecfcc3aa71c210645a104c4f6f515baf85be37ab7ca4fb520d`,
+with config
+`sha256:37a94867c70839fe649c7ecfff0adad3b8d30fbdba35cdd33bf409cf27d01378`.
+These are artifact identities, not a shell-source admission. Effective image
+PATH/user/environment, candidate symlinks and executable bytes, implementation
+version/source, and implementation-specific conditional login-file precedence
+must be bound to verified descriptors and ordered layer/whiteout semantics
+before naming a selected shell or startup file. Until those inputs are admitted,
+`/bin/sh`, `/etc/profile`, passwd-derived HOME and image-specific timeout causes
+remain hypotheses. Anonymous artifact inspection must enforce its absolute
+HTTP deadline before retaining bytes; inability to establish that bound stops
+acquisition without a tag fallback or engine inspection. Any later source
+admission still provides semantics only, not evidence of the failed execution
+or permission to change the native login-shell behavior.
