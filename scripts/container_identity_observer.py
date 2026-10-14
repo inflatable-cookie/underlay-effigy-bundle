@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import selectors
+import secrets
 import shlex
 import stat
 import subprocess
@@ -150,7 +151,7 @@ class Observer:
         self.context=context;self.fixture=Path(fixture);self.bound={}
         required={'schema','limactl','limactl_sha256','ssh','ssh_sha256','colima_home','lima_home','cwd','config','config_sha256','instance','namespace','address','boot','scopes','foreign'}
         if type(context) is not dict or set(context)!=required or context['schema']!='underlay.container-observer-context.v1':raise Refusal('context_schema')
-        if any(type(context[k]) is not str for k in required-{'scopes','foreign'}):raise Refusal('context_type')
+        if any(type(context[k]) is not str for k in required-{'scopes','foreign','boot'}):raise Refusal('context_type')
         if type(context['scopes']) is not list or not 1<=len(context['scopes'])<=3 or type(context['foreign']) is not dict or len(context['foreign'])>MAX_IDS:raise Refusal('context_cardinality')
         if any(key.startswith(('CONTAINERD_','NERDCTL_')) or (key.startswith('LIMA_') and key!='LIMA_HOME') or key in ('SSH','COLIMA_PROFILE','DOCKER_HOST','DOCKER_CONTEXT') for key in inherited_env):raise Refusal('inherited_override')
         for key,field in (('LIMA_HOME','lima_home'),('COLIMA_HOME','colima_home')):
@@ -172,7 +173,8 @@ class Observer:
             self.bound[key]=identity(context[key],executable=key in ('limactl','ssh'))
         if not SLUG.fullmatch(str(context['instance'])) or not SLUG.fullmatch(str(context['namespace'])):raise Refusal('routing_identity')
         if not re.fullmatch(r'/[a-zA-Z0-9_./-]+\.sock',str(context['address'])):raise Refusal('address_identity')
-        if not re.fullmatch(r'[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}',str(context['boot'])):raise Refusal('boot_identity')
+        if context['boot'] is not None and not re.fullmatch(r'[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}',str(context['boot'])):raise Refusal('boot_identity')
+        # Optional historical data; never required for read association or signal authority.
         if type(context['scopes']) is not list or not context['scopes']:raise Refusal('original_scopes')
         projects=set()
         for scope in context['scopes']:
@@ -190,14 +192,17 @@ class Observer:
         self.context=copy.deepcopy(context)
         self.env={'HOME':str(self.fixture),'COLIMA_HOME':context['colima_home'],'LIMA_HOME':context['lima_home'],
                   'SSH':shlex.join([context['ssh'],'-o','ControlMaster=no','-o','ControlPersist=no']),'PATH':'/usr/bin:/bin','LANG':'C','LC_ALL':'C'}
-        self._baseline=None;self._post_attempted=False;self.capture_evidence=[]
+        self._baseline=None;self._post_attempted=False;self.capture_evidence=[];self.cwd_evidence=[]
         self.binding=hashlib.sha256(json.dumps({'context':context,'identities':self.bound},sort_keys=True).encode()).hexdigest()
 
     def guard(self):
         current=hashlib.sha256(json.dumps({'context':self.context,'identities':self.bound},sort_keys=True).encode()).hexdigest()
         if current!=self.binding:raise Refusal('context_changed')
         for key,value in self.bound.items():
-            if identity(self.context[key],key in ('colima_home','lima_home','cwd'),key in ('limactl','ssh'))!=value:raise Refusal('routing_changed')
+            directory=key in ('colima_home','lima_home','cwd')
+            current=identity(self.context[key],directory,key in ('limactl','ssh'))
+            if (current[:4] if directory else current)!=(value[:4] if directory else value):raise Refusal('routing_changed')
+            if key in ('limactl','ssh','config') and file_sha(self.context[key],1048576 if key=='config' else 268435456)!=self.context[key+'_sha256']:raise Refusal('provenance_changed')
 
     def argv(self, read_args):
         c=self.context
@@ -214,8 +219,65 @@ class Observer:
         self.capture_evidence.append(evidence)
         return raw
 
+    def verify_cwd_correspondence(self, deadline):
+        try:return self._verify_cwd_correspondence(deadline)
+        except Refusal:raise
+        except Exception:raise Refusal('cwd_correspondence_unavailable') from None
+
+    def _verify_cwd_correspondence(self, deadline):
+        """Only a new private nonce file, read over the same explicit instance route.
+
+        /bin/cat FILE uses the documented cat operand/stdout interface. Guest utility
+        availability is checked by the real call, never assumed from host docs.
+        No guest write, container exec, arbitrary path or callback is accepted.
+        """
+        self.guard();c=self.context;cwd=Path(c['cwd'])
+        directory=identity(cwd,True)[:4]
+        dirfd=os.open(cwd,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        name='.observer-cwd-'+secrets.token_hex(16)
+        path=cwd/name;stamp=None;cleaned=False
+        try:
+            if (os.fstat(dirfd).st_dev,os.fstat(dirfd).st_ino,os.fstat(dirfd).st_mode,os.fstat(dirfd).st_uid)!=directory:
+                raise Refusal('nonce_directory_changed')
+            fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=dirfd)
+            nonce=secrets.token_hex(32).encode('ascii')+b'\n'
+            with os.fdopen(fd,'wb') as stream:
+                stream.write(nonce);stream.flush()
+                info=os.fstat(stream.fileno())
+                stamp=(info.st_dev,info.st_ino,info.st_mode,info.st_uid,info.st_size,info.st_mtime_ns)
+            if identity(path)!=stamp or stat.S_IMODE(stamp[2])!=0o600:raise Refusal('nonce_identity_changed')
+            self.guard()
+            argv=[c['limactl'],'shell','--workdir',c['cwd'],c['instance'],'/bin/cat',str(path)]
+            raw,capture=host_capture(argv,self.env,cwd,min(deadline,time.monotonic()+CALL_SECONDS))
+            self.guard()
+            if identity(path)!=stamp:raise Refusal('nonce_identity_changed')
+            if time.monotonic()>=deadline:raise Refusal('cwd_correspondence_late')
+            if raw!=nonce:raise Refusal('cwd_correspondence_mismatch')
+            # Keep neither bytes nor their digest. The random value remains in memory.
+            evidence={key:value for key,value in capture.items() if key!='stdout_sha256'}
+            evidence.update(cwd_correspondence=True,byte_count=len(raw),universal_mount_proof=False,
+                            backend_boot_verified=False,vm_signal_authority=False)
+        finally:
+            # Never unlink a replacement or follow a symlink, even on a failed read.
+            if stamp is not None:
+                try:
+                    current=os.stat(name,dir_fd=dirfd,follow_symlinks=False)
+                    current=(current.st_dev,current.st_ino,current.st_mode,current.st_uid,current.st_size,current.st_mtime_ns)
+                    unchanged_directory=identity(cwd,True)[:4]==directory
+                except Exception:
+                    os.close(dirfd);raise Refusal('nonce_cleanup_identity_unknown') from None
+                if current!=stamp or not unchanged_directory:
+                    os.close(dirfd);raise Refusal('nonce_cleanup_identity_unknown')
+                os.unlink(name,dir_fd=dirfd);cleaned=True
+            os.close(dirfd)
+        evidence['owned_nonce_removed']=cleaned
+        if len(self.cwd_evidence)>=2:raise Refusal('cwd_journal_cap')
+        self.cwd_evidence.append(evidence)
+        return copy.deepcopy(evidence)
+
     def snapshot(self):
         deadline=time.monotonic()+DEADLINE_SECONDS
+        self.verify_cwd_correspondence(deadline)
         ids=inventory(self.read(['ps','--all','--no-trunc','--quiet'],deadline));values={}
         for full_id in ids:
             values[full_id]=projection(self.read(['container','inspect','--mode','dockercompat','--format',TEMPLATE,full_id],deadline),full_id)
@@ -255,4 +317,5 @@ class Observer:
         if values!=baseline['foreign'] or values!=self.context['foreign']:raise Refusal('foreign_changed_or_unclassified')
         return {'container_cleanup_verified':True,'owned_absent_count':len(baseline['owned']),
                 'foreign_preservation_verified':True,'foreign_count':len(values),'retirement_verified':False,
-                'binding_sha256':self.binding,'read_capture':copy.deepcopy(self.capture_evidence),'remote_memory_bounded':False,'remote_cancellation_verified':False}
+                'binding_sha256':self.binding,'read_capture':copy.deepcopy(self.capture_evidence),'cwd_correspondence':copy.deepcopy(self.cwd_evidence),'remote_memory_bounded':False,'remote_cancellation_verified':False,
+                'vm_signal_authority':False,'backend_boot_verified':False}

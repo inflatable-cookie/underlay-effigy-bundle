@@ -2088,7 +2088,7 @@ def main() -> int:
             diagnostics.append("retained_acceptance_input_match", result=retained_inputs)
     backend_admission=FreshBackend(fixture_root,os.environ)
     backend_admission.bind_tools(*selected_tools())
-    backend_admission.require_boot_read_contract()
+    backend_admission.require_read_contract()
     private_home=backend_admission.paths['HOME']
     colima_home=backend_admission.paths['COLIMA_HOME']
     private_cargo_home = private_home / ".cargo"

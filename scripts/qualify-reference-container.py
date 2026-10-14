@@ -109,7 +109,7 @@ def main() -> int:
     print(f"PRIVATE REFERENCE DEFAULT-CONTAINER ROOT: {fixture_root}", flush=True)
     backend_admission=FreshBackend(fixture_root,os.environ)
     backend_admission.bind_tools(*selected_tools())
-    backend_admission.require_boot_read_contract()
+    backend_admission.require_read_contract()
     private_home=backend_admission.paths['HOME']
     colima_home=backend_admission.paths['COLIMA_HOME']
     gateway_root = fixture_root / "gateway"

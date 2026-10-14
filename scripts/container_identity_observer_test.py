@@ -27,12 +27,27 @@ v=json.loads((root/'transport.json').read_text())
 a=sys.argv[1:]
 expected=['shell','--workdir',str(root/'cwd'),'owned','sudo','nerdctl','--namespace','original','--address','/run/containerd/containerd.sock']
 allowed={'HOME','COLIMA_HOME','LIMA_HOME','SSH','PATH','LANG','LC_ALL','LC_CTYPE'}
-valid=a[:len(expected)]==expected and not any(k.startswith(('CONTAINERD_','NERDCTL_')) for k in os.environ)
+nonce_prefix=['shell','--workdir',str(root/'cwd'),'owned','/bin/cat']
+is_nonce=a[:len(nonce_prefix)]==nonce_prefix
+valid=(a[:len(expected)]==expected or is_nonce) and not any(k.startswith(('CONTAINERD_','NERDCTL_')) for k in os.environ)
 valid=valid and os.environ.get('LIMA_HOME')==str(root/'lima') and os.environ.get('COLIMA_HOME')==str(root/'colima')
 valid=valid and shlex.split(os.environ.get('SSH',''))==[str(root/'fake-limactl'),'-o','ControlMaster=no','-o','ControlPersist=no']
 if not valid:sys.exit(21)
-args=a[len(expected):]
 mode=v.get('mode')
+if is_nonce:
+    p=Path(a[-1])
+    if len(a)!=6 or p.parent!=root/'cwd' or not p.name.startswith('.observer-cwd-'):sys.exit(24)
+    if mode=='nonce_missing':sys.exit(1)
+    if mode=='nonce_overflow':sys.stdout.write('x'*70000);sys.exit(0)
+    if mode=='nonce_stall':time.sleep(1)
+    if mode=='nonce_secret':sys.stderr.write('SYNTHETIC_SECRET_NONCE');sys.exit(1)
+    if mode=='nonce_replaced':
+        p.unlink();p.write_bytes(b'replacement');p.chmod(0o600)
+    data=p.read_bytes()
+    if mode=='nonce_wrong':data=b'wrong'
+    if mode=='nonce_truncated':data=data[:-1]
+    sys.stdout.buffer.write(data);sys.exit(0)
+args=a[len(expected):]
 if mode=='stall':time.sleep(1)
 if mode=='stderr':sys.stderr.write('SYNTHETIC_SECRET_BODY_ENV_ARGV');sys.exit(0)
 if mode=='overflow':sys.stdout.write('x'*70000);sys.exit(0)
@@ -58,7 +73,7 @@ elif len(args)==7 and args[:5]==['container','inspect','--mode','dockercompat','
 else:sys.exit(22)
 '''.replace('INTERPRETER',sys.executable)
         self.fake.write_text(source);self.fake.chmod(0o700)
-        self.ctx=dict(schema='underlay.container-observer-context.v1',limactl=str(self.fake),limactl_sha256=self.sha(self.fake),ssh=str(self.fake),ssh_sha256=self.sha(self.fake),colima_home=str(self.root/'colima'),lima_home=str(self.root/'lima'),cwd=str(self.root/'cwd'),config=str(config),config_sha256=self.sha(config),instance='owned',namespace='original',address='/run/containerd/containerd.sock',boot='12345678-1234-1234-1234-123456789ABC',scopes=[dict(project='primary',checkout=str(self.root/'main'),services=['api','portless'],primary=None,oneoffs=[])],foreign={})
+        self.ctx=dict(schema='underlay.container-observer-context.v1',limactl=str(self.fake),limactl_sha256=self.sha(self.fake),ssh=str(self.fake),ssh_sha256=self.sha(self.fake),colima_home=str(self.root/'colima'),lima_home=str(self.root/'lima'),cwd=str(self.root/'cwd'),config=str(config),config_sha256=self.sha(config),instance='owned',namespace='original',address='/run/containerd/containerd.sock',boot=None,scopes=[dict(project='primary',checkout=str(self.root/'main'),services=['api','portless'],primary=None,oneoffs=[])],foreign={})
         self.foreign=self.record('f'*64,'foreign','foreign-service',str(self.root/'other'))
         self.ctx['foreign']={self.foreign['id']:self.foreign}
         self.original={key:copy.deepcopy(value) for key,value in self.ctx.items() if key!='schema'}
@@ -77,6 +92,47 @@ else:sys.exit(22)
         self.assertTrue(result['container_cleanup_verified']);self.assertEqual(result['foreign_count'],1)
         self.assertFalse(result['retirement_verified']);self.assertFalse(result['remote_cancellation_verified'])
         self.assertTrue(all(x['stdout_eof'] and x['stderr_eof'] and x['leader_reaped'] and x['stderr_observed']==0 for x in result['read_capture']))
+    def test_unknown_boot_is_legitimate_read_association_without_signal_authority(self):
+        reader=self.reader();before=reader.baseline()
+        self.records={self.foreign['id']:self.foreign};self.write()
+        result=reader.after(before)
+        self.assertFalse(result['backend_boot_verified']);self.assertFalse(result['vm_signal_authority'])
+        self.assertEqual(len(result['cwd_correspondence']),2)
+        for evidence in result['cwd_correspondence']:
+            self.assertTrue(evidence['cwd_correspondence']);self.assertTrue(evidence['owned_nonce_removed'])
+            self.assertEqual(evidence['byte_count'],65);self.assertNotIn('stdout_sha256',evidence)
+        self.assertEqual(list((self.root/'cwd').iterdir()),[])
+    def test_nonce_wrong_missing_truncated_secret_and_replacement_hold_inventory(self):
+        for mode in ('nonce_missing','nonce_wrong','nonce_truncated','nonce_secret','nonce_overflow','nonce_replaced'):
+            with self.subTest(mode=mode):
+                self.write(mode)
+                with self.assertRaises(observer.Refusal) as caught:self.reader().baseline()
+                self.assertNotIn('SECRET',str(caught.exception))
+                self.assertFalse((self.root/'count').exists())
+                files=list((self.root/'cwd').iterdir())
+                if mode=='nonce_replaced':
+                    self.assertEqual(str(caught.exception),'nonce_cleanup_identity_unknown')
+                    self.assertEqual(len(files),1);self.assertEqual(files[0].read_bytes(),b'replacement')
+                    files[0].unlink() # this test created the replacement; no old scope exists
+                else:self.assertEqual(files,[])
+    def test_nonce_deadline_and_read_error_remove_only_own_file_without_inventory(self):
+        self.write('nonce_stall')
+        with patch.object(observer,'CALL_SECONDS',.02):
+            with self.assertRaises(observer.Refusal):self.reader().baseline()
+        self.assertEqual(list((self.root/'cwd').iterdir()),[])
+        self.assertFalse((self.root/'count').exists())
+        self.write();registered=set();original_register=observer.selectors.DefaultSelector.register
+        original_read=observer.os.read
+        def register(selector,stream,*args):
+            registered.add(stream.fileno());return original_register(selector,stream,*args)
+        def read(fd,count):
+            if fd in registered:raise OSError('SYNTHETIC_SECRET')
+            return original_read(fd,count)
+        with patch.object(observer.selectors.DefaultSelector,'register',register),patch.object(observer.os,'read',read):
+            with self.assertRaises(observer.Refusal) as caught:self.reader().baseline()
+        self.assertEqual(str(caught.exception),'capture_read')
+        self.assertEqual(list((self.root/'cwd').iterdir()),[])
+        self.assertFalse((self.root/'count').exists())
     def test_original_routing_and_environment_refuse_before_dispatch(self):
         for key,value in (('namespace','foreign'),('lima_home',str(self.root/'colima')),('instance',''),('cwd','/Users/operator'),('address','/foreign.sock'),('boot','unknown')):
             with self.subTest(key=key):

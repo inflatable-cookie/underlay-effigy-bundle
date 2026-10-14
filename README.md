@@ -151,12 +151,16 @@ child/group/socket/route absence and unchanged sibling identities. This is sourc
 and hermetic-control preparation; fresh runtime proof remains required.
 A qualification-only direct-Lima reader now implements bounded full-ID/creation
 and Compose-label observation with independent post-down foreign preservation.
-Both qualifiers now prepare explicit fresh private HOME/Colima/Lima startup
-intent and refuse inherited overrides and preexisting profiles. They stop before
-runtime queries because the selected instance projection cannot supply the
-required fresh boot, agent/root and actual mount proof. Original routing/service
-policy admission and fresh runtime cleanup qualification remain required. Partial host absence cannot pass the
-whole-product cleanup gate, and no VM/image/volume retirement is inferred.
+Both qualifiers prepare fresh private HOME/Colima/Lima startup intent and refuse
+inherited overrides and preexisting profiles. Read-only association leaves boot
+and VM/agent identity unknown and grants no signal or retirement authority.
+The reader performs a bounded private nonce correspondence read before inventory;
+this is not universal mount or escape proof. The entrypoints currently stop at
+an unqualified original nerdctl namespace/address source recipe. Original
+routing/config/service policy admission and fresh runtime cleanup qualification
+remain required; the disposable service baseline/handoff is incomplete. Partial
+host absence cannot pass whole-product cleanup, and no VM/image/volume retirement
+is inferred.
 
 
 Earlier `0412cc7b` disposable Reference evidence covers production bootstrap, three

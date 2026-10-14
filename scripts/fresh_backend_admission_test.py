@@ -1,4 +1,4 @@
-"""Original-startup caller controls; unsupported boot input never becomes authority."""
+"""Original-startup caller controls; read-only association never becomes boot/signal authority."""
 import copy
 import hashlib
 import importlib.util
@@ -69,7 +69,9 @@ class AdmissionTests(unittest.TestCase):
         for model in ({'name':'colima-effigy','status':'Running','dir':str(backend.paths['LIMA_HOME'])},
                       {'name':'colima-effigy','status':'Stopped'},{}):
             with self.assertRaises(Refusal) as caught:backend.consume_instance_projection(json.dumps(model).encode())
-            self.assertEqual(str(caught.exception),MISSING)
+            self.assertEqual(str(caught.exception),'instance_availability_unknown')
+        available=backend.consume_instance_projection(b'{"name":"colima-effigy","runtime":"containerd","status":"Running"}')
+        self.assertTrue(available['available']);self.assertEqual(available['boot_identity'],'unknown');self.assertFalse(available['signal_authority'])
         with self.assertRaises(Refusal) as caught:backend.consume_instance_projection(b'{"name":"colima-effigy","boot":"12345678-1234-1234-1234-123456789ABC"}')
         self.assertEqual(str(caught.exception),'unsupported_instance_field')
     def test_observer_and_scoped_down_cannot_use_owner_boolean_or_late_inventory(self):

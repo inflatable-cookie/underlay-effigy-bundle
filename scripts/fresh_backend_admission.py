@@ -11,7 +11,7 @@ from container_identity_observer import Refusal, identity, file_sha
 PROHIBITED=('DOCKER_','CONTAINERD_','NERDCTL_','LIMA_','SSH','COLIMA_','XDG_')
 PROFILE='effigy'
 INSTANCE='colima-effigy'
-MISSING='guest_boot_agent_root_and_actual_mount_observation_unqualified'
+MISSING='original_nerdctl_namespace_address_source_unqualified'
 
 
 def refuse_inherited(env):
@@ -108,15 +108,19 @@ class FreshBackend:
                 '--template=false','--mount',str(self.root)+':w',
                 '--cpu','6','--memory','8','--disk','64']
 
-    def require_boot_read_contract(self):
+    def require_read_contract(self):
+        # Effigy 77d delegates Compose without --namespace/--address; retained Colima
+        # forwards overrides but does not define nerdctl's effective defaults/config.
+        # The selected nerdctl root-command/config source is not retained. Do not
+        # guess "default" or a socket from unrelated fixture examples. This is the
+        # exact remaining routing recipe boundary, not a guest-boot requirement.
         raise Refusal(MISSING)
 
     def start_command(self, env):
         self.planned_start_command(env)
-        # The retained Colima InstanceInfo projection has no boot UUID/agent-start/
-        # opened-root-file or actual mount observation. No supported additional read
-        # contract has been admitted; refuse before an irreversible backend start.
-        self.require_boot_read_contract()
+        # Namespace/address association must be established before startup. Boot,
+        # agent/process identity and retirement are outside this read-only contract.
+        self.require_read_contract()
 
     def observer_for(self, checkout, env):
         # Both default and disposable service callers use this exact admission path.
@@ -133,15 +137,17 @@ class FreshBackend:
         value=strict_json(raw)
         fields={'name','status','arch','cpus','memory','disk','dir','network','address','runtime'}
         if type(value) is not dict or not set(value)<=fields:raise Refusal('unsupported_instance_field')
-        # These are the actual retained Colima InstanceInfo fields; Running/name/dir
-        # never establish a boot, agent start or actual mount.
-        self.require_boot_read_contract()
+        # Availability only. Never use this projection to construct original context.
+        if value.get('name')!=INSTANCE or value.get('runtime')!='containerd' or value.get('status')!='Running':
+            raise Refusal('instance_availability_unknown')
+        return {'available':True,'boot_identity':'unknown','signal_authority':False}
 
     def observation_requirements(self):
         return {'schema':'underlay.fresh-backend-required-observation.v1',
             'original_intent_sha256':self.intent_sha256,'startup_recipe_prepared':hasattr(self,'prepared'),
-            'guest_boot_uuid':'unqualified','agent_kernel_start_and_owned_root_file':'unqualified',
-            'actual_mount_and_original_compose_routing':'unqualified',
+            'guest_boot_uuid':'unknown_not_required_for_read_association','agent_kernel_start_and_owned_root_file':'unknown_no_signal_authority',
+            'actual_mount':'requires_original_sole_private_mount_config_and_nonce_correspondence',
+            'essential_source_boundary':MISSING,'original_compose_policy':'requires_supported_semantic_decode',
             'foreign_scope_intents':'required_before_independent_id_witness_capture',
             'original_namespace_address':'required_from_original_startup_configuration',
             'late_inventory_authority':False,'backend_effect_authorized':False}

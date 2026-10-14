@@ -1330,8 +1330,8 @@ It never requests environment, command or mount payloads. Complete inventories
 bracket inspection; this is a stable observation interval, not an atomic snapshot.
 
 The caller must independently admit the newly owned canonical Colima and Lima
-roots, configuration identity/hash, mounted private cwd, exact instance/backend
-boot, original namespace/address and complete original Compose service/scope
+roots, configuration identity/hash, mounted private cwd, exact instance,
+original namespace/address and complete original Compose service/scope
 policy. Primary-none and absent scope labels are not invented ownership fields.
 Foreign IDs and creation/state witnesses must already be independently bound.
 Missing or contradictory bindings refuse before dispatch; regular home/profile
@@ -1357,21 +1357,47 @@ Installed CLI help documents these flags; it does not establish actual mount
 replacement semantics or source-to-binary attestation. No profile is started
 until the actual required observation contract is admitted.
 
-The precise current refusal is
-`guest_boot_agent_root_and_actual_mount_observation_unqualified`. The retained
-Colima `InstanceInfo` projection has name/status/dir/runtime fields but no guest
-boot UUID, exact agent kernel start/opened-root-file binding or actual mounted
-cwd proof. Both entrypoints stop at this source admission boundary before any
-runtime query or startup. The default cleanup caller and whole-profile
-service/disposable path obtain their reader through the same original admission
-object, replacing the unwired reader placeholder. That path refuses missing
-original checkout configuration and never constructs an Observer from a late
-inventory, arbitrary boot value, owner boolean, clock or “Running” name.
-No additional boot/provider fields are guessed. A supported scoped fresh-boot,
-agent/root and mount observation recipe plus a verified original renderer
-service/routing policy is still required; the selected projection alone cannot
-supply it. This is an explicit qualification source boundary, not evidence that
-such a capability is globally absent or a new generic core prerequisite.
+Read-only container association does not require a guest boot UUID or exact
+VM/agent kernel-start/opened-root-file proof. Those observations remain unknown;
+the metadata reader grants no VM/process signal or retirement authority. Original
+fresh-root creation, immutable startup intent, physical root/config/tool identity,
+explicit instance routing and original Compose ownership policy must establish
+association independently of inventory. A late `Running` projection can report
+availability only; it cannot construct that association.
+
+The current precise source boundary is
+`original_nerdctl_namespace_address_source_unqualified`. At admitted Effigy
+`77d22adc`, `compose_invocation_for_repo` delegates to Colima without explicit
+namespace/address arguments. Retained Colima `cmd/nerdctl.go` forwards
+`CONTAINERD_*`/`NERDCTL_*` overrides but does not define the guest CLI's effective
+defaults or configuration precedence. The selected nerdctl root-command/config
+source establishing that original route is not available in the retained source
+packet. No `default` namespace or socket path is inferred from test fixtures.
+Both actual entrypoints hold before runtime effects at this narrower routing
+boundary. This is a missing original route recipe, not a required boot/provider
+API, a global capability-absence claim or a new core task.
+
+A bounded cwd correspondence read is now part of the actual reader's snapshot
+path, before each inventory collection. It creates a new exclusive no-follow
+0600 nonce file under the admitted private cwd, then invokes the same explicit
+Lima instance/workdir route with `/bin/cat` and only that absolute file operand.
+The documented cat operand/stdout interface is used; guest utility availability
+is not inferred from host documentation and any unavailable/nonzero/incomplete
+read refuses. The returned bytes must match in memory. Receipts retain counts,
+EOF/reap observations and a match boolean, never nonce bytes or their digest.
+Only the unchanged exact owned file is removed using its directory descriptor
+and identity; a missing/replaced file or changed directory stays uncertain and
+receives no cleanup credit. No guest write or operator path is requested.
+
+This establishes only byte correspondence for that path at that interval. It
+still requires original explicit sole-private-mount startup/config association;
+it is not universal mount, escape, boot or remote cancellation proof. Physical
+roots, config and tool hashes are rechecked for every read. The default and
+whole-profile callers still cannot obtain a complete Observer until the original
+namespace/address source recipe, supported semantic Compose policy decode and
+new profile/config association are supplied. Fingerprints and matching nonce
+bytes do not substitute for those original inputs. The disposable service
+baseline/handoff remains incomplete; host-only cleanup cannot satisfy it.
 
 
 Each reader observation has a fixed 30-second absolute deadline, 8-second call
@@ -1391,8 +1417,9 @@ precede generated options; the fixed absolute SSH alias disables ControlMaster
 and ControlPersist, using documented [OpenSSH option precedence](https://man.openbsd.org/ssh_config).
 No preserve-env, reconnect, sync or start option is enabled. Binary hashes and
 version/help observations record provenance, not binary-to-source attestation.
-Actual source-sensitive routing, mounted cwd and backend-boot receipts remain
-required before any real observation is admitted.
+Actual original routing/config association, sole-private-mount declaration and
+nonce correspondence remain required before any real observation is admitted.
+Backend boot and agent/process identity remain unknown and confer no authority.
 
 After one scoped down action, complete same-namespace observation must find no
 old owned IDs or same-project replacements and exactly unchanged foreign
