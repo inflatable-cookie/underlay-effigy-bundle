@@ -978,46 +978,64 @@ omit a join; neither occurred by inference here. The later `valid` event rules
 out an indefinitely stuck verification call for this observed request, while
 its missing join/response and exact shutdown interaction remain unknown.
 
-A finite next assessment can isolate the same debug-build Argon2 cost in a
-standalone CPU probe with synthetic secrets kept only in memory, separately
-timed worker scheduling/verification/join and closed panic/error evidence.
-Existing Underlay hashing tests check correctness and stored-PHC parameter use,
-not this cost's latency bound. Such execution or diagnostic changes need a
-separate selected scope; no test, service probe, password-cost weakening or
-timeout increase is implied by these source findings.
+### Standalone auth CPU observation
 
-The standalone CPU diagnostic is maintained as `proof:dev-profiles:auth-cpu`.
-It uses the consumed public Underlay hashing API, copied private Cargo inputs,
-unchanged 128 MiB/t4/p4 costs and a synthetic password/PHC kept only in memory.
-Separate hash, scheduling, worker, verification and join observations use closed
-outcomes, with sanitized panic handling and 16 KiB caps per stream. Preparation
-and build share a 600-second budget and two build jobs; execution has a separate
-60-second absolute limit. A newly created, unreaped process-group leader is
-recorded before child execution; timeout signals target only that recorded group.
+`proof:dev-profiles:auth-cpu` uses the actual public Underlay hashing API at the
+consumed source/lock and unchanged Argon2id 131,072 KiB/t4/p4 costs. A fresh
+synthetic password and PHC remain in memory. Hash preparation is timed separately
+from scheduling, worker entry, verification and join; phase outcomes and panic
+classes exclude secret/error payloads. Existing Underlay correctness tests do
+not define this cost's latency bound.
 
-Initial preparation failed while checking the copied workspace manifest at the
-incorrect `rust/Cargo.toml` location. This revision's manifest is `Cargo.toml`
-at the source root. The source check is corrected without replay: no Cargo build
-or CPU verification occurred, so dependency/profile admission, process capture
-and measured phase behavior remain unqualified. Syntax validation alone does
-not qualify those execution paths. A later selected operation must retain the
-original failure evidence and establish these inputs before CPU observations;
-the diagnostic does not start services or grant runtime acceptance authority.
+Archive identity is unconditional: exactly one cached archive per available
+locked registry package, SHA256 equal to its source/checksum-bearing lock entry,
+regular single-link no-follow stable read. Missing optional unselected packages
+receive no credit; selected packages must be admitted. Compressed input is capped
+at 16 MiB per archive and 128 MiB aggregate (retained maximum 9,679,450 bytes and
+aggregate 53,304,128). Expanded input is capped at 128 MiB per archive, 8,192
+members and 32 MiB per file. Noncanonical/traversing/absolute/wrong-prefix or
+repeated member paths, links, special files and oversized input refuse. No Cargo
+checksum metadata is invented. Registry source directories are not copied:
+fresh private Cargo unpacks authenticated archives, and all materialized source
+files must match archive membership, full-file digests and executable mode.
+Only the bounded generated `.cargo-ok` marker is separately classified and
+provides no source authority.
 
-Corrected-layout preparation preserved the consumer's tag-based dependency
-source ID and copied lock's exact Git pin rather than introducing a different
-revision-based resolver source. Its new cache-admission gate then refused
-before copying/building: the retained registry source directories contain no
-`.cargo-checksum.json`. Read-only reconciliation found one cached archive each
-for Argon2 `0.5.3`, password-hash `0.5.0` and Tokio `1.53.1`, all with SHA256
-equal to their retained lock checksums. The refusal therefore demonstrates a
-helper's unsupported metadata-shape expectation, not a missing archive or a
-proven Cargo resolution failure. No build/probe group was created, no measured
-phase exists, and the operation was not replayed.
+The consumer tag-based source ID and exact Git object/lock pin remain unchanged.
+Fresh Git materialization is checked against that object and consumed library,
+workspace and core manifests/source. Resolver metadata and Git DB are copied
+privately, with no global cache or checkout changes. Complete resolved dependency
+source/version/checksum and Argon2 debug fingerprint admission precede execution.
+Preparation/build share 600 seconds and two jobs; execution has a separate
+60-second absolute deadline and 16 KiB caps per stream before collection. A new
+session leader waits for durable group identity before exec. Deadline/read/overflow
+refusal signals only a currently observable matching owned group, then reaps the
+leader. Loss of leader observability after TERM does not authorize guessed KILL;
+group absence remains explicitly unobserved. Controlled noncrypto cases exercise
+these refusals; syntax compilation alone does not qualify execution paths.
 
-The next concrete source correction is archive-checksum admission against the
-retained lock, with corresponding copied-source provenance. No admission rule
-should be relaxed into unknown dependency credit. The remaining offline build,
-complete resolved-lock/profile admission and one synthetic CPU observation
-still require a separately selected operation. Preflight source checks alone
-do not supply execution or service acceptance evidence.
+One archive-admitted operation completed: offline build exit zero, 115 resolved
+dependencies admitted, compiler metadata and Argon2 debug feature/profile classes
+matching the retained Reference build. Build capture was 0 stdout/3,148 stderr
+bytes; CPU capture was 358 stdout/0 stderr bytes, both complete within caps.
+Synthetic verification returned `valid` in 3,970.352 ms; join completed at
+3,970.576 ms from scheduling, with worker entry at 86 µs. Hash preparation took
+5,126.403 ms; total in-process work took 9,097.603 ms. Hash preparation is outside
+the login verification path and must not be conflated with login wait time.
+Recorded leaders exited and were reaped without signals; this does not certify
+independent group absence, escaped compiler children or service cleanup.
+
+This observation confirms supported hashing/verification/join under its own
+inputs. It does not reconstruct stored historical PHC, machine load, handler
+shutdown or a latency maximum from the earlier 4,234 ms and 8,053 ms observations.
+Initial manifest-layout and cache-metadata refusals remain separate historical
+preparation failures, with no compilation/CPU credit. Source controls now cover
+genuine archives/source artifacts, corruption/identity/path/type/limit/source
+mutations, lock/profile/phase refusal and finite local capture counterexamples.
+
+The next bundle-owned request-proof proposal is an explicitly selected finite
+absolute auth-phase budget plus bounded pre/post capture of verifier/join/handler
+observations after refusal, without replaying mutations or turning missing phases
+into success. The numeric budget must be selected separately; this single CPU
+sample supplies no SLA or automatic increase of the eight-second socket default.
+No public auth/crypto/config change or fresh service acceptance allowance follows.

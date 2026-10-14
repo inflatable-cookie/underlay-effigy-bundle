@@ -200,22 +200,16 @@ socket wait is a probe default, not an auth latency contract. Different timing
 origins, build artifacts and unobserved CPU/load prevent a causal performance
 comparison. No cost reduction or timeout adjustment follows from this evidence.
 
-The standalone `proof:dev-profiles:auth-cpu` diagnostic uses the consumed public
-hashing API with a synthetic in-memory secret and unchanged costs, private copied
-Cargo inputs/target, two build jobs, bounded capture and one verification. Its
-initial preparation refused before compilation because the copied workspace
-manifest was checked under `rust/` instead of the source root. The path is
-corrected, but compilation, dependency/profile admission and measured CPU phases
-remain unverified; the diagnostic was not replayed. It supplies no service or
-full-profile acceptance credit.
-
-The corrected operation also stopped before building: its cache gate expected
-`.cargo-checksum.json` in registry source directories, but the retained cache
-does not contain that metadata. The cached Argon2, password-hash and Tokio
-archives each match their retained lock checksum. This demonstrates an
-unsupported helper metadata assumption, not unavailable dependencies. Archive
-checksum admission is a concrete next correction; no build or probe was
-replayed, and no CPU timing or performance conclusion was obtained.
+The standalone `proof:dev-profiles:auth-cpu` diagnostic authenticates cached
+crate archives against the retained lock, lets fresh private Cargo unpack them,
+and checks complete selected source membership/digests and debug fingerprint
+classes. One offline build and synthetic in-memory verification completed at
+unchanged 128 MiB/t4/p4 costs: hash preparation 5,126 ms, worker scheduling 86 µs,
+verification `valid` 3,970 ms, join 3,971 ms. The nine-second total includes hash
+preparation, which login does not repeat. This one observation is neither an SLA
+nor an explanation of the retained 8,053 ms verification. Services were not run.
+The next request-proof decision needs an explicit finite auth-phase budget and
+bounded pre/post capture policy; no socket-timeout or crypto change is implied.
 
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
