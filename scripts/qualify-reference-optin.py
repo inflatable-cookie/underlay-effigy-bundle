@@ -26,6 +26,7 @@ from datetime import datetime
 from qualification_runtime import require_effigy_binary
 from reference_compile_capture import capture as capture_compile
 import qualification_batch
+from qualification_refusal import publish as publish_refusal
 from private_cargo_cache import initialize as initialize_private_cargo, verify as verify_private_cargo, summary as cargo_summary
 
 
@@ -2118,7 +2119,7 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","private_cargo_cache.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
                            effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",
@@ -2129,6 +2130,7 @@ def main() -> int:
         if retained_inputs is not None:
             diagnostics.append("retained_acceptance_input_match", result=retained_inputs)
     backend_admission=FreshBackend(fixture_root,private_env)
+    backend_admission.refusal_emit=diagnostics.append
     backend_admission.bind_tools(*selected_tools())
     backend_admission.require_read_contract()
     private_home=backend_admission.paths['HOME']
@@ -2269,6 +2271,7 @@ def main() -> int:
         print(f"PASS production opt-in Reference profile selectors; receipt: {receipt_path}", flush=True)
         return 0
     except BaseException as error:
+        publish_refusal(error,"runtime_profile",diagnostics.append)
         append_diagnostic_best_effort(
             diagnostics, "attempt_failed", phase="production_profile_runtime_or_cleanup",
             exception_type=type(error).__name__)
@@ -2295,5 +2298,6 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-        print(f"OPT-IN REFERENCE PROFILE PROOF FAILED: {error}", file=sys.stderr, flush=True)
+        from qualification_refusal import project
+        print(json.dumps(project(error,"runtime_profile"),sort_keys=True), file=sys.stderr, flush=True)
         raise SystemExit(1)

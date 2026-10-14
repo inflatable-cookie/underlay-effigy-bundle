@@ -111,7 +111,8 @@ else:sys.exit(22)
                 self.assertFalse((self.root/'count').exists())
                 files=list((self.root/'cwd').iterdir())
                 if mode=='nonce_replaced':
-                    self.assertEqual(str(caught.exception),'nonce_cleanup_identity_unknown')
+                    self.assertEqual(caught.exception.args,('nonce_identity_changed',))
+                    self.assertEqual(caught.exception.nonce_cleanup_observation,'unknown')
                     self.assertEqual(len(files),1);self.assertEqual(files[0].read_bytes(),b'replacement')
                     files[0].unlink() # this test created the replacement; no old scope exists
                 else:self.assertEqual(files,[])

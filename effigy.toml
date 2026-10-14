@@ -145,3 +145,15 @@ run_in = "host"
 [tasks."proof:dev-profiles:cleanup-cargo-wrapper-control"]
 run = "python3 scripts/qualification_cleanup_test.py CallerControls.test_real_wrapper_fixed_original_selector_and_pending_before_action"
 run_in = "host"
+
+[tasks."proof:dev-profiles:generated-profile-controls"]
+run = "python3 scripts/generated_profile_test.py GeneratedControls.test_full_bind_and_original_route_generated_form GeneratedControls.test_complete_binding_negative_forms_never_transport GeneratedControls.test_original_inode_owner_symlink_and_rewrite_guards GeneratedControls.test_closed_refusal_privacy_primary_settlement_and_failed_publication GeneratedControls.test_actual_retained_producer_read_only_projection GeneratedControls.test_production_capture_preserves_primary_when_reap_unknown GeneratedControls.test_actual_private_journal_identity_refusal_preserves_reason"
+run_in = "host"
+
+[tasks."proof:dev-profiles:observer-nonce-refusal-control"]
+run = "python3 scripts/container_identity_observer_test.py ReaderTests.test_nonce_wrong_missing_truncated_secret_and_replacement_hold_inventory"
+run_in = "host"
+
+[tasks."proof:dev-profiles:generated-profile-identity-control"]
+run = "python3 scripts/generated_profile_test.py GeneratedControls.test_original_inode_owner_symlink_and_rewrite_guards"
+run_in = "host"

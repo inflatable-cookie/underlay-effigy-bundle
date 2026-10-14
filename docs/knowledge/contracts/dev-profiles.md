@@ -1597,12 +1597,27 @@ before the configured test. The operator environment and host caches remain
 unchanged. These offline host inputs do not attest container build inputs or
 replace actual default-container parity and independent cleanup proofs.
 
-Original-route admission also validates the newly generated Lima configuration
-before using its mounted checkout and guest transport. Its current closed reader
-rejects any tab anywhere in that configuration and compares the mount location
-as a literal string. Generated configurations can contain tabs outside the
-mount block and a trailing slash on the same declared private location. These
-inputs therefore remain unsupported by this qualification reader. Any correction
-needs the owning producer contract and path/ownership controls; backend startup
-success alone must not bypass admission or grant service-absence or VM cleanup
-credit. Refused backends remain held when independent cleanup cannot be admitted.
+Original-route admission validates both newly generated Lima and Colima
+configuration before using the mounted checkout and guest transport. Its closed
+mapping reader distinguishes comments, quoted scalar content and supported
+literal/folded producer blocks from structural indentation and keys. Lima mount
+sequences use four spaces and Colima sequences two, with their supported mapping
+indentation. Only one original private mount is admitted, with boolean writable
+true and an optional original mount point. The original root and exactly one
+terminal slash are the only equivalent path spellings. Observed paths are never
+resolved into a new owner; symlinks, dot segments, prefix confusion, extra mounts,
+unknown mount fields, duplicates, anchors/tags affecting mounts and malformed
+structural indentation refuse. Original physical root/config inode, ownership,
+no-follow, single-link, input bounds and source interval guards remain in force.
+Unrelated generated fields stay bound association content, not VM attestation.
+
+Owning caller boundaries publish versioned closed stage/refusal records before
+propagating failure. Reason IDs come only from literal owning Refusal
+constructors; unknown exceptions publish class and unavailable observations.
+Native stream counts/EOF/leader observations are separate from primary reason
+and settlement uncertainty. Failed payloads, their digests, exception messages,
+config, argv and environment are excluded. A failed or late journal write marks
+publication unavailable without replacing the primary refusal. No record grants
+signal, remote cancellation, service cleanup or retirement authority. Historical
+missing refusal reasons remain unknown. Backend startup and semantic config
+admission alone do not establish actual profile readiness or independent cleanup.

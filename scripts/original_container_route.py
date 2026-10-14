@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import time
 from container_identity_observer import Refusal, Observer, host_capture, identity, file_sha
+from qualification_refusal import publish as publish_refusal
 
 OWNER_RECEIPT='/tmp/005-nerdctl-original-route-source/owner-source-receipt.json'
 OWNER_SHA='6558a39207c4b9b7a2fc9065e6fea1d98b62f7912af0ff59c6bf53f64e831dd1'
@@ -121,17 +122,38 @@ class RouteReader:
         allowed=[['sudo','nerdctl','--help'],['sudo','nerdctl','--version'],['sudo','/bin/sh','-c',METADATA_SCRIPT]]
         if tail not in allowed:raise Refusal('original_route_arguments')
         self.guard();c=self.context
-        raw,capture=host_capture([c['limactl'],'shell','--workdir',c['cwd'],c['instance'],*tail],self.env,c['cwd'],min(deadline,time.monotonic()+8))
+        try:
+            raw,capture=host_capture([c['limactl'],'shell','--workdir',c['cwd'],c['instance'],*tail],self.env,c['cwd'],min(deadline,time.monotonic()+8))
+        except BaseException as error:
+            publish_refusal(error,'route_transport',getattr(self.backend,'refusal_emit',None))
+            raise
         self.guard();return raw,{k:v for k,v in capture.items() if k!='stdout_sha256'}
+    def parse(self, decoder, raw, capture, stage):
+        try:return decoder(raw)
+        except BaseException as error:
+            error.evidence={k:v for k,v in capture.items() if k!='stdout_sha256'}
+            publish_refusal(error,stage,getattr(self.backend,'refusal_emit',None))
+            raise
+
     def observe(self):
-        deadline=time.monotonic()+30;self.verify_cwd_correspondence(deadline)
-        first,c1=self.read(['sudo','/bin/sh','-c',METADATA_SCRIPT],deadline);before=metadata(first)
+        deadline=time.monotonic()+30
+        try:self.verify_cwd_correspondence(deadline)
+        except BaseException as error:
+            publish_refusal(error,'route_correspondence',getattr(self.backend,'refusal_emit',None))
+            raise
+        first,c1=self.read(['sudo','/bin/sh','-c',METADATA_SCRIPT],deadline);before=self.parse(metadata,first,c1,'route_metadata')
         version,c2=self.read(['sudo','nerdctl','--version'],deadline)
-        if version!=b'nerdctl version 2.3.1\n':raise Refusal('route_reported_version')
-        first_help,c3=self.read(['sudo','nerdctl','--help'],deadline);route=help_route(first_help)
+        if version!=b'nerdctl version 2.3.1\n':
+            error=Refusal('route_reported_version');error.evidence=c2
+            publish_refusal(error,'route_metadata',getattr(self.backend,'refusal_emit',None))
+            raise error
+        first_help,c3=self.read(['sudo','nerdctl','--help'],deadline);route=self.parse(help_route,first_help,c3,'route_help')
         last,c4=self.read(['sudo','/bin/sh','-c',METADATA_SCRIPT],deadline)
         last_help,c5=self.read(['sudo','nerdctl','--help'],deadline)
-        if metadata(last)!=before or help_route(last_help)!=route:raise Refusal('original_route_changed')
+        if self.parse(metadata,last,c4,'route_metadata')!=before or self.parse(help_route,last_help,c5,'route_help')!=route:
+            error=Refusal('original_route_changed');error.evidence=c5
+            publish_refusal(error,'route_help',getattr(self.backend,'refusal_emit',None))
+            raise error
         if time.monotonic()>=deadline:raise Refusal('original_route_late')
         return {**route,**before,'source':copy.deepcopy(self.source),'reported_version':'2.3.1',
                 'captures':[c1,c2,c3,c4,c5],'cwd_correspondence':copy.deepcopy(self.cwd_evidence),

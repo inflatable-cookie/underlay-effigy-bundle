@@ -354,7 +354,9 @@ configuration and compiled targets are excluded. The same frozen private Cargo
 context reaches the ready-action wrapper. Cache admission is preparation evidence;
 the configured build and full runtime/cleanup proofs must still pass.
 
-Original-route qualification currently refuses generated Lima configuration with
-non-mount tabs or a trailing slash on the declared mount location. A backend
-startup success does not bypass this admission or establish service cleanup;
-unadmitted backend resources remain held.
+Original-route qualification admits the supported generated Lima/Colima mapping
+forms, including tabs in comments or literal scalar content and one terminal
+slash on the original private mount path. Structural mount tabs, ambiguous or
+extra mounts and foreign paths still refuse. Closed stage/refusal evidence is
+recorded before propagation, independently of child-settlement uncertainty.
+Backend startup alone supplies no service cleanup or runtime readiness credit.

@@ -43,7 +43,7 @@ expected=['start','--profile','effigy','--runtime','containerd','--activate=fals
 if sys.argv[1:]!=expected:sys.exit(81)
 for name in ['lima-home/colima-effigy','colima-home/effigy']:(r/name).mkdir(mode=0o700)
 p=r/'lima-home/colima-effigy/lima.yaml';p.write_text('mounts:\\n    - location: '+str(r)+'\\n      writable: true\\n');p.chmod(0o600)
-p=r/'colima-home/effigy/colima.yaml';p.write_text('runtime: containerd\\n');p.chmod(0o600)
+p=r/'colima-home/effigy/colima.yaml';p.write_text('runtime: containerd\\nmounts:\\n  - location: '+str(r)+'/\\n    writable: true\\n');p.chmod(0o600)
 '''.replace('INTERPRETER',sys.executable)
         self.colima.write_text(start);self.colima.chmod(0o700)
         source='''#!INTERPRETER
@@ -214,7 +214,7 @@ sys.exit(85)
         with patch.object(module,'initialize_private_cargo',side_effect=cache),patch.dict(os.environ,{'UNDERLAY_PROFILE_EFFIGY_SOURCE':str(self.root)},clear=True),patch.object(module,'require_effigy_binary',return_value=str(self.colima)),patch.object(module,'selected_tools',return_value=(self.colima,self.lima,self.ssh)),patch.object(module.REFERENCE,'reference_source',return_value=self.root),patch.object(module.REFERENCE,'make_reference_instances',instances),patch.object(module.REFERENCE,'point_bundle_at_task_branch',return_value=None),patch.object(module.REFERENCE,'initialize_reference_fixture_secrets',return_value={'vaults':[]}),patch.object(module.RUNTIME,'mktemp_root',return_value=fixture),patch.object(module.RUNTIME,'fixed_default_ports_available',return_value=[]),patch.object(module,'run',producer),patch.object(module.subprocess,'run',run):
             self.assertEqual(module.main(),1)
         receipt=json.loads((fixture/'default-container-receipts.json').read_text())
-        self.assertEqual(receipt['refusal_class'],'foreign_source_capture_unqualified')
+        self.assertEqual(receipt['refusal_class'],'unknown')
         self.assertFalse(receipt['cleanup_verified']);self.assertFalse((fixture/'backend-start-intent.json').exists())
         self.assertEqual(len(list(fixture.glob('policy-*.json'))),1)
         self.assertEqual(len(calls),6);self.assertFalse((fixture/'lima-home/colima-effigy').exists())

@@ -10,6 +10,7 @@ import secrets
 import shlex
 import stat
 import subprocess
+import sys
 import time
 
 DEADLINE_SECONDS=30
@@ -101,6 +102,7 @@ def host_capture(argv, env, cwd, deadline):
     if time.monotonic()>=deadline:raise Refusal('deadline_before_dispatch')
     try:process=subprocess.Popen(argv,cwd=cwd,env=env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     except Exception:raise Refusal('capture_launch') from None
+    settlement='unknown'
     streams=selectors.DefaultSelector();counts={'stdout':0,'stderr':0};out=bytearray();reason=None;eof={'stdout':False,'stderr':False}
     try:
         for name,stream in (('stdout',process.stdout),('stderr',process.stderr)):
@@ -134,9 +136,12 @@ def host_capture(argv, env, cwd, deadline):
             try:process.kill()
             except ProcessLookupError:pass
             try:process.wait(timeout=1)
-            except Exception:reason=Refusal('direct_child_settlement_unknown')
+            except Exception:
+                settlement='unknown'
+                if reason is None:reason=Refusal('direct_child_settlement_unknown')
         streams.close();process.stdout.close();process.stderr.close()
     if reason is not None:
+        reason.settlement_observation='leader_reaped' if process.returncode is not None else settlement
         reason.evidence={'stdout_observed':counts['stdout'],'stderr_observed':counts['stderr'],'stdout_eof':eof['stdout'],'stderr_eof':eof['stderr'],'leader_reaped':process.returncode is not None,'exit_code':process.returncode,'remote_cancellation_verified':False}
         raise reason from None
 
@@ -229,8 +234,12 @@ class Observer:
         return raw
 
     def verify_cwd_correspondence(self, deadline):
+        self._cwd_capture=None
         try:return self._verify_cwd_correspondence(deadline)
-        except Refusal:raise
+        except Refusal as error:
+            if not hasattr(error,'evidence') and self._cwd_capture is not None:
+                error.evidence=self._cwd_capture
+            raise
         except Exception:raise Refusal('cwd_correspondence_unavailable') from None
 
     def _verify_cwd_correspondence(self, deadline):
@@ -258,6 +267,7 @@ class Observer:
             self.guard()
             argv=[c['limactl'],'shell','--workdir',c['cwd'],c['instance'],'/bin/cat',str(path)]
             raw,capture=host_capture(argv,self.env,cwd,min(deadline,time.monotonic()+CALL_SECONDS))
+            self._cwd_capture={k:v for k,v in capture.items() if k!='stdout_sha256'}
             self.guard()
             if identity(path)!=stamp:raise Refusal('nonce_identity_changed')
             if time.monotonic()>=deadline:raise Refusal('cwd_correspondence_late')
@@ -267,18 +277,18 @@ class Observer:
             evidence.update(cwd_correspondence=True,byte_count=len(raw),universal_mount_proof=False,
                             backend_boot_verified=False,vm_signal_authority=False)
         finally:
-            # Never unlink a replacement or follow a symlink, even on a failed read.
-            if stamp is not None:
-                try:
+            primary=sys.exc_info()[1]
+            try:
+                if stamp is not None:
                     current=os.stat(name,dir_fd=dirfd,follow_symlinks=False)
                     current=(current.st_dev,current.st_ino,current.st_mode,current.st_uid,current.st_size,current.st_mtime_ns)
                     unchanged_directory=identity(cwd,True)[:4]==directory
-                except Exception:
-                    os.close(dirfd);raise Refusal('nonce_cleanup_identity_unknown') from None
-                if current!=stamp or not unchanged_directory:
-                    os.close(dirfd);raise Refusal('nonce_cleanup_identity_unknown')
-                os.unlink(name,dir_fd=dirfd);cleaned=True
-            os.close(dirfd)
+                    if current!=stamp or not unchanged_directory:raise Refusal('nonce_cleanup_identity_unknown')
+                    os.unlink(name,dir_fd=dirfd);cleaned=True
+            except Exception:
+                if primary is None:raise Refusal('nonce_cleanup_identity_unknown') from None
+                primary.nonce_cleanup_observation='unknown'
+            finally:os.close(dirfd)
         evidence['owned_nonce_removed']=cleaned
         if len(self.cwd_evidence)>=2:raise Refusal('cwd_journal_cap')
         self.cwd_evidence.append(evidence)

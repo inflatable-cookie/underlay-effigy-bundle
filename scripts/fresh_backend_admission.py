@@ -10,6 +10,8 @@ import shlex
 from container_identity_observer import Observer, strict_json, projection
 from original_container_route import admit_sources, RouteReader, read_small
 from container_identity_observer import Refusal, identity, file_sha
+from generated_profile import private_mount, containerd_profile
+from qualification_refusal import publish as publish_refusal
 
 PROHIBITED=('DOCKER_','CONTAINERD_','NERDCTL_','LIMA_','SSH','COLIMA_','XDG_')
 PROFILE='effigy'
@@ -206,6 +208,12 @@ class FreshBackend:
         return (info.st_dev,info.st_ino,info.st_mode,info.st_uid)
 
     def bind_generated_profile(self):
+        try:return self._bind_generated_profile()
+        except BaseException as error:
+            publish_refusal(error,'profile_binding',getattr(self,'refusal_emit',None))
+            raise
+
+    def _bind_generated_profile(self):
         self.guard()
         if self.start_record is None or self.profile_binding is not None:raise Refusal('original_start_required')
         directory=self.paths['LIMA_HOME']/INSTANCE;colima=self.paths['COLIMA_HOME']/PROFILE
@@ -216,27 +224,10 @@ class FreshBackend:
             identity(binding[key]);os.chmod(binding[key],0o600) # only new intent-owned generated files
             binding['identities'][key]=identity(binding[key]);binding[key+'_sha256']=file_sha(binding[key],1048576)
         raw=read_small(config)
-        # Source-qualified limaconfig.Mount fields; deliberately narrow generated YAML.
-        try:text=raw.decode('utf-8')
-        except Exception:raise Refusal('mount_config_encoding') from None
-        if '\t' in text or len(raw)>1048576 or re.search(r'(?m)^ *[^#\n]+: *[&*!]',text):raise Refusal('mount_config_shape')
-        keys=re.findall(r'(?m)^([A-Za-z][A-Za-z0-9_]*):',text)
-        if len(set(keys))!=len(keys):raise Refusal('mount_config_duplicate')
-        match=re.search(r'(?ms)^mounts:\n(.*?)(?=^[A-Za-z]|\Z)',text)
-        if not match:raise Refusal('sole_private_mount_missing')
-        lines=[line.strip() for line in match[1].splitlines() if line.strip()]
-        values={}
-        for line in lines:
-            m=re.fullmatch(r'(?:- )?(location|mountPoint|writable): (.+)',line)
-            if not m or m[1] in values:raise Refusal('sole_private_mount_shape')
-            value=m[2]
-            if value.startswith('"'):
-                try:value=json.loads(value)
-                except Exception:raise Refusal('mount_scalar') from None
-            values[m[1]]=value
-        if values.get('location')!=str(self.root) or values.get('mountPoint',str(self.root))!=str(self.root) or values.get('writable')!='true':raise Refusal('sole_private_mount_mismatch')
-        colima_raw=read_small(colima_config)
-        if colima_raw.count(b'\nruntime: containerd\n')+int(colima_raw.startswith(b'runtime: containerd\n'))!=1:raise Refusal('original_profile_runtime')
+        private_mount(raw, self.root)
+        colima_raw = read_small(colima_config)
+        containerd_profile(colima_raw)
+        private_mount(colima_raw, self.root, sequence_indent=2)
         self.profile_binding=binding
         self.profile_binding_sha256=hashlib.sha256(json.dumps(binding,sort_keys=True).encode()).hexdigest()
         self.guard()
@@ -256,8 +247,9 @@ class FreshBackend:
 
     def admit_original_route(self, env):
         try:return self._admit_original_route(env)
-        except Refusal:raise
-        except Exception:raise Refusal('original_route_input_unavailable') from None
+        except BaseException as error:
+            publish_refusal(error,'route_admission',getattr(self,'refusal_emit',None))
+            raise
 
     def _admit_original_route(self, env):
         self.guard();self.verify_environment(env)

@@ -13,6 +13,7 @@ import subprocess
 import traceback
 from pathlib import Path
 
+from qualification_refusal import publish as publish_refusal
 from qualification_runtime import require_effigy_binary
 from private_cargo_cache import initialize as initialize_private_cargo, verify as verify_private_cargo, summary as cargo_summary
 import container_identity_observer
@@ -141,8 +142,15 @@ def main() -> int:
         "container_up": None,
         "cleanup": [],
         "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
-                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","private_cargo_cache.py")},
+                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
     }
+    from reference_storage_probe import StorageDiagnosticJournal
+    packet=Path(subprocess.run(['mktemp','-d',str(Path.home()/'ur.005-container.XXXXXX')],check=True,capture_output=True,text=True).stdout.strip())
+    journal=StorageDiagnosticJournal(packet/'storage-diagnostics.jsonl',fixture_root)
+    def emit_refusal(event, **fields):
+        journal.append(event, **fields)
+        receipts.setdefault("refusals",[]).append(fields["projection"])
+    backend_admission.refusal_emit=emit_refusal
     checkout: Path | None = None
     gateway_attempted = False
     profile_started = False
@@ -214,12 +222,9 @@ def main() -> int:
         run([effigy,'--repo',str(checkout),'silo:prepare'],cwd=checkout,env=runtime_env,timeout=60)
         run([effigy,'--repo',str(checkout),'silo:admit'],cwd=checkout,env=runtime_env,timeout=60)
         from formatter_provenance import bind_host, bound_colima, observe, version_arguments
-        from reference_storage_probe import StorageDiagnosticJournal
         import sys
         interface_spec=importlib.util.spec_from_file_location('container_image_interfaces',REPO/'scripts/qualify-storage-correlation.py')
         interfaces=importlib.util.module_from_spec(interface_spec);sys.modules[interface_spec.name]=interfaces;interface_spec.loader.exec_module(interfaces)
-        packet=Path(subprocess.run(['mktemp','-d',str(Path.home()/'ur.005-container.XXXXXX')],check=True,capture_output=True,text=True).stdout.strip())
-        journal=StorageDiagnosticJournal(packet/'storage-diagnostics.jsonl',fixture_root)
         bind_host(runtime_env)
         version_arguments(runtime_env,fixture_root)
         gateway_attempted = True
@@ -308,7 +313,8 @@ def main() -> int:
         print('PASS private Reference default container build/startup and production Silo bootstrap',flush=True)
     except Exception as error:
         failure = type(error).__name__
-        if isinstance(error,container_identity_observer.Refusal):receipts['refusal_class']=str(error)
+        safe=publish_refusal(error,'default_profile',backend_admission.refusal_emit)
+        if isinstance(error,container_identity_observer.Refusal):receipts['refusal_class']=safe['reason_id']
         print(f"REFERENCE DEFAULT-CONTAINER QUALIFICATION BLOCKED: {failure}", flush=True)
     finally:
         cleanup_verified=False
@@ -318,7 +324,7 @@ def main() -> int:
                     effigy,checkout,runtime_env,receipts['cleanup'],backend_admission.observer_for(checkout,runtime_env,foreign_scopes=[(str(foreign_fixture.checkout),"default")]),expected_foreign=foreign_fixture.baseline["owned"])
             except container_identity_observer.Refusal as error:
                 receipts['cleanup'].append({"container_cleanup_verified":False,
-                    "reason":str(error),"capture":getattr(error,'evidence',None)})
+                    "refusal":publish_refusal(error,"default_profile",backend_admission.refusal_emit)})
             except Exception:
                 receipts['cleanup'].append({"container_cleanup_verified":False,
                     "reason":"independent_cleanup_observation_unavailable"})
@@ -358,6 +364,7 @@ def main() -> int:
         receipt_path.chmod(0o600)
         print(f"REFERENCE DEFAULT-CONTAINER RECEIPTS: {receipt_path}", flush=True)
 
+    journal.close()
     if failure or not receipts.get("container_up") or not cleanup_verified:
         return 1
     qualification_batch.passed('container',receipt_path)
