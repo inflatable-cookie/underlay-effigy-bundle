@@ -985,3 +985,21 @@ Existing Underlay hashing tests check correctness and stored-PHC parameter use,
 not this cost's latency bound. Such execution or diagnostic changes need a
 separate selected scope; no test, service probe, password-cost weakening or
 timeout increase is implied by these source findings.
+
+The standalone CPU diagnostic is maintained as `proof:dev-profiles:auth-cpu`.
+It uses the consumed public Underlay hashing API, copied private Cargo inputs,
+unchanged 128 MiB/t4/p4 costs and a synthetic password/PHC kept only in memory.
+Separate hash, scheduling, worker, verification and join observations use closed
+outcomes, with sanitized panic handling and 16 KiB caps per stream. Preparation
+and build share a 600-second budget and two build jobs; execution has a separate
+60-second absolute limit. A newly created, unreaped process-group leader is
+recorded before child execution; timeout signals target only that recorded group.
+
+Initial preparation failed while checking the copied workspace manifest at the
+incorrect `rust/Cargo.toml` location. This revision's manifest is `Cargo.toml`
+at the source root. The source check is corrected without replay: no Cargo build
+or CPU verification occurred, so dependency/profile admission, process capture
+and measured phase behavior remain unqualified. Syntax validation alone does
+not qualify those execution paths. A later selected operation must retain the
+original failure evidence and establish these inputs before CPU observations;
+the diagnostic does not start services or grant runtime acceptance authority.

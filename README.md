@@ -200,6 +200,15 @@ socket wait is a probe default, not an auth latency contract. Different timing
 origins, build artifacts and unobserved CPU/load prevent a causal performance
 comparison. No cost reduction or timeout adjustment follows from this evidence.
 
+The standalone `proof:dev-profiles:auth-cpu` diagnostic uses the consumed public
+hashing API with a synthetic in-memory secret and unchanged costs, private copied
+Cargo inputs/target, two build jobs, bounded capture and one verification. Its
+initial preparation refused before compilation because the copied workspace
+manifest was checked under `rust/` instead of the source root. The path is
+corrected, but compilation, dependency/profile admission and measured CPU phases
+remain unverified; the diagnostic was not replayed. It supplies no service or
+full-profile acceptance credit.
+
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
 compares them with the current composed API declaration through a bounded,

@@ -2,6 +2,10 @@
 run = "python3 scripts/qualify-dev-profiles.py"
 run_in = "host"
 
+[tasks."proof:dev-profiles:auth-cpu"]
+run = "python3 scripts/qualify-auth-cpu.py"
+run_in = "host"
+
 [tasks."proof:dev-profiles:reference"]
 run = "python3 scripts/qualify-reference-profiles.py"
 run_in = "host"
