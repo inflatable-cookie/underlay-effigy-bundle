@@ -106,7 +106,7 @@ class AuthTests(unittest.TestCase):
 
     def test_http_headers_body_schema_refusals(self):
         bodies=[b'',b'{}',b'{"data":{"access_token":"a","access_token":"b"}}',b'not-json',b'{"data":{"access_token":null}}']
-        wires=[self.wire(body=x) for x in bodies]+[self.wire(status=401),
+        wires=[self.wire(body=x) for x in bodies]+[self.wire(status=401),self.wire(status=201),
           self.wire(headers=b'Set-Cookie: refresh=x\r\nSet-Cookie: refresh=y\r\nContent-Length: 1\r\nContent-Type: application/json\r\n'),
           self.wire(headers=b'Content-Length: 1\r\nContent-Length: 1\r\nContent-Type: application/json\r\n'),
           self.wire(headers=b'Content-Length: 65537\r\nContent-Type: application/json\r\n'),

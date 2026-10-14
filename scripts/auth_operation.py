@@ -105,7 +105,7 @@ def transport(domain, port, ca, operation, payload, origin, deadline, phase):
                     raise AuthRefusal('body')
             except (ValueError, UnicodeError):
                 raise AuthRefusal('headers') from None
-            if not 200 <= status < 300:
+            if status != 200:
                 raise AuthRefusal('http_status')
             phase('body')
             received = bytearray()
