@@ -1320,7 +1320,7 @@ Additional inspection limits are 512 MiB uncompressed, 100,000 members and
 128 MiB per regular member. These source limits are not a completed admission
 proof.
 
-Hermetic pipe controls exposed an unresolved refusal/settlement boundary: both
+The original hermetic pipe controls exposed a refusal/settlement boundary: both
 direct flood and cumulative-cap overflow returned `group_unknown`, rather than
 the expected primary `capture` classification. The parent replaces the original
 refusal when its unreaped child session/group is unobservable at cancellation.
@@ -1329,13 +1329,44 @@ primary capture failure from subsequent settlement uncertainty, and does not
 establish child/group absence. The combined flood/final-emission control stopped
 at its flood assertion, leaving that final-emission path unqualified. This is
 a helper/control counterexample, not registry, image or native runtime evidence.
-Mandatory acquisition controls have therefore not passed; neither the helper
-nor its artifact selector is qualified for network admission.
+Those initial controls did not pass, and provided no network admission.
 
-The smallest next source scope is to preserve the primary refusal separately
-from settlement observations, determine supported direct-child reap behavior
-without guessing signal authority, and complete the failed overflow and
-unreached final-emission controls. Unknown ownership must still hold and never
-permit a success return. No artifact operation follows a failed mandatory gate.
-Image shell/login source remains unadmitted, and generic native refusal evidence
-plus a separately selected runtime continuation remain distinct prerequisites.
+The corrected external prototype makes the primary refusal a read-only field
+and attaches settlement and capture accounting separately. It retains a handle
+to its newly forked direct child, observes any group signal authority before
+reap, and uses bounded nonblocking `waitpid` to reap that child independently of
+group visibility. It never signals after reap, signals an ambiguous group, or
+uses leader exit to infer group settlement. Capture accounting distinguishes
+observed and retained bytes, EOF, and exact versus lower-bound counts; an
+overflow witness does not become retained payload or a complete-stream count.
+
+Fourteen affected hermetic controls passed, including separate flood and late
+final-emission cases, cumulative overflow, primary failure with unknown
+settlement, exact owned-group observation before signal, reaped leader with
+unknown group, exited leader with inherited writer, ambiguous gate ownership,
+caller digest refusal, and deadline during metadata decoding. Blocking-phase,
+trickle, truncation, read-error and privacy controls also exercise the changed
+capture path. Unchanged redirect, digest, pinned-input and layer/whiteout source
+retain their earlier scoped control results; they were not replayed.
+
+| Primary observation | Separate settlement/accounting | Acceptance |
+| --- | --- | --- |
+| Capture overflow witness at 129 bytes against a 128-byte fixture cap | Lower-bound observed count; retained bytes stay within cap; direct leader can be reaped while group remains unknown | Refuse `capture`; settlement never replaces it. |
+| Valid capture and reaped leader | Group settlement unknown | Capture observation only; acquisition refuses `settlement_unknown`. |
+| Digest mismatch after capture | Reaped leader and unknown group | Refuse `digest` with the same separate settlement. |
+| Final pending-capture emission exceeds the original deadline | Subsequent deadline check refuses before return | No late success or acceptance prefix. |
+
+The final pending-capture emission and subsequent check share the original
+deadline. A synchronous publication callback is not forcibly interruptible;
+observable overrun refuses, and no stronger wall-time guarantee for a blocked
+callback is established. Ambiguous pre-request ownership closes the gate
+without releasing a request; if its bounded reap observation remains pending,
+that uncertainty stays explicit. No reader join or repeated signal follows.
+
+These controls establish the repaired source result contract, not independently
+settled process groups, network transport qualification or image source
+admission. No artifact operation is authorized by the control result. Image
+shell/login source remains unadmitted; a supported independent group-settlement
+observation is still required before this prototype can accept an acquisition.
+Generic native refusal evidence and separately selected artifact/runtime
+continuations remain distinct prerequisites.
