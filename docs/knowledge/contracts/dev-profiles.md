@@ -1370,3 +1370,43 @@ shell/login source remains unadmitted; a supported independent group-settlement
 observation is still required before this prototype can accept an acquisition.
 Generic native refusal evidence and separately selected artifact/runtime
 continuations remain distinct prerequisites.
+
+### Closed HTTPS worker lifetime admission
+
+Artifact-specific acceptance from direct-child reap and pipe EOF is valid only
+after a closed worker recipe is supported by its complete call and import
+inventory. It does not apply to `isolated(call, …)`, which accepts arbitrary
+callbacks and deliberately exercises descendant-producing fixtures. A proposed
+production recipe must admit only bounded HTTPS URL/header/cap data, reject
+callback/opener/process hooks and proxies, and select verified interpreter,
+resolver and TLS implementations. Reap/EOF must never be renamed whole-group
+absence or transferred to service and native host-client supervision.
+
+The selected Xcode Python 3.9.6 source establishes these boundaries:
+
+| Path | Source-supported behavior | Remaining admission |
+| --- | --- | --- |
+| `response` → `build_opener(ProxyHandler({}), Redirect())` | Explicit empty proxy mapping suppresses environment/system proxy discovery in `ProxyHandler.__init__`; the redirect override restricts HTTPS distribution and removes cross-host authorization | Arbitrary `opener` injection remains available in the prototype and must be excluded from production. |
+| HTTPS handler → `http.client.HTTPSConnection` | No supplied context calls `ssl._create_default_https_context`; connection uses `socket.create_connection` and wraps the connected socket | Context and connection hooks are mutable; a closed recipe cannot assume their identity from names. |
+| `socket.create_connection` → `getaddrinfo` | The Python loop delegates name resolution to `_socket.getaddrinfo`, then uses native socket connect | Exact native extension and platform resolver implementation/source closure are missing. |
+| Default TLS context → native `_ssl` | Default certificate paths, socket wrapping, handshake and reads cross native implementations | Exact extension, TLS library and certificate-loading implementation/source closure are missing. |
+| Interpreter startup → `site.py` | `.pth` import lines execute code; `sitecustomize` and `usercustomize` may run | The prototype forks the existing interpreter; no isolated startup/import provenance has been admitted. |
+
+There is also a concrete input boundary beyond process creation: the selected
+`ssl.create_default_context` reads `SSLKEYLOGFILE` when environment handling is
+enabled and assigns it to the context's keylog destination. Default context
+construction therefore does not establish an artifact-root-only write policy.
+No actual keylog setting, write or timeout attribution was observed. A future
+closed recipe must explicitly eliminate that hook without weakening CA/name
+verification or mutating global environment/settings.
+
+The local `_socket` and `_ssl` binaries have identifiable bytes, but their hashes
+alone do not prove a descendant-free call graph. Matching extension sources,
+platform DNS/TLS dependencies and interpreter startup/import bindings have not
+been admitted. This is missing lifetime provenance, not evidence that those
+implementations create descendants. The existing arbitrary-callback settlement
+refusal remains binding; the closed-production direct-child acceptance contract
+has not been enabled or exercised. No acquisition follows an unsupported source
+closure. The next owning scope is source admission of those exact dependencies
+and a hook-free typed HTTPS recipe, followed by its changed-boundary controls
+before any separately selected artifact operation.
