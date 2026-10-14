@@ -1371,11 +1371,11 @@ observation is still required before this prototype can accept an acquisition.
 Generic native refusal evidence and separately selected artifact/runtime
 continuations remain distinct prerequisites.
 
-### Closed HTTPS worker lifetime admission
+### Earlier closed-source HTTPS worker boundary
 
-Artifact-specific acceptance from direct-child reap and pipe EOF is valid only
-after a closed worker recipe is supported by its complete call and import
-inventory. It does not apply to `isolated(call, …)`, which accepts arbitrary
+The earlier proposed artifact-specific acceptance from direct-child reap and
+pipe EOF required a complete worker call and import inventory. The artifact
+platform contract below supersedes that exhaustive native-source requirement. It does not apply to `isolated(call, …)`, which accepts arbitrary
 callbacks and deliberately exercises descendant-producing fixtures. A proposed
 production recipe must admit only bounded HTTPS URL/header/cap data, reject
 callback/opener/process hooks and proxies, and select verified interpreter,
@@ -1407,6 +1407,58 @@ been admitted. This is missing lifetime provenance, not evidence that those
 implementations create descendants. The existing arbitrary-callback settlement
 refusal remains binding; the closed-production direct-child acceptance contract
 has not been enabled or exercised. No acquisition follows an unsupported source
-closure. The next owning scope is source admission of those exact dependencies
-and a hook-free typed HTTPS recipe, followed by its changed-boundary controls
-before any separately selected artifact operation.
+closure. Those source gaps remain disclosed; they do not independently block the
+selected artifact platform contract below. A restricted recipe and its
+startup, privacy, capture and completion controls still require admission.
+
+### Artifact platform completion contract
+
+For artifact transport only, the selected contract uses isolated interpreter
+startup, a restricted typed HTTPS request, and actual platform completion
+observations. It does not require exhaustive transitive native DNS/TLS source
+closure. Native dependency source and descendants that escape the recorded
+group remain unverified; this contract grants no service cleanup, remote
+cancellation or retirement credit.
+
+The child entry uses an absolute interpreter with `-I -S` and a minimal explicit
+environment. Python documents isolated import/environment behavior for
+[`-I` and site suppression for `-S`](https://docs.python.org/3.9/using/cmdline.html).
+Production request data contains only admitted HTTPS URL, headers and byte cap;
+callback, opener, proxy and process-hook inputs refuse. The proposed TLS context
+uses `SSLContext(PROTOCOL_TLS_CLIENT)` with CA loading and mandatory CA/name
+verification, avoiding the environment-aware default-context constructor.
+Selected `ssl.py` guards access to `keylog_filename` with `hasattr`; unconditional
+access is not an admitted portable capability check. Clean startup, certificate
+availability and optional-property handling must be demonstrated together.
+
+Before dispatch, the newly owned child must have positive PID/session/group
+binding. After actual direct-child reap and EOF on both owned pipes,
+`killpg(recorded_positive_pgid, 0)` may observe that exact group. Apple's
+[`kill(2)` contract](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kill.2.html)
+specifies checking without delivery for signal zero;
+[`killpg(2)`](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/killpg.2.html)
+identifies ESRCH with absence of a member in the specified group. This is
+absence at that observation, not continuous or historical absence. Existing
+groups, EPERM and other errors refuse. Numeric reuse cannot authorize any
+delivered signal; termination after reap is forbidden.
+
+Hermetic controls demonstrated direct reap plus pipe EOF plus actual fresh-group
+ESRCH, existing-group survivor refusal, inherited-writer deadline refusal,
+primary overflow accounting, late final-emission refusal, malformed/nonzero
+protocol refusal and bounded digest/size/JSON/OCI-path/link/whiteout checks.
+EPERM, other errors and numeric reuse were simulated response controls, not
+observations of foreign groups. The isolated startup/TLS control instead refused
+`capture` before its result was admitted. The captured bytes were not retained,
+so its underlying cause and separate settlement remain unknown. Neither CA
+availability nor complete startup/privacy admission can be credited from that
+refusal. No network acquisition follows the failed mandatory control, and the
+prototype is not an admitted artifact transport.
+
+Request-pipe writes now use nonblocking selector-driven capture preparation;
+output caps apply before retained-buffer growth. The original deadline also
+covers final evidence emission and a subsequent check. Synchronous operations
+remain uninterruptible mid-call, and observable overruns refuse. Primary errors
+remain separate from settlement. Test-only descendant recipes are kept apart
+from the production HTTPS worker, and their escaped or post-exit descendants
+receive no absence or cleanup credit. A complete startup/TLS and caller privacy
+control matrix remains necessary before artifact acceptance.
