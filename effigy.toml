@@ -125,3 +125,11 @@ run_in = "host"
 [tasks."proof:dev-profiles:bootstrap-recipe-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/dev/silo_bootstrap_test.py BootstrapTests.test_both_profiles_real_shell_recipe_cors_and_exclusive_cleanup BootstrapTests.test_guard_and_native_negative_prevent_mutations_and_secret_output BootstrapTests.test_bootstrap_bad_context_and_bucket_emit_before_mc_refusal BootstrapTests.test_default_admission_refuses_before_native_or_mutation BootstrapTests.test_shared_capture_accounting_rejects_forged_success"
 run_in = "host"
+
+[tasks."proof:dev-profiles:private-environment-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/private_caller_environment_test.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:original-route-caller-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/original_container_route_test.py RouteControls.test_actual_default_entry_semantic_policy_precedes_foreign_hold_and_effects"
+run_in = "host"

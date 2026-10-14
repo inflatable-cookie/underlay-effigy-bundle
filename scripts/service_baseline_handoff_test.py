@@ -51,7 +51,7 @@ class HandoffControls(RouteControls):
             self.assertEqual(host.read_private(self.receipts/'pending.json',self.receipts)['action'],'pending')
             self.assertEqual(argv[-1],'acme-api/test');self.assertEqual(kw['timeout'],900)
             events.append('test');return SimpleNamespace(returncode=0)
-        fake=SimpleNamespace(require_effigy_binary=lambda:'/qualified/effigy',RUNTIME=SimpleNamespace(run=action))
+        fake=SimpleNamespace(require_effigy_binary=lambda **kw:'/qualified/effigy',RUNTIME=SimpleNamespace(run=action))
         with patch.object(wrapper,'load_qualifier',return_value=fake),patch.object(wrapper,'ListenerObserver',HostObserver),patch.dict(os.environ,self.env,clear=True),patch.object(sys,'argv',['wrapper',str(self.checkout),str(self.receipts)]):
             self.assertEqual(wrapper.main(),0)
         events.append('launcher-down')

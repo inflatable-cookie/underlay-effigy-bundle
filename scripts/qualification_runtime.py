@@ -14,9 +14,10 @@ SUPPORTED_EFFIGY_SOURCE = "bd2597693f7c4c9ad786896a9448a7e746ff13a8"
 SUPPORTED_EFFIGY_SHA256 = "2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59"
 
 
-def require_effigy_binary() -> str:
-    binary_value = os.environ.get("UNDERLAY_PROFILE_EFFIGY_BIN")
-    source_value = os.environ.get("UNDERLAY_PROFILE_EFFIGY_SOURCE")
+def require_effigy_binary(*, env=None) -> str:
+    caller = os.environ if env is None else env
+    binary_value = caller.get("UNDERLAY_PROFILE_EFFIGY_BIN")
+    source_value = caller.get("UNDERLAY_PROFILE_EFFIGY_SOURCE")
     if not binary_value or not source_value:
         raise RuntimeError(
             "set UNDERLAY_PROFILE_EFFIGY_BIN and UNDERLAY_PROFILE_EFFIGY_SOURCE "
@@ -30,14 +31,14 @@ def require_effigy_binary() -> str:
     source_root = subprocess.run(
         ["git", "-C", str(source), "rev-parse", "--show-toplevel"],
         check=True,
-        capture_output=True,
+        capture_output=True, env=env,
         text=True,
         timeout=10,
     ).stdout.strip()
     revision = subprocess.run(
         ["git", "-C", str(source), "rev-parse", "HEAD"],
         check=True,
-        capture_output=True,
+        capture_output=True, env=env,
         text=True,
         timeout=10,
     ).stdout.strip()
@@ -50,14 +51,14 @@ def require_effigy_binary() -> str:
 
     from dev.profile_launcher import SUPPORTED_TREE, SUPPORTED_API
     tree = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD^{tree}"],
-                          check=True, capture_output=True, text=True, timeout=10).stdout.strip()
+                          check=True, capture_output=True, env=env, text=True, timeout=10).stdout.strip()
     if tree != SUPPORTED_TREE or any(hashlib.sha256((source/name).read_bytes()).hexdigest() != digest
                                      for name,digest in SUPPORTED_API.items()):
         raise RuntimeError("qualified Effigy source tree/public API differs")
     cleanliness = subprocess.run(
         ["git", "-C", str(source), "status", "--porcelain"],
         check=True,
-        capture_output=True,
+        capture_output=True, env=env,
         text=True,
         timeout=10,
     ).stdout.strip()
@@ -74,7 +75,7 @@ def require_effigy_binary() -> str:
     version = subprocess.run(
         [str(binary), "--version"],
         check=True,
-        capture_output=True,
+        capture_output=True, env=env,
         text=True,
         timeout=10,
     ).stdout.strip()

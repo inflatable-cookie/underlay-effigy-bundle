@@ -333,8 +333,9 @@ project without host ports. Cleanup requires original full IDs and creation
 records to be absent, with foreign records unchanged. The new source requires
 fresh runtime acceptance; the prepared controls do not provide that acceptance.
 
-The qualification entry points currently pass their inherited process environment
-into fresh-backend admission. Any inherited backend or SSH transport override,
-even an empty value, refuses before private backend roots are prepared. A caller
-must supply an explicitly isolated environment; admission does not alter the
-operator's environment or settings.
+Qualification constructs a separate private child environment before fresh-root
+admission. It excludes inherited backend-routing and SSH context classes, retains
+only declared host tool/platform and invocation inputs, then assigns new owned
+roots. The ambient operator environment is unchanged. Explicit overrides added
+after construction still refuse, and the ready wrapper checks the original root
+context instead of rebuilding or stripping it.

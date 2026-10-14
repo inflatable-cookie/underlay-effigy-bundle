@@ -1534,10 +1534,20 @@ services, the unique complete project/service inventory can be compared without
 inventing those labels. This uses the original fresh-root creation and route
 association, and does not establish arbitrary external checkout ownership.
 
-Qualification caller admission also requires an explicitly isolated inherited
-environment. The current entry points forward their process environment into
-the guard, so ambient SSH transport entries refuse before private root creation,
-just as Docker, containerd, nerdctl, Lima, Colima and XDG overrides do. This is a
-caller input boundary, not a demonstrated backend or bounded-exec defect. The
-operator's environment remains untouched. A failed admission supplies no service
-cleanup, VM settlement or runtime acceptance credit.
+Qualification caller admission uses one shared constructor before either fresh
+backend is admitted. It creates a new dictionary, excludes inherited Docker,
+containerd, nerdctl, Lima, Colima, SSH and XDG routing/context classes, and retains
+only the declared host tool/platform/cache and invocation inputs. HOME and
+controller roots are assigned from the new creator after exclusion. Product
+secrets still come from the private fixture vault and rendered declarations;
+no credentials or environment values enter receipts. Receipts contain closed
+class counts, exclusion/assignment booleans and constructor source identity.
+
+The operator and reporting process environment remains unchanged. The constructor
+is not invoked again after ownership or baseline admission. FreshBackend keeps
+its strict explicit-override guard. The ready wrapper validates inherited private
+HOME/Colima/Lima inputs and refuses new SSH or route overrides before dispatch.
+Shared Reference helper calls receive the same private environment even when a
+call omits its explicit env argument; they do not fall back to operator ambient
+state. This invocation isolation does not grant guest boot, VM signal, remote
+cancellation or cleanup authority.

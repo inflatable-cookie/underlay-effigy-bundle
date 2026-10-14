@@ -56,9 +56,12 @@ def main():
     info=root.stat()
     if info.st_uid!=os.geteuid() or info.st_mode&0o777!=0o700:
         raise cleanup.CleanupUnknown('receipt_root')
-    q=load_qualifier();q.EFFIGY=q.require_effigy_binary();env=dict(os.environ)
-    observer=ListenerObserver(q,checkout,env)
+    env=dict(os.environ)
     association,_=services.read(root/'association.json',root)
+    from private_caller_environment import verify_context
+    verify_context(env,association['context'])
+    q=load_qualifier();q.EFFIGY=q.require_effigy_binary(env=env)
+    observer=ListenerObserver(q,checkout,env)
     fixture=Path(association['context']['cwd'])
     reader,service_baseline=services.capture_ready(root,fixture,env)
     first_capture=True

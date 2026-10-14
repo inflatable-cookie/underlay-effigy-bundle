@@ -16,6 +16,7 @@ from pathlib import Path
 from qualification_runtime import require_effigy_binary
 import container_identity_observer
 from fresh_backend_admission import FreshBackend, selected_tools
+from private_caller_environment import construct as private_environment
 from foreign_container_fixture import ForeignFixture
 
 
@@ -100,12 +101,15 @@ def independently_observe_container_down(effigy, checkout, runtime_env, receipts
 
 
 def main() -> int:
-    effigy = require_effigy_binary()
+    private_env,private_env_receipt=private_environment(os.environ)
+    REFERENCE.PRIVATE_CHILD_ENV=private_env
+    RUNTIME.REFERENCE.PRIVATE_CHILD_ENV=private_env
+    effigy = require_effigy_binary(env=private_env)
     REFERENCE.EFFIGY = effigy
     reference_source = REFERENCE.reference_source()
     fixture_root = RUNTIME.mktemp_root()
     print(f"PRIVATE REFERENCE DEFAULT-CONTAINER ROOT: {fixture_root}", flush=True)
-    backend_admission=FreshBackend(fixture_root,os.environ)
+    backend_admission=FreshBackend(fixture_root,private_env)
     backend_admission.bind_tools(*selected_tools())
     backend_admission.require_read_contract()
     private_home=backend_admission.paths['HOME']
@@ -120,6 +124,8 @@ def main() -> int:
         "EFFIGY_GATEWAY_PRIVATE_STATE_ROOT": str(gateway_root),
         "UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT": str(fixture_root),
     })
+    REFERENCE.PRIVATE_CHILD_ENV=runtime_env
+    RUNTIME.REFERENCE.PRIVATE_CHILD_ENV=runtime_env
     runtime_env.pop("DOCKER_HOST", None)
     runtime_env.pop("DOCKER_CONTEXT", None)
     receipts: dict[str, object] = {
@@ -130,10 +136,11 @@ def main() -> int:
             capture_output=True, text=True, check=True,
         ).stdout.strip(),
         "fixture_root": str(fixture_root),
+        "private_caller_environment":private_env_receipt,
         "container_up": None,
         "cleanup": [],
         "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
-                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py")},
+                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py")},
     }
     checkout: Path | None = None
     gateway_attempted = False

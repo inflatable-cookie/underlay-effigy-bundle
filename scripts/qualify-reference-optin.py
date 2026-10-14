@@ -49,6 +49,7 @@ import listener_snapshot  # noqa: E402
 import transition_snapshot
 import qualification_cleanup
 from fresh_backend_admission import FreshBackend, selected_tools
+from private_caller_environment import construct as private_environment
 import container_identity_observer
 from qualification_cleanup_action import ListenerObserver
 import pending_start_identity  # noqa: E402
@@ -2048,7 +2049,10 @@ def _verify_stopped(checkout: Path, states: dict[str, dict], env: dict[str, str]
 
 def main() -> int:
     global EFFIGY, ACTIVE_DIAGNOSTICS
-    EFFIGY = require_effigy_binary()
+    private_env,private_env_receipt=private_environment(os.environ)
+    REFERENCE.PRIVATE_CHILD_ENV=private_env
+    RUNTIME.REFERENCE.PRIVATE_CHILD_ENV=private_env
+    EFFIGY = require_effigy_binary(env=private_env)
     REFERENCE.EFFIGY = EFFIGY
     RUNTIME.EFFIGY = EFFIGY
     RUNTIME.REFERENCE.EFFIGY = EFFIGY
@@ -2091,7 +2095,7 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py")},
                            effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",
@@ -2101,7 +2105,7 @@ def main() -> int:
                                          else "storage_only" if storage_only else "full_runtime"))
         if retained_inputs is not None:
             diagnostics.append("retained_acceptance_input_match", result=retained_inputs)
-    backend_admission=FreshBackend(fixture_root,os.environ)
+    backend_admission=FreshBackend(fixture_root,private_env)
     backend_admission.bind_tools(*selected_tools())
     backend_admission.require_read_contract()
     private_home=backend_admission.paths['HOME']
@@ -2121,6 +2125,9 @@ def main() -> int:
     runtime_env["RUSTUP_HOME"] = runtime_env.get("RUSTUP_HOME") or str(Path(real_home) / ".rustup")
     runtime_env["CARGO_HOME"] = str(private_cargo_home)
     runtime_env["CARGO_TARGET_DIR"] = str(private_cargo_target)
+    REFERENCE.PRIVATE_CHILD_ENV=runtime_env
+    RUNTIME.REFERENCE.PRIVATE_CHILD_ENV=runtime_env
+    diagnostics.append("private_caller_environment",environment=private_env_receipt)
     reference_root = private_home / "reference"
     reference_root.mkdir(mode=0o700)
     checkouts = REFERENCE.make_reference_instances(source, reference_root)

@@ -34,6 +34,7 @@ from listener_snapshot import observed, read_document, old_states
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_REFERENCE = Path.home() / "Dev" / "projects" / "underlay-reference"
 EFFIGY: str | None = None
+PRIVATE_CHILD_ENV: dict[str,str] | None = None
 LAST_API_RESTART_DIAGNOSTIC: dict = {}
 EXPECTED_ADAPTERS = {
     "acme-api/api": ["cargo", "run", "-p", "acme-api"],
@@ -51,6 +52,7 @@ def run(
     expected: int = 0,
     show_output: bool = True,
 ) -> subprocess.CompletedProcess[str]:
+    if env is None and PRIVATE_CHILD_ENV is not None:env=dict(PRIVATE_CHILD_ENV)
     print(f"COMMAND: {' '.join(args)}", flush=True)
     result = subprocess.run(
         args,
@@ -385,7 +387,7 @@ def initialize_reference_fixture_secrets(checkouts: list[Path], env: dict[str, s
         initialized.append({"checkout": str(checkout), "vault_mode": "0600",
                             "passphrase_recorded": False, "secret_values_recorded": False})
     for checkout in checkouts:
-        doctor = effigy_json(checkout, "secrets", "doctor", "--json")
+        doctor = effigy_json(checkout, "secrets", "doctor", "--json",env=env)
         if not doctor.get("ok"):
             error = doctor.get("error") or {}
             message = error.get("message") if isinstance(error, dict) else None
