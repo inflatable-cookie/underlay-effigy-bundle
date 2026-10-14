@@ -1304,3 +1304,38 @@ HTTP deadline before retaining bytes; inability to establish that bound stops
 acquisition without a tag fallback or engine inspection. Any later source
 admission still provides semantics only, not evidence of the failed execution
 or permission to change the native login-shell behavior.
+
+### Artifact acquisition helper qualification boundary
+
+The artifact-only acquisition prototype isolates each public
+HTTP transport operation in a newly forked, gated session. A parent monotonic
+deadline covers blocking calls and pipe collection; tokens cross inherited
+memory rather than argv, environment or files. The proposed unchanged limits
+are 30 seconds per HTTP operation, 300 seconds per acquisition, 256 MiB total
+download and 1 MiB metadata. Metadata decoding and descriptor verification check
+the original deadline before acceptance. Ordered layer inspection retains files
+in memory and never extracts or executes image bytes; it refuses traversal,
+hardlinks, escaping symlinks, unsupported members and malformed whiteouts.
+Additional inspection limits are 512 MiB uncompressed, 100,000 members and
+128 MiB per regular member. These source limits are not a completed admission
+proof.
+
+Hermetic pipe controls exposed an unresolved refusal/settlement boundary: both
+direct flood and cumulative-cap overflow returned `group_unknown`, rather than
+the expected primary `capture` classification. The parent replaces the original
+refusal when its unreaped child session/group is unobservable at cancellation.
+It does not signal an unknown group. The returned class does not distinguish
+primary capture failure from subsequent settlement uncertainty, and does not
+establish child/group absence. The combined flood/final-emission control stopped
+at its flood assertion, leaving that final-emission path unqualified. This is
+a helper/control counterexample, not registry, image or native runtime evidence.
+Mandatory acquisition controls have therefore not passed; neither the helper
+nor its artifact selector is qualified for network admission.
+
+The smallest next source scope is to preserve the primary refusal separately
+from settlement observations, determine supported direct-child reap behavior
+without guessing signal authority, and complete the failed overflow and
+unreached final-emission controls. Unknown ownership must still hold and never
+permit a success return. No artifact operation follows a failed mandatory gate.
+Image shell/login source remains unadmitted, and generic native refusal evidence
+plus a separately selected runtime continuation remain distinct prerequisites.
