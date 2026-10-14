@@ -1163,3 +1163,39 @@ sticky across best-effort logging; selectors and final receipt publication check
 it before further credit. Reserved bytes admit the closed refusal/aggregate
 record without raising the cap. Source controls do not establish the remaining
 three-instance/application/lifecycle/default-container acceptance.
+
+### Accepted auth boundary and native bootstrap refusal
+
+With the corrected decoder and writer checks, actual registration and login
+returned valid sessions at 7,694 ms and 8,309 ms under the unchanged 20-second
+policy. Registration's post snapshot took 1 ms with login instrumentation
+explicitly not applicable. Login's post snapshot took under 1 ms, parsed all 26
+source-supported observations, retained the last 16 with ten declared omissions,
+and observed verification, join and handler success. Main media initiation,
+presigned upload, server-digest finalisation, signed read and delete passed.
+These observations provide functional evidence, not a latency maximum or a
+historical CPU/load explanation.
+
+The second worktree's exported `dev:hybrid` returned one during Silo bootstrap.
+Its `silo_client` routing-environment guard produced a complete host capture
+(exit one, 1,163 stdout bytes, zero stderr), containing native bounded failure
+`deadline` at phase `command_execution`. The existing native allowance was
+8,000 ms, with 65,536 stdout and 16,384 stderr limits. Native failure deliberately
+omits command bytes, so guard predicates/inner command output are unavailable;
+no prefix is accepted and remote cancellation is unproven. This is a concrete
+finite bootstrap refusal, not evidence of a crypto, recipe, host-load or generic
+Effigy defect. The corresponding `silo` guard had completed; the client guard
+refusal remains unresolved and does not authorize a larger timer or replay.
+
+The full diagnostic journal remained within 128 KiB: 174 records and 112,461
+bytes. It declared twelve byte-equivalent listener and twelve transition
+observations omitted across 24 distinct source payloads, with no cache authority
+or capacity refusal. Main and first worktree had advanced through their profile
+checks; complete nine-listener acceptance was not established for the second.
+All three new scoped downs returned zero, but independent exact
+child/group/socket/route absence and foreign preservation were not proved.
+VM/images/volumes remain held. Restart, interruption, collision/uncertainty,
+independent teardown, dev:test and default Silo container acceptance remain
+unqualified on these inputs. Further source/receipt diagnosis must preserve the
+native bounded failure and unknown command evidence before any new execution
+selection; no post-effect source correction or timer change supplies acceptance.
