@@ -25,6 +25,9 @@ class ContextDiagnosticTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch.object(profiles, "_silo_journal", return_value=Mock()).start()
         patch.object(profiles, "_status_source", side_effect=lambda repo,status,container: status).start()
+        patch.object(profiles, "_inventory_identity", return_value={"status_contract":{}}).start()
+        patch.object(profiles.port_inventory, "compose_identity").start()
+        patch.object(profiles, "_resolved_service_ports", return_value={(n,t):t+10000 for n,ts in profiles.port_inventory.PROFILE_TARGETS.items() for t in ts}).start()
 
     def tearDown(self):
         profiles._CONTEXT_ACTION = False
@@ -43,9 +46,9 @@ class ContextDiagnosticTests(unittest.TestCase):
 
     def test_injected_gateway_and_port_failures_identify_suboperation(self):
         for phase, operation, target in [("gateway-status", "gateway.status", "_gateway_json"),
-                                          ("service-port", "postgres", "_service_port")]:
+                                          ("service-port", "inventory", "_resolved_service_ports")]:
             with self.subTest(phase=phase), patch.object(profiles, "_json_command", return_value={}), \
-                 patch.object(profiles, "_compose_loopback_port_bindings", return_value=[]), \
+                 patch.object(profiles, "_compose_loopback_port_bindings", return_value=unittest.mock.Mock(raw=b"fixture")), \
                  patch.object(profiles, "_gateway_json", return_value={}), \
                  patch.object(profiles, "_gateway_https_port", return_value=8443), \
                  patch.object(profiles, target, side_effect=profiles.ProfileError("binding conflict SEEDED_CREDENTIAL")):
@@ -74,6 +77,9 @@ class ProfileAdmissionTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch.object(profiles, "_silo_journal", return_value=Mock()).start()
         patch.object(profiles, "_status_source", side_effect=lambda repo,status,container: status).start()
+        patch.object(profiles, "_inventory_identity", return_value={"status_contract":{}}).start()
+        patch.object(profiles.port_inventory, "compose_identity").start()
+        patch.object(profiles, "_resolved_service_ports", return_value={(n,t):t+10000 for n,ts in profiles.port_inventory.PROFILE_TARGETS.items() for t in ts}).start()
 
     def test_reviewed_source_pin_refuses_historical_capability(self):
         self.assertEqual(profiles.SUPPORTED_SOURCE, "77d22adcbdbca20752720d6671310f13894d219f")
@@ -99,77 +105,6 @@ class ProfileAdmissionTests(unittest.TestCase):
             encoding="utf-8",
         )
         return {"compose_file": str(compose.relative_to(repo))}
-
-    def test_service_port_resolves_loopback_compose_port_before_status_rows(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
-            repo = Path(temporary).resolve()
-            status = self._write_compose_ports(repo, "127.0.0.1:65432:5432")
-            status.update({"services": [], "ports": []})
-            self.assertEqual(profiles._service_port(status, "postgres", 5432, repo), 65432)
-
-    def test_service_port_uses_compose_when_status_row_has_no_port_mapping(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
-            repo = Path(temporary).resolve()
-            status = self._write_compose_ports(repo, "127.0.0.1:65432:5432")
-            status.update({"services": [{"name": "postgres", "ports": []}], "ports": []})
-            self.assertEqual(profiles._service_port(status, "postgres", 5432, repo), 65432)
-
-    def test_service_port_confirms_live_mapping_against_compose(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
-            repo = Path(temporary).resolve()
-            status = self._write_compose_ports(repo, "127.0.0.1:65432:5432")
-            status.update({
-                "services": [{"name": "postgres", "ports": ["127.0.0.1:65432->5432/tcp"]}],
-                "ports": ["65432:5432"],
-            })
-            self.assertEqual(profiles._service_port(status, "postgres", 5432, repo), 65432)
-
-    def test_explicit_live_loopback_service_mapping_survives_stale_compose_file(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
-            repo = Path(temporary).resolve()
-            status = self._write_compose_ports(repo, "127.0.0.1:65432:5432")
-            status.update({
-                "services": [{"name": "postgres", "ports": ["127.0.0.1:65433->5432/tcp"]}],
-                "ports": ["65433:5432"],
-            })
-            self.assertEqual(profiles._service_port(status, "postgres", 5432, repo), 65433)
-
-    def test_explicit_live_loopback_mapping_must_match_status_allocation(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
-            repo = Path(temporary).resolve()
-            status = self._write_compose_ports(repo, "127.0.0.1:65432:5432")
-            status.update({
-                "services": [{"name": "postgres", "ports": ["127.0.0.1:65433->5432/tcp"]}],
-                "ports": ["65434:5432"],
-            })
-            with self.assertRaisesRegex(profiles.ProfileError, "conflicts with its status allocation"):
-                profiles._service_port(status, "postgres", 5432, repo)
-
-    def test_service_port_refuses_ambiguous_or_public_allocations(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
-            repo = Path(temporary).resolve()
-            status = self._write_compose_ports(repo, "127.0.0.1:65432:5432")
-            status.update({"services": [], "ports": ["65432:5432", "65433:5432"]})
-            with self.assertRaisesRegex(profiles.ProfileError, "unambiguous loopback"):
-                profiles._service_port(status, "postgres", 5432, repo)
-
-        with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
-            repo = Path(temporary).resolve()
-            status = self._write_compose_ports(repo, "0.0.0.0:65432:5432")
-            status.update({"services": [], "ports": ["65432:5432"]})
-            with self.assertRaisesRegex(profiles.ProfileError, "unambiguous loopback"):
-                profiles._service_port(status, "postgres", 5432, repo)
-
-    def test_service_port_rejects_public_live_mapping(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="underlay-profile-admission-") as temporary:
-            repo = Path(temporary).resolve()
-            status = self._write_compose_ports(repo, "127.0.0.1:65432:5432")
-            status.update({
-                "services": [{"name": "postgres", "ports": ["0.0.0.0:65432->5432/tcp"]}],
-                "ports": ["65432:5432"],
-            })
-            with self.assertRaisesRegex(profiles.ProfileError, "non-loopback"):
-                profiles._service_port(status, "postgres", 5432, repo)
 
     def test_json_command_removes_effigy_header_suppression(self) -> None:
         identity = profiles.BinaryIdentity("/qualified/source", "/qualified/effigy", "hash", 1, 2, 3, 4)
@@ -209,7 +144,7 @@ class ProfileAdmissionTests(unittest.TestCase):
             for name in ("api", "front", "admin")
         ]}
         order: list[str] = []
-        binding_snapshot = [("postgres", 65432, 5432)]
+        binding_snapshot = unittest.mock.Mock(raw=b"fixture")
 
         def json_command(_identity, _repo, _env, *args):
             if args == ("container", "hybrid_services", "status"):
@@ -236,7 +171,7 @@ class ProfileAdmissionTests(unittest.TestCase):
                     "private": True, "running": True, "https_addr": "127.0.0.1:44321",
                 }), \
                 patch.object(profiles, "_compose_loopback_port_bindings", side_effect=compose_bindings), \
-                patch.object(profiles, "_service_port", side_effect=service_port):
+                patch.object(profiles, "_resolved_service_ports", return_value={(n,t):t+10000 for n,ts in profiles.port_inventory.PROFILE_TARGETS.items() for t in ts}):
             context = profiles.profile_context(identity, repo, env, "hybrid_services")
 
         self.assertEqual(context["routes"], names)
@@ -760,180 +695,7 @@ raise AssertionError("negative accepted")
 
 
 
-class ServicePortEvidenceTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix='underlay-port-evidence-')
-        self.addCleanup(self.temporary.cleanup)
-        self.repo = Path(self.temporary.name).resolve() / 'primary'
-        self.repo.mkdir()
-        self.path = self.repo / '.effigy/runtime/compose/.effigy-compose.generated.yml'
-        self.path.parent.mkdir(parents=True)
-        self.seed = 'SEEDED_CREDENTIAL_ENV_ARGV_PRIVATE'
-        self.compose('mailpit', ['127.0.0.1:22125:1025'])
-        self.journal = profiles._silo_journal(self.repo,'hybrid_services','service-port-context.jsonl')
-        self.token = profiles._PORT_EVIDENCE.set(self.journal)
-        self.addCleanup(profiles._PORT_EVIDENCE.reset,self.token)
-        self.status = {'schema':'effigy.container.status.v1','schema_version':1,'ok':True,
-                       'container':'hybrid_services','project_name':'private-primary',
-                       'compose_file':str(self.path.relative_to(self.repo)),
-                       'ports':['22125:1025'], 'services':[{'name':'mailpit','ports':['22125->1025/tcp']}],
-                       'compose_ps':self.seed}
-
-    def compose(self, service, mappings):
-        self.path.write_text('services:\n  '+service+':\n    ports:\n'+''.join('    - '+m+'\n' for m in mappings))
-
-    def rows(self):
-        p=self.repo/'.effigy/runtime/dev-profiles/hybrid_services/service-port-context.jsonl'
-        text=p.read_text();self.assertNotIn(self.seed,text);self.assertEqual(stat.S_IMODE(p.stat().st_mode),0o600)
-        return [json.loads(l) for l in text.splitlines()]
-
-    def port(self, status=None):
-        status=profiles._status_source(self.repo,status or self.status,'hybrid_services')
-        bindings=profiles._compose_loopback_port_bindings(self.repo,status)
-        return profiles._service_port(status,'mailpit',1025,self.repo,compose_bindings=bindings)
-
-    def test_old_tcp_credit_counterexamples_are_now_strict_refusals(self):
-        import ast, re, copy
-        original=subprocess.run(['git','show','72266da3b94f71b554c1250243e9fcfb5fb5086b:scripts/dev/profile_launcher.py'],
-                                capture_output=True,text=True,check=True,timeout=10).stdout
-        tree=ast.parse(original);node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_service_port')
-        namespace={'Path':Path,'re':re,'ProfileError':profiles.ProfileError,
-                   '_compose_loopback_port_bindings':profiles._compose_loopback_port_bindings}
-        exec(compile(ast.Module(body=[node],type_ignores=[]),'historical-validator','exec'),namespace)
-        for mapping in ('127.0.0.1:22125->1025/udp','127.0.0.1:22125-22126->1025-1026/tcp'):
-            status=copy.deepcopy(self.status);status['services'][0]['ports']=[mapping]
-            self.assertEqual(namespace['_service_port'](status,'mailpit',1025,self.repo),22125)
-            with self.assertRaises(profiles.ProfileError):self.port(status)
-        status=copy.deepcopy(self.status);status['services'][0]['ports']=['127.0.0.1:65536->1025/tcp'];status['ports']=['65536:1025']
-        self.assertEqual(namespace['_service_port'](status,'mailpit',1025,self.repo),65536)
-        with self.assertRaises(profiles.ProfileError):self.port(status)
-        # This is a controlled validator counterexample, never historical runtime attribution.
-
-    def test_finite_capture_records_refusal_before_payload_decode(self):
-        backend=self.repo/'bad-backend'
-        backend.write_text('#!/usr/bin/env python3\nimport sys\nsys.stdout.write('+repr(self.seed)+'*20000)\n');backend.chmod(0o700)
-        identity=profiles.BinaryIdentity(str(self.repo),str(backend),'fixture',1,2,3,4)
-        with patch.object(profiles,'verify_unchanged'),self.assertRaises(profiles.ProfileError):
-            profiles._json_command(identity,self.repo,{},'container','hybrid_services','status')
-        rows=self.rows();capture=[r for r in rows if r['event']=='service_status_capture'][-1]
-        self.assertEqual(capture['outcome'],'truncated')
-        self.assertEqual(rows[-1]['reason'],'status_capture_unavailable')
-        backend.write_text('#!/usr/bin/env python3\nprint('+repr('{"schema":"effigy.command.v1","schema_version":1,"ok":true,"ok":false}')+')\n')
-        with patch.object(profiles,'verify_unchanged'),self.assertRaises(profiles.ProfileError):
-            profiles._json_command(identity,self.repo,{},'container','hybrid_services','status')
-        self.assertEqual(self.rows()[-1]['reason'],'status_envelope_unavailable')
-        with patch.object(profiles,'verify_unchanged',side_effect=profiles.ProfileError(self.seed)),self.assertRaises(profiles.ProfileError):
-            profiles._json_command(identity,self.repo,{},'container','hybrid_services','status')
-        self.assertEqual(self.rows()[-1]['outcome'],'source_refused')
-        with patch.object(profiles,'verify_unchanged'),patch.object(profiles.silo_client,'bounded_run',side_effect=OSError(self.seed)),self.assertRaises(profiles.ProfileError):
-            profiles._json_command(identity,self.repo,{},'container','hybrid_services','status')
-        self.assertEqual(self.rows()[-2]['outcome'],'capture_unavailable')
-
-    def test_stable_primary_and_worktree_read_privacy_and_no_atomicity(self):
-        for name in ('primary','worktree'):
-            self.assertEqual(self.port(),22125)
-            rows=self.rows();source=[r for r in rows if r['event']=='compose_source_consumed'][-1]
-            self.assertTrue(source['unchanged_during_read']);self.assertFalse(source['atomic_association'])
-            self.assertEqual(source['sha256'],__import__('hashlib').sha256(self.path.read_bytes()).hexdigest())
-            if name=='primary':
-                self.repo=self.repo.parent/'worktree';self.repo.mkdir()
-                self.path=self.repo/'.effigy/runtime/compose/.effigy-compose.generated.yml';self.path.parent.mkdir(parents=True)
-                self.compose('mailpit',['127.0.0.1:22125:1025'])
-                self.journal=profiles._silo_journal(self.repo,'hybrid_services','service-port-context.jsonl')
-                profiles._PORT_EVIDENCE.set(self.journal)
-                self.status['compose_file']=str(self.path.relative_to(self.repo));self.status['project_name']='private-worktree'
-
-    def test_false_predicates_refuse_with_closed_evidence_before_raise(self):
-        import copy
-        cases=[('mapping', ['0.0.0.0:22125->1025/tcp']),('udp',['127.0.0.1:22125->1025/udp']),
-               ('grouped',['127.0.0.1:22125-22126->1025-1026/tcp']),
-               ('ambiguous',['22125->1025/tcp','22126->1025/tcp'])]
-        for name,ports in cases:
-            s=copy.deepcopy(self.status);s['services'][0]['ports']=ports
-            with self.subTest(name=name),self.assertRaises(profiles.ProfileError):self.port(s)
-            self.assertEqual(self.rows()[-1]['event'],'service_port_refusal')
-        for allocations in (['22126:1025'],['22125:1025','22125:1025'],['0.0.0.0:22125:1025'],['22125:1025/udp']):
-            s=copy.deepcopy(self.status);s['ports']=allocations
-            with self.assertRaises(profiles.ProfileError):self.port(s)
-            self.assertEqual(self.rows()[-1]['event'],'service_port_refusal')
-        for service,mappings in [('foreign',['127.0.0.1:22125:1025']),('mailpit',[]),
-                                 ('mailpit',['127.0.0.1:22125:1025','127.0.0.1:22125:1025']),
-                                 ('mailpit',['127.0.0.1:22126:1025']),('mailpit',['127.0.0.1:22125:1025/udp'])]:
-            self.compose(service,mappings)
-            with self.assertRaises(profiles.ProfileError):self.port()
-            self.assertEqual(self.rows()[-1]['event'],'service_port_refusal')
-        self.compose('mailpit',['127.0.0.1:22125:1025'])
-        s=copy.deepcopy(self.status);s['services']*=2
-        with self.assertRaises(profiles.ProfileError):self.port(s)
-
-    def test_exposure_has_no_host_credit_and_unknown_identity_refuses(self):
-        import copy
-        s=copy.deepcopy(self.status);s['services'][0]['ports']=['1025/tcp','22125->1025/tcp']
-        self.assertEqual(self.port(s),22125)
-        self.assertTrue(any(r['event']=='service_port_exposure' and r['host_credit'] is False for r in self.rows()))
-        for key,value in [('schema_version',True),('services',self.seed),('ports',{}),('schema',self.seed),('container','disposable_test'),('project_name',''),('project_name',self.seed+'/foreign')]:
-            s=copy.deepcopy(self.status);s[key]=value
-            with self.assertRaises(profiles.ProfileError):self.port(s)
-            self.assertEqual(self.rows()[-1]['reason'],'status_identity_or_routing_unavailable')
-
-    def test_changed_before_and_during_read_and_missing_sources_refuse(self):
-        s=profiles._status_source(self.repo,self.status,'hybrid_services')
-        self.compose('mailpit',['127.0.0.1:22126:1025'])
-        with self.assertRaises(profiles.ProfileError):profiles._compose_loopback_port_bindings(self.repo,s)
-        self.assertEqual(self.rows()[-2]['reason'],'source_changed_before_read')
-        self.compose('mailpit',['127.0.0.1:22125:1025'])
-        s=profiles._status_source(self.repo,self.status,'hybrid_services')
-        original=profiles.os.fdopen
-        owner=self
-        class Stream:
-            def __init__(self,raw):self.raw=raw
-            def __enter__(self):return self
-            def __exit__(self,*args):self.raw.close()
-            def fileno(self):return self.raw.fileno()
-            def read(self,n):
-                result=self.raw.read(n);owner.compose('mailpit',['127.0.0.1:22126:1025']);return result
-        with patch.object(profiles.os,'fdopen',side_effect=lambda *a,**kw:Stream(original(*a,**kw))),self.assertRaises(profiles.ProfileError):
-            profiles._compose_loopback_port_bindings(self.repo,s)
-        self.assertEqual(self.rows()[-1]['reason'],'source_changed_during_read')
-        self.path.unlink()
-        with self.assertRaises(profiles.ProfileError):self.port()
-        self.compose('mailpit',['127.0.0.1:22125:1025'])
-        with patch.object(profiles.os,'open',side_effect=PermissionError(self.seed)):
-            # Use a memory-only sink so injected unreadability cannot obstruct its own evidence write.
-            captured=[];t=profiles._PORT_EVIDENCE.set(type('Sink',(),{'append':lambda self,event,**k:captured.append((event,k))})())
-            try:
-                with self.assertRaises(profiles.ProfileError):self.port()
-            finally:profiles._PORT_EVIDENCE.reset(t)
-        self.assertIn('source_unreadable',str(captured));self.assertNotIn(self.seed,str(captured))
-
-    def test_foreign_path_symlink_hardlink_and_oversize_never_grant_source(self):
-        import copy
-        s=copy.deepcopy(self.status);s['compose_file']=str(self.repo.parent/'foreign.yml')
-        with self.assertRaises(profiles.ProfileError):self.port(s)
-        sibling=self.repo/'owned-copy.yml';sibling.write_bytes(self.path.read_bytes());self.path.unlink();self.path.symlink_to(sibling)
-        with self.assertRaises(profiles.ProfileError):self.port()
-        self.path.unlink();os.link(sibling,self.path)
-        with self.assertRaises(profiles.ProfileError):self.port()
-        self.path.unlink();self.path.write_bytes(b'x'*131073)
-        with self.assertRaises(profiles.ProfileError):self.port()
-
-    def test_production_context_real_finite_status_capture_fails_before_gateway(self):
-        # Genuine reviewed envelope/status field shapes, with the external backend replaced by a local executable.
-        backend=self.repo/'backend';payload={'schema':'effigy.command.v1','schema_version':1,'ok':True,'result':self.status}
-        backend.write_text('#!/usr/bin/env python3\nimport sys\nprint('+repr(json.dumps(payload))+')\n');backend.chmod(0o700)
-        identity=profiles.BinaryIdentity(str(self.repo),str(backend),'fixture',1,2,3,4)
-        self.path.write_text('services:\n  postgres:\n    ports:\n    - 127.0.0.1:25432:5432\n  mailpit:\n    ports:\n    - 127.0.0.1:22126:1025\n')
-        with patch.object(profiles,'verify_unchanged'),patch.object(profiles,'_gateway_json',return_value={'https_addr':'127.0.0.1:44321'}):
-            with self.assertRaises(profiles.ProfileError):
-                profiles.profile_context(identity,self.repo,{'EFFIGY_GATEWAY_PRIVATE_STATE_ROOT':'private'},'hybrid_services')
-        rows=self.rows();self.assertTrue(any(r['event']=='service_status_capture' for r in rows))
-        self.assertTrue(any(r['event']=='compose_source_consumed' for r in rows))
-        # Consume native status in the same production helper but stop on source routing mismatch before any gateway call.
-        payload['result']['container']='foreign';backend.write_text('#!/usr/bin/env python3\nprint('+repr(json.dumps(payload))+')\n')
-        with patch.object(profiles,'verify_unchanged'),patch.object(profiles,'_gateway_json',side_effect=AssertionError('unexpected gateway')):
-            with self.assertRaises(profiles.ProfileError):profiles.profile_context(identity,self.repo,{'EFFIGY_GATEWAY_PRIVATE_STATE_ROOT':'private'},'hybrid_services')
-        self.assertEqual(self.rows()[-1]['reason'],'status_identity_or_routing_unavailable')
-
+from port_inventory_test import InventoryTests, NativeInventoryTests, SnapshotTests
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

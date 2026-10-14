@@ -249,13 +249,13 @@ class ReferenceTaskCwdTests(unittest.TestCase):
 class DiagnosticRecipeMatchTests(unittest.TestCase):
     def test_only_diagnostics_can_differ_from_retained_success_recipe(self):
         import subprocess
-        for relative in ("scripts/dev/profile_launcher.py", "scripts/dev/managed-vite-listener.mjs"):
+        for relative in ("scripts/dev/profile_launcher.py", "scripts/dev/managed-vite-listener.mjs", "scripts/dev/port_inventory.py"):
             with self.subTest(path=relative):
                 current = (optin.ROOT / relative).read_text()
                 baseline = subprocess.check_output(
-                    ["git", "-C", str(optin.ROOT), "show", f"{optin.RETAINED_LIFECYCLE_HEAD}:{relative}"], text=True)
+                    ["git", "-C", str(optin.ROOT), "show", f"{optin.RETAINED_LIFECYCLE_HEAD}:{relative}"], text=True, stderr=subprocess.DEVNULL) if not relative.endswith("port_inventory.py") else ""
                 self.assertEqual(optin.diagnostic_only_recipe_matches(relative, current, baseline), relative.endswith(".mjs"))
-                changed = current.replace('timeout: 300_000', 'timeout: 900_000') if relative.endswith('.mjs') else current.replace('timeout: int = 180', 'timeout: int = 900')
+                changed = (current+'\n# changed shared inventory input\n') if relative.endswith('port_inventory.py') else current.replace('timeout: 300_000', 'timeout: 900_000') if relative.endswith('.mjs') else current.replace('timeout: int = 180', 'timeout: int = 900')
                 self.assertNotEqual(changed, current)
                 self.assertFalse(optin.diagnostic_only_recipe_matches(relative, changed, baseline))
 

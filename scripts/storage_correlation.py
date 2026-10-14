@@ -107,112 +107,42 @@ def input_fingerprint(value):
     return {'input_type':kind,'input_bytes':len(raw),'input_sha256':hashlib.sha256(raw).hexdigest()}
 
 
-def port_facts(value):
-    import ipaddress
-    facts=input_fingerprint(value)
-    if not isinstance(value,str):return {**facts,'class':'wrong_type'}
-    if len(value.encode())>128:return {**facts,'class':'oversized'}
-    exposed=re.fullmatch(r'([0-9]{1,5})/(tcp|udp|sctp)',value)
-    published=re.fullmatch(r'(\[[0-9a-fA-F:]+\]|[0-9.]+):([0-9]{1,5})->([0-9]{1,5})/(tcp|udp|sctp)',value)
-    if exposed:
-        target=int(exposed[1])
-        if not 1<=target<=65535 or str(target)!=exposed[1]:return {**facts,'class':'malformed_numeric'}
-        return {**facts,'class':'exposed_only','target':target,'protocol':exposed[2]}
-    if published:
-        try: address=ipaddress.ip_address(published[1].strip('[]'))
-        except ValueError:return {**facts,'class':'malformed_address'}
-        host,target=int(published[2]),int(published[3])
-        if not (1<=host<=65535 and 1<=target<=65535 and str(host)==published[2] and str(target)==published[3]):return {**facts,'class':'malformed_numeric'}
-        kind='loopback_exact' if str(address)=='127.0.0.1' else 'wildcard' if address.is_unspecified else 'other_loopback' if address.is_loopback else 'foreign'
-        return {**facts,'class':'published','host_port':host,'target':target,'protocol':published[4],'address_kind':kind}
-    grouped=re.fullmatch(r'(127\.0\.0\.1:)?([0-9]{1,5})(?:-([0-9]{1,5}))?->([0-9]{1,5})(?:-([0-9]{1,5}))?(/tcp)?',value)
-    if grouped:
-        return {**facts,'class':'grouped_numeric_fragment','loopback_prefix_present':bool(grouped[1]),
-                'host_start':int(grouped[2]),'host_end':int(grouped[3] or grouped[2]),
-                'target_start':int(grouped[4]),'target_end':int(grouped[5] or grouped[4]),
-                'tcp_suffix_present':bool(grouped[6])}
-    if re.fullmatch(r'[0-9a-fA-F:.\[\]>/tcpudsh-]{1,128}',value) and '-' in value:
-        return {**facts,'class':'range_or_malformed'}
-    return {**facts,'class':'unknown'}
-
-
-MAX_PUBLISHED_MAPPINGS = 16
-
-
-def grouped_published(tokens, service, bindings):
-    """Decode only source-qualified 2.3.1 grouping; declarations cap expansion."""
-    if (not isinstance(bindings,list) or len(bindings)>MAX_PUBLISHED_MAPPINGS
-            or any(not isinstance(item,tuple) or len(item)!=3 or item[0] not in ('silo','silo_client')
-                   or type(item[1]) is not int or type(item[2]) is not int
-                   or not 1<=item[1]<=65535 or not 1<=item[2]<=65535 for item in bindings)
-            or len({h for n,h,t in bindings}) != len(bindings)):
-        raise ValueError('live_compose_disagreement')
-    expected = {(h,t) for n,h,t in bindings if n == service}
-    result=[]; group=[]; seen=set()
-    for token in tokens:
-        facts=port_facts(token)
-        if facts['input_sha256'] in seen:raise ValueError('live_port_duplicate')
-        seen.add(facts['input_sha256'])
-        if facts['class']=='exposed_only':
-            if group or facts['protocol']!='tcp' or facts['target'] not in {t for h,t in expected}:
-                raise ValueError('unexpected_exposed_port')
-            continue
-        if not isinstance(token,str) or len(token.encode())>128:
-            raise ValueError('live_port_representation_unknown')
-        # Only exact loopback can establish group context. No context is inferred
-        # from a later fragment, exposure, or independent declaration.
-        match=re.fullmatch(r'(127\.0\.0\.1:)?([1-9][0-9]{0,4})(?:-([1-9][0-9]{0,4}))?->([1-9][0-9]{0,4})(?:-([1-9][0-9]{0,4}))?(/tcp)?',token)
-        if not match or bool(match[1]) == bool(group) or (match[1] and result):
-            raise ValueError('live_port_representation_unknown')
-        hs,he,ts,te=int(match[2]),int(match[3] or match[2]),int(match[4]),int(match[5] or match[4])
-        if (any(v>65535 for v in (hs,he,ts,te)) or he<hs or te<ts or he-hs!=te-ts
-                or bool(match[3])!=bool(match[5]) or (match[3] and he==hs)
-                or he-hs+1>len(expected) or len(result)+len(group)+he-hs+1>len(expected)):
-            raise ValueError('live_port_invalid')
-        expanded=[(h,ts+h-hs) for h in range(hs,he+1)]
-        if any(item not in expected for item in expanded):raise ValueError('live_compose_disagreement')
-        if group and (hs<=group[-1][0] or (hs==group[-1][0]+1 and ts==group[-1][1]+1)):
-            # The source sorts and would compress adjacent equalspan segments.
-            raise ValueError('live_port_invalid')
-        group.extend(expanded)
-        if match[6]:
-            result.extend(group);group=[]
-    if group:raise ValueError('live_port_representation_unknown')
-    if len(set(result))!=len(result):raise ValueError('live_port_duplicate')
-    return [(service,h,t) for h,t in result]
+from dev.port_inventory import port_facts, grouped_published, MAX_PUBLISHED_MAPPINGS
 
 
 def native_identity_observation(value):
-    result={'evidence':'current_input_before_validation','root_type':input_fingerprint(value)['input_type'],'fields':[],'ownership_credit':False}
+    result={'evidence':'current_input_before_validation','root_type':input_fingerprint(value)['input_type'], 'payload':input_fingerprint(value),'fields':[],'ownership_credit':False}
     if isinstance(value,dict):
         for field in ('schema','schema_version','ok','checkout','scope','routes','selected_value','project_name','compose_file','ports','container','primary_service','driver','manifest_driver','backend','profile','runtime_running'):
-            if field in value:result['fields'].append({'field':field,**input_fingerprint(value[field])})
+            if field in value:result['fields'].append({'field':field,'type':input_fingerprint(value[field])['input_type']})
     return result
 
 
 def native_status_observation(status):
     result={'evidence':'current_input_before_validation','root_type':input_fingerprint(status)['input_type'],
-            'fields':[],'rows':[],'projection_truncated':False,'ownership_credit':False}
+            'payload':input_fingerprint(status),'fields':[],'rows':[],'projection_truncated':False,'ownership_credit':False}
     if not isinstance(status,dict):return result
     for field in ('schema','schema_version','ok','container','driver','manifest_driver','backend','profile','project_name','primary_service','runtime_running'):
-        result['fields'].append({'field':field,'present':field in status,**input_fingerprint(status.get(field))})
-    rows=status.get('services');result['service_inventory']=input_fingerprint(rows)
+        result['fields'].append({'field':field,'present':field in status,'type':input_fingerprint(status.get(field))['input_type']})
+    rows=status.get('services');result['service_inventory_type']=input_fingerprint(rows)['input_type']
     if not isinstance(rows,list):return result
     result['row_count']=len(rows);result['projection_truncated']=len(rows)>16
     for index,row in enumerate(rows[:16]):
         projection={'index':index,'service':'unknown','fields':[],'ports':[]}
         if not isinstance(row,dict):
-            projection['row']=input_fingerprint(row);result['rows'].append(projection);continue
+            projection['row_type']=input_fingerprint(row)['input_type'];result['rows'].append(projection);continue
         if row.get('name') in ('silo','silo_client'):projection['service']=row['name']
         for field in ('name','container_name','status','ports'):
-            projection['fields'].append({'field':field,'present':field in row,**input_fingerprint(row.get(field))})
+            projection['fields'].append({'field':field,'present':field in row,'type':input_fingerprint(row.get(field))['input_type']})
         # Unknown key names are never printed either.
         projection['extra_field_count']=len(set(row)-{'name','container_name','status','ports'})
         ports=row.get('ports')
         if isinstance(ports,list):
             projection['port_count']=len(ports)
             if len(ports)>64:result['projection_truncated']=True
-            projection['ports']=[{'index':i,**port_facts(token)} for i,token in enumerate(ports[:64])]
+            projection['port_classes']={}
+            for token in ports[:64]:
+                kind=port_facts(token)['class'];projection['port_classes'][kind]=projection['port_classes'].get(kind,0)+1
         result['rows'].append(projection)
     return result
 
@@ -235,18 +165,12 @@ def status_projection(status, identity, bindings, after_down=False, diagnostics=
         return {'available':True,'service_count':0}
     if len(rows) != 2 or any(not isinstance(r,dict) or not isinstance(r.get('name'),str) for r in rows) or {r['name'] for r in rows} != {'silo','silo_client'}:
         raise ValueError('status_service_ambiguity')
-    names=[]; published=[]
-    for row in rows:
-        if set(row) != {'name','container_name','status','ports'} or not running(row['status']):
-            raise ValueError('status_not_running')
-        name=row['container_name']
-        if not isinstance(name,str) or not 0 < len(name.encode()) <= 256:
-            raise ValueError('status_container_unknown')
-        names.append(name)
-        if not isinstance(row['ports'],list): raise ValueError('status_ports_unknown')
-        published.extend(grouped_published(row['ports'],row['name'],bindings))
-    if len(set(names)) != 2 or len(set(published)) != len(published) or sorted(published) != sorted(bindings):
-        raise ValueError('live_compose_disagreement')
+    from dev.port_inventory import admit_inventory
+    targets={'silo':tuple(sorted(t for n,h,t in bindings if n=='silo')), 'silo_client':()}
+    if not targets['silo'] or 9000 not in targets['silo'] or any(t not in (9000,9001) for t in targets['silo']):raise ValueError('live_compose_disagreement')
+    admit_inventory(status,bindings,targets)
+    published=bindings
+    names=[row['container_name'] for row in rows]
     api=[h for name,h,t in published if name=='silo' and t==9000]
     if len(api)!=1: raise ValueError('live_api_port_ambiguity')
     return {'project':identity['project'],'port':api[0],
@@ -342,49 +266,13 @@ def scope_identity(report, checkout, fixture, expected_kind, revision, policy, d
             raise ValueError('worktree_git_identity_mismatch')
     else:
         raise ValueError('unsupported_fixture_kind')
-    if (not isinstance(report, dict) or report.get('schema') != 'effigy.container.scope.v1'
-            or report.get('schema_version') != 1 or report.get('ok') is not True
-            or report.get('checkout') != str(checkout)):
-        raise ValueError('scope_contract_mismatch')
-    scope = report.get('scope')
-    if not isinstance(scope, dict) or scope.get('kind') != expected_kind or 'token' not in scope:
-        raise ValueError('scope_kind_mismatch')
-    token = scope['token']
-    if expected_kind == 'none':
-        if token is not None: raise ValueError('primary_token_mismatch')
-        project = policy['project_name']
-    else:
-        if not isinstance(token, str) or not re.fullmatch(r'[a-f0-9]{32}', token):
-            raise ValueError('scoped_token_missing')
-        project = policy['project_name'] + '-wt-' + token[:12]
-    if policy.get('share_runtime_identity', False) is not False:
-        raise ValueError('shared_identity_forbidden')
-    return {'checkout':str(checkout), 'kind':expected_kind, 'token':token,
-            'project':project, 'reference_source':revision}
+    from dev.port_inventory import checkout_identity
+    selected = checkout_identity(report,checkout,policy)
+    if selected['kind'] != expected_kind:raise ValueError('scope_kind_mismatch')
+    return {**selected, 'reference_source':revision}
 
 
-def compose_identity(raw, status, identity, diagnostics=None):
-    if diagnostics is not None:diagnostics.append("compose_identity_input", input_bytes=len(raw),input_sha256=hashlib.sha256(raw).hexdigest(),status=native_identity_observation(status),ownership_credit=False)
-    """Strict branch-specific labels; observations confer no cleanup authority."""
-    try:
-        text = raw.decode('utf-8')
-    except UnicodeDecodeError:
-        raise ValueError('malformed_compose_encoding') from None
-    projects = re.findall(r'(?m)^\s*com\.effigy\.project:\s*([a-z0-9-]+)\s*$', text)
-    scopes = re.findall(r'(?m)^\s*com\.effigy\.scope:\s*([a-f0-9]{32})\s*$', text)
-    if (len(projects) != text.count('com.effigy.project') or not projects
-            or set(projects) != {identity['project']} or status.get('project_name') != identity['project']):
-        raise ValueError('project_label_mismatch')
-    if identity['kind'] == 'none':
-        if identity['token'] is not None or text.count('com.effigy.scope'):
-            raise ValueError('primary_foreign_scope_label')
-    elif identity['kind'] == 'worktree':
-        if (not scopes or len(scopes) != text.count('com.effigy.scope')
-                or set(scopes) != {identity['token']}):
-            raise ValueError('scoped_label_mismatch')
-    else:
-        raise ValueError('unknown_identity_kind')
-    return {'project':identity['project'], 'scope_kind':identity['kind'], 'scope':identity['token']}
+from dev.port_inventory import compose_identity
 
 
 def hosts_projection(hosts, checkout, identity=None, diagnostics=None):

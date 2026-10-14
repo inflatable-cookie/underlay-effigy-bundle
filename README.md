@@ -168,15 +168,17 @@ The current API assignment was received correctly. The diagnostic is
 used in that check were not retained. No port-parser repair, timeout increase,
 Compose race or native child-exit defect is established by that evidence.
 
-Production context validation now records bounded status capture and Compose
-file identity/digest/read timing, selected-container and project-shape evidence,
-and mapping/allocation/declaration agreement before port refusal. Missing,
-unsafe or observed changed snapshots refuse. The private mode0600 journal
-retains fixed reasons/counts/digests/booleans, never raw ports, native output,
-config, environment or arguments. UDP and unsupported grouped target mappings
-receive no TCP host credit. These controlled source counterexamples do not
-explain the historical SMTP refusal. Status-to-Compose atomicity remains
-unproven; changes before the first file observation cannot be excluded.
+Production context admits the complete six-target hybrid/test service inventory
+through an exported shared decoder. Canonical nerdctl grouped/range mappings,
+including Silo 9000–9001, pass only with complete live/Compose/declaration tuple
+equality and checkout/project association. Exposure, unknown/foreign/duplicate
+bindings, unsupported entries and missing/changed source refuse across the
+whole inventory. No explicit-live bypass or declaration-only fallback remains.
+All ports resolve before later host renders. The private mode0600 journal retains
+fixed reasons/counts/full-payload digests, never raw ports, token hashes,
+configuration, environment or arguments. Stable reads do not prove atomic
+status association. Source controls do not explain historical missing tokens or
+certify fresh runtime/cleanup acceptance.
 
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
@@ -250,9 +252,3 @@ The bundle declares the shared Underlay runtime secret contract, including:
 - `auth_google_client_secret`
 
 App-specific secrets should stay in the consuming repo.
-
-The finite context evidence can distinguish a Silo target-format refusal from
-SMTP disagreement: `unsupported_target_mapping` with a recognized-binding count
-of zero refuses before API listener publication. Stable Compose reads do not
-prove atomic status association, and an unsupported format requires exact
-source controls before a correction; no declaration-only fallback is admitted.

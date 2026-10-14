@@ -302,7 +302,7 @@ def main():
             if not compose.is_absolute(): compose = checkout / compose
             compose = compose.resolve(strict=True)
             compose.relative_to(checkout.resolve())
-            bindings = DEV._compose_loopback_port_bindings(checkout, status)
+            bindings = DEV._compose_loopback_port_bindings(checkout, status, targets=DEV.port_inventory.STORAGE_TARGETS)
             matches = [port for service, port, target in bindings if service == 'silo' and target == 9000]
             if len(matches) != 1: raise RuntimeError('ambiguous Silo loopback map')
             identity = identities[checkout]

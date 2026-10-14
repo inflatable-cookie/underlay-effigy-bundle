@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 
 root = Path(__file__).resolve().parents[1]
-for relative in ("scripts/dev/profile_launcher.py", "scripts/dev/silo_client.py", "scripts/dev/storage_launcher.py", "scripts/dev/silo_bootstrap_test.py", "scripts/dev/profile_admission_test.py",
+for relative in ("scripts/dev/profile_launcher.py", "scripts/dev/port_inventory.py", "scripts/dev/port_inventory_test.py", "scripts/dev/silo_client.py", "scripts/dev/storage_launcher.py", "scripts/dev/silo_bootstrap_test.py", "scripts/dev/profile_admission_test.py",
                  "scripts/qualify-dev-profiles.py", "scripts/qualify-profile-preconditions.py", "scripts/qualify-reference-container.py", "scripts/qualify-reference-optin.py", "scripts/qualify-reference-runtime.py", "scripts/qualify-reference-profiles.py",
                  "scripts/pending_start_identity.py", "scripts/qualification/managed-listener-probe.py",
                  "scripts/listener_snapshot.py", "scripts/transition_snapshot.py", "scripts/qualification_runtime.py", "scripts/reference_lifecycle_test.py",

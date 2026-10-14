@@ -846,59 +846,69 @@ demonstrated counterexample; a generic capability proposal belongs to the
 Effigy owner only if the supported source surface cannot provide the needed
 association. This diagnosis grants no runtime retry or cleanup authority.
 
-The production context now appends source-owned `service-port-context.jsonl`
-evidence in its selected profile directory. The journal is caller-owned mode
-0600, no-follow, single-link and bounded to 128KiB. It contains only fixed
-event/reason names, service/target names from the shared contract, counts,
-agreement booleans, file identity/read timing and content digests. Native status
-capture is finite and retained privately in memory; no raw status/Compose,
-port lists, arbitrary errors, arguments, environments or credentials are copied.
+Production service ports are admitted by the exported sibling asset
+`scripts/dev/port_inventory.py`. Rust's direct `profile_context`, Vite's bounded
+context subprocess, profile environment generation and launcher start/context
+receipts use that shared path. Qualification imports production; production
+never imports qualification. Storage correlation uses the same grouped grammar,
+scope/project comparison and captured Compose reader with its separate Silo
+policy. Default/container bootstrap has a separate policy and does not acquire
+the six-target profile requirement.
 
-The status report must match the reviewed schema/version, selected container,
-project token shape and bounded service/port field shapes. The project digest
-identifies the report's declaration; it is not an independent project or owner
-attestation. Compose paths must stay inside the checkout without symlink
-components, with caller ownership, one link, regular-file type and a 128KiB
-read ceiling. Metadata observed after status is compared before opening and
-after the bounded read, including the current pathname identity. Missing,
-unreadable, unsafe or observed changed source produces a closed refusal before
-any binding credit. Accepted cached bindings refer to the consumed bytes,
-not whatever a later host-inventory render writes to that pathname.
+Hybrid and disposable-test context require exactly PostgreSQL 5432, Mailpit
+1025/8025, Silo 9000/9001 and DbGate 3000, plus the known portless Silo client.
+The decoder reconstructs nerdctl 2.3.1's sorted group context: an exact loopback
+address opens a group and TCP closes it. Canonical paired equal-span ranges
+expand only within the existing 16-mapping bound. A fully corroborated Silo
+9000–9001 range is supported. Exposure-only tokens confer zero host credit;
+unknown/foreign services, addresses, protocols, duplicate tokens/tuples,
+dangling groups, mergeable adjacency, reversed/overlapping/unequal ranges,
+noncanonical or out-of-range numbers and extra/missing bindings refuse anywhere
+in the complete inventory, including outside the requested target.
 
-Port evidence distinguishes unrecognized/nonloopback mapping, ambiguous
-published ports/service rows, allocation disagreement, unconfirmed declaration,
-and missing/ambiguous/foreign target binding. Exposure-only mappings give no
-host credit. Controlled genuine-format inputs demonstrate that the preceding
-validator credited a UDP mapping or ignored an unsupported grouped target and
-fell back to a declaration as though it proved TCP. Those inputs now refuse,
-as do out-of-range published ports and relevant public/unknown allocation tuples.
-The out-of-range case is also demonstrated against the preceding validator.
-Exact positive loopback and
-allocation/declaration checks remain; no permissive format fallback or retry
-was introduced. These are source counterexamples, not reconstruction of the
-historical SMTP input or proof of its cause.
+The entire live service tuple inventory must equal the entire admitted Compose
+inventory. `status.ports` is a second declaration view, not independent live
+allocation attestation; it must be complete, parseable and equal as well.
+Duplicates are checked before set comparisons. Explicit live mappings do not
+bypass Compose equality, and declaration-only/empty-live fallback is removed.
+The generated service and short-port-list schema refuses unsupported entries
+instead of skipping them. The selected policy and native checkout scope are
+compared with the local Git primary/worktree kind and project/scope labels;
+primary has no scope token/label and may omit service project labels,
+while its generated volume project labels and native declaration still agree;
+worktree service labels carry the supported native token and project. These comparisons grant no process, listener or cleanup authority.
 
-An actual exported-profile context can also refuse the Silo API target before
-any host application listener is published. The retained finite evidence shows
-one relevant target-9000 mapping, zero recognized bindings and
-`mapping_format_supported=false`, followed by `unsupported_target_mapping`.
-PostgreSQL and both Mailpit targets had passed their allocation and declaration
-checks in that context. The consumed Compose read had matching initial identity
-and unchanged descriptor/pathname identity across the read. This localizes the
-refusal to the supported mapping predicate; it does not establish a snapshot
-race, a native ownership defect or the exact rejected mapping bytes. The raw
-failure-time native mapping is deliberately not persisted by this evidence
-contract. A correction requires a separately scoped source control against the
-reviewed formatter's exact relevant published-target form, with independent
-full loopback TCP allocation/Compose equality. Declaration fallback alone,
-relaxed SMTP checks and runtime retries provide no acceptance credit.
+All six ports resolve once from the captured status/Compose pair before later
+host inventory calls can render another composition. Missing or unreadable
+source always refuses, independently of journal availability. The caller-owned
+mode0600/no-follow/single-link/128KiB journal retains fixed reasons, complete
+payload/source digests, file identity/read timing, equality booleans and safe
+counts/class histograms, never raw native output, ports, token hashes,
+configuration, arguments, environments or credentials. Source paths remain
+inside the selected checkout, without symlink components, with one link and
+caller ownership. Initial metadata and bounded descriptor/pathname reads must
+agree. Cached bindings refer only to those consumed bytes.
 
-The reviewed native serializer supplies no status-to-Compose generation token;
-its renderer can rewrite a shared generated pathname. These observations do
-not prove atomicity or exclude replacement between native status production
-and the first file identity observation, nor same-identity changes outside the
-captured interval. Runtime acceptance remains incomplete and all previous
-resources remain held. Further execution requires separately bound authority.
+The reviewed native serializer supplies no status-to-Compose generation token.
+The shared renderer can rewrite its pathname; read stability does not establish
+atomic association or exclude replacement before the first observation or
+same-identity changes outside the captured interval. The bounded filesystem
+reader does not claim cancellation of a synchronous filesystem operation.
+`atomic_association=false` remains explicit.
+
+Source controls check the maintained formatter goldens/digest and a source-derived
+Go model, then execute the actual qualified native parser/serializer against a
+private finite fake backend. Primary and two real disposable worktrees exercise
+hybrid/test whole production context, Rust environment propagation and the
+actual Vite bounded context-CLI subprocess/JSON decode expressions. Gateway/routes are controlled inputs, not live-service evidence. The
+reviewed startup path completes Compose up/readiness and primary-service exec
+readiness before starting managed host processes; context still refuses any
+incomplete service inventory without polling or fallback. Core gateway and port
+recovery parser behavior is separately owned and does not authorize bundle
+cleanup or a generic prerequisite. Historical SMTP and Silo failure-time tokens
+remain unavailable: these source corrections do not reconstruct their causes.
+Changed admission inputs invalidate retained lifecycle reuse and require fresh,
+separately authorized runtime acceptance; source controls do not certify it.
 
 All three scoped downs returned zero. Independent exact child/group/socket/
 route absence was not established, so cleanup remains unverified and VM/images/

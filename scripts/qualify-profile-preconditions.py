@@ -61,6 +61,15 @@ def rendered_launcher_controls(checkout, base_env, tasks, launcher, emit):
     for task,profile in (('dev:hybrid','hybrid'),('dev:test','disposable_test')):
         declaration=tasks.get(task)
         if not isinstance(declaration,dict) or not isinstance(declaration.get('env'),dict):raise ValueError('launcher_task_schema_refused')
+        import shlex
+        command=declaration.get('run')
+        if not isinstance(command,str):raise ValueError('launcher_asset_command_unavailable')
+        words=shlex.split(command)
+        if len(words)<2 or Path(words[1]).name!='profile_launcher.py':raise ValueError('launcher_asset_command_unavailable')
+        asset=Path(words[1]).parent/'port_inventory.py'
+        current=Path(__file__).parent/'dev/port_inventory.py'
+        if not asset.is_file() or hashlib.sha256(asset.read_bytes()).digest()!=hashlib.sha256(current.read_bytes()).digest():raise ValueError('port_inventory_asset_mismatch')
+        emit({'task':task,'exported_port_inventory_asset':True,'port_inventory_sha256':hashlib.sha256(asset.read_bytes()).hexdigest()})
         env={**base_env,**declaration['env']}
         container=launcher.PROFILE_CONTAINERS[profile][0]
         journal_path=checkout/'.effigy/runtime/dev-profiles'/container/'silo-bootstrap.jsonl'
@@ -138,7 +147,8 @@ def main():
             if index:
                 if not {'hybrid_services','disposable_test'}<=set(containers):raise ValueError('optin_composition_unavailable')
             elif {'hybrid_services','disposable_test'}&set(containers):raise ValueError('default_composition_changed')
-            receipt['assemblies'].append({'checkout':str(checkout),'profile':'default' if not index else 'explicit_optin','container_names':sorted(set(containers)&{'default','stack','hybrid_services','disposable_test'}),'unknown_container_count':len(set(containers)-{'default','stack','hybrid_services','disposable_test'}),'exported_silo_client_asset':(Path(__file__).parent/'dev/silo_client.py').is_file()})
+            receipt['assemblies'].append({'checkout':str(checkout),'profile':'default' if not index else 'explicit_optin','container_names':sorted(set(containers)&{'default','stack','hybrid_services','disposable_test'}),'unknown_container_count':len(set(containers)-{'default','stack','hybrid_services','disposable_test'}),'exported_silo_client_asset':(Path(__file__).parent/'dev/silo_client.py').is_file(),'exported_port_inventory_asset':(Path(__file__).parent/'dev/port_inventory.py').is_file()})
+        if not all(a['exported_port_inventory_asset'] for a in receipt['assemblies']):raise ValueError('port_inventory_asset_missing')
         from dev import profile_launcher as launcher
         from silo_fixture import IMAGE, CLIENT_IMAGE
         for checkout in checkouts:

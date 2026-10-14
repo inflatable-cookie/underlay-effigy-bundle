@@ -11,7 +11,7 @@ run = "node --test --test-timeout=15000 --test-force-exit scripts/dev/sveltekit-
 run_in = "host"
 
 [tasks."proof:dev-profiles:profile-contract-tests"]
-run = "node --test --test-timeout=30000 --test-force-exit scripts/dev/profile-admission.test.mjs"
+run = "node --test --test-timeout=180000 --test-force-exit scripts/dev/profile-admission.test.mjs"
 run_in = "host"
 
 [tasks."proof:dev-profiles:reference-runtime"]

@@ -145,6 +145,8 @@ def diagnostic_only_recipe_matches(path: str, current: str, baseline: str) -> bo
             '    throw new Error(`qualified profile context lookup failed (status ${contextResult.status ?? "spawn"})`);\n'
             '  }\n  const context = JSON.parse(contextResult.stdout);', 1)
         return current == baseline
+    if path.endswith("port_inventory.py"):
+        return current == baseline
     if not path.endswith("profile_launcher.py"):
         return False
     current = re.sub(r"(?m)^([ ]*)# BEGIN nested context diagnostic\n.*?^\1# END nested context diagnostic\n", "", current, flags=re.DOTALL)
@@ -215,7 +217,7 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
 
     reference_source_commit = subprocess.run(
         ["git", "-C", str(source), "rev-parse", "HEAD"],
-        check=True, capture_output=True, text=True, timeout=15,
+        check=False, capture_output=True, text=True, timeout=15,
     ).stdout.strip()
     if (reference_source_commit != "fa6a5e89ad83db460a5506b7fa3f915fa767d72a"
             or prior.get("reference_source_commit") != reference_source_commit
@@ -297,7 +299,11 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
         current_digest, _ = _retained_file_sha256(path, RETAINED_LIFECYCLE_HEAD)
         file_hashes[path] = current_digest
     diagnostic_recipe_hashes = {}
-    for path in ("scripts/dev/managed-vite-listener.mjs", "scripts/dev/profile_launcher.py"):
+    # Whole inventory admission changes the success recipe, not only diagnostics.
+    # The shared module did not exist at the retained lifecycle proof head.
+    if (ROOT / "scripts/dev/port_inventory.py").is_file():
+        raise RuntimeError("shared port inventory admission changed; retained lifecycle proof cannot be reused")
+    for path in ("scripts/dev/managed-vite-listener.mjs", "scripts/dev/profile_launcher.py", "scripts/dev/port_inventory.py"):
         current = (ROOT / path).read_text(encoding="utf-8")
         baseline = subprocess.run(
             ["git", "-C", str(ROOT), "show", f"{RETAINED_LIFECYCLE_HEAD}:{path}"],

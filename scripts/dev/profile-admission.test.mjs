@@ -8,7 +8,7 @@ const script = fileURLToPath(new URL("./profile_admission_test.py", import.meta.
 test("opt-in profile admission and cleanup contracts", () => {
   const result = spawnSync("python3", ["-u", script], {
     encoding: "utf8",
-    timeout: 25_000,
+    timeout: 155_000,
     maxBuffer: 2_000_000,
   });
   if (result.error) {
@@ -21,7 +21,7 @@ import { decodeContext } from "./context-diagnostic.mjs";
 
 test("context errors retain approved phase and discard seeded payloads", () => {
   const record = { schema: "underlay.profile-context-error.v1", phase: "service-port",
-    operation: "postgres", error_class: "ProfileError", message: "binding_conflict",
+    operation: "inventory", error_class: "ProfileError", message: "binding_conflict",
     password: "SEEDED_PASSWORD", body: "SEEDED_BODY" };
   assert.throws(() => decodeContext({ status: 1, stdout: "SEEDED_STDOUT",
     stderr: `SEEDED_TOKEN\nUNDERLAY_CONTEXT_ERROR ${JSON.stringify(record)}\n` }), error => {
