@@ -2073,7 +2073,7 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py")},
                            effigy_source="77d22adcbdbca20752720d6671310f13894d219f",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938",

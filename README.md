@@ -149,8 +149,10 @@ The disposable-test qualification wrapper now captures exact owned listener
 identities before its single configured action returns, then independently checks
 child/group/socket/route absence and unchanged sibling identities. This is source
 and hermetic-control preparation; fresh runtime proof remains required.
-Default-container cleanup stays unverified until a supported bounded immutable
-container-ID observation is qualified. Partial host absence cannot pass the
+A qualification-only direct-Lima reader now implements bounded full-ID/creation
+and Compose-label observation with independent post-down foreign preservation.
+Default-container cleanup stays unverified until original private backend
+routing/boot/mount inputs are admitted and fresh runtime observation qualifies. Partial host absence cannot pass the
 whole-product cleanup gate, and no VM/image/volume retirement is inferred.
 
 

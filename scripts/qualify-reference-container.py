@@ -14,6 +14,7 @@ import traceback
 from pathlib import Path
 
 from qualification_runtime import require_effigy_binary
+import container_identity_observer
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -30,8 +31,8 @@ RUNTIME_SPEC.loader.exec_module(RUNTIME)
 
 
 def run(args: list[str], *, env: dict[str, str], cwd: Path | None = None,
-        timeout: int = 900, expected: int = 0, output: bool = False) -> subprocess.CompletedProcess[str]:
-    print(f"COMMAND: {' '.join(args)}", flush=True)
+        timeout: int = 900, expected: int = 0, output: bool = False, private: bool = False) -> subprocess.CompletedProcess[str]:
+    if not private:print(f"COMMAND: {' '.join(args)}", flush=True)
     result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True,
                             timeout=timeout, check=False)
     print(f"EXIT: {result.returncode}", flush=True)
@@ -43,6 +44,7 @@ def run(args: list[str], *, env: dict[str, str], cwd: Path | None = None,
     else:
         print(f"OUTPUT: captured stdout={len(result.stdout)} bytes stderr={len(result.stderr)} bytes", flush=True)
     if result.returncode != expected:
+        if private:raise RuntimeError("native_command_nonzero")
         detail = RUNTIME.safe_effigy_error(result.stdout) or RUNTIME.safe_effigy_error(result.stderr)
         raise RuntimeError(f"expected exit {expected}, got {result.returncode}: {' '.join(args)}"
                            + (f"; {detail}" if detail else ""))
@@ -50,11 +52,12 @@ def run(args: list[str], *, env: dict[str, str], cwd: Path | None = None,
 
 
 def effigy_json(binary: str, checkout: Path, env: dict[str, str], *args: str,
-                timeout: int = 180) -> dict:
+                timeout: int = 180, private: bool = False) -> dict:
     result = run([binary, "--repo", str(checkout), *args], cwd=checkout,
-                 env=env, timeout=timeout)
+                 env=env, timeout=timeout, private=private)
     envelope = json.loads(result.stdout)
     if envelope.get("ok") is not True:
+        if private:raise RuntimeError("native_envelope_refused")
         detail = REFERENCE.safe_effigy_error(result.stdout)
         raise RuntimeError(f"Effigy command returned a negative result for {' '.join(args)}"
                            + (f": {detail}" if detail else ""))
@@ -73,6 +76,28 @@ def gateway_json(binary: str, env: dict[str, str], gateway_root: Path, *args: st
 def services_up(status: dict) -> dict[str, str]:
     return {str(item.get("name")): str(item.get("status"))
             for item in status.get("services", []) if isinstance(item, dict)}
+
+
+def independently_observe_container_down(effigy, checkout, runtime_env, receipts, observer):
+    # A reader is supplied only after original new-backend/boot/mounted-cwd/Compose
+    # inputs are independently admitted. No late inventory or environment fallback.
+    if not isinstance(observer, container_identity_observer.Observer):
+        receipts.append({"container_cleanup_verified":False,
+                         "reason":"original_backend_routing_admission_required"})
+        return False
+    if observer.fixture!=Path(runtime_env["UNDERLAY_PROFILE_REFERENCE_FIXTURE_ROOT"]).resolve(strict=True):
+        raise container_identity_observer.Refusal("caller_fixture_mismatch")
+    scopes=observer.context['scopes']
+    if len(scopes)!=1 or scopes[0]['checkout']!=str(checkout.resolve(strict=True)):
+        raise container_identity_observer.Refusal("caller_scope_mismatch")
+    before=observer.baseline()
+    receipts.append({"container_baseline_observed":True,"binding_sha256":before['binding'],
+                     "owned_count":len(before['owned']),"foreign_count":len(before['foreign'])})
+    try:effigy_json(effigy, checkout, runtime_env, "container", "down", "--json", timeout=600,private=True)
+    except Exception:raise container_identity_observer.Refusal("scoped_down_unavailable") from None
+    proof=observer.after(before)
+    receipts.append(proof)
+    return proof['container_cleanup_verified']
 
 
 def main() -> int:
@@ -107,12 +132,15 @@ def main() -> int:
         "fixture_root": str(fixture_root),
         "container_up": None,
         "cleanup": [],
+        "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
+                                  for name in ("container_identity_observer.py","qualify-reference-container.py")},
     }
     checkout: Path | None = None
     gateway_attempted = False
     profile_started = False
     stack_attempted = False
     cleanup_verified = False
+    cleanup_observer = None  # Qualified original root/boot/mount/routing receipt is mandatory.
     failure: str | None = None
     try:
         occupied = RUNTIME.fixed_default_ports_available()
@@ -250,27 +278,17 @@ def main() -> int:
         failure = type(error).__name__
         print(f"REFERENCE DEFAULT-CONTAINER QUALIFICATION BLOCKED: {failure}", flush=True)
     finally:
-        # The admitted status.v1 surface has names/status/ports but no full immutable
-        # IDs or independently bounded absence observation. Preserve uncertainty before down.
-        receipts["cleanup_baseline"] = {"status": "unavailable",
-            "reason": "immutable_container_identity_surface_unqualified",
-            "independent_absence_verified": False}
+        cleanup_verified=False
         if checkout is not None and stack_attempted:
             try:
-                down = effigy_json(effigy, checkout, runtime_env, "container", "down", "--json", timeout=600)
-                status = effigy_json(effigy, checkout, runtime_env, "container", "status", "--json", timeout=180)
-                active = [name for name, value in services_up(status).items() if value.lower() == "up"]
-                receipts["cleanup"].append({
-                    "container_down": down,
-                    "services_up_after_down": active,
-                    "retirement_proven": False,
-                    "retirement_verified": False,
-                })
-                if active:
-                    raise RuntimeError("private default container stack scoped shutdown is uncertain")
-            except Exception as error:
-                receipts["cleanup"].append({"container_cleanup_error": type(error).__name__})
-        cleanup_verified = False  # down success and empty inventories are not identity evidence.
+                cleanup_verified=independently_observe_container_down(
+                    effigy,checkout,runtime_env,receipts['cleanup'],cleanup_observer)
+            except container_identity_observer.Refusal as error:
+                receipts['cleanup'].append({"container_cleanup_verified":False,
+                    "reason":str(error),"capture":getattr(error,'evidence',None)})
+            except Exception:
+                receipts['cleanup'].append({"container_cleanup_verified":False,
+                    "reason":"independent_cleanup_observation_unavailable"})
         if profile_started and checkout is not None:
             try:
                 inventory_result = json.loads(run(

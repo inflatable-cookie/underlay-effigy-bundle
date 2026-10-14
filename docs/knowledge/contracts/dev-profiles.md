@@ -1319,16 +1319,56 @@ empty inventories and stopped/failed state labels supply no absence proof.
 These helpers are qualification assets, not exported product hooks or another
 supervisor. Their source hashes accompany fresh qualification inputs.
 
-The default-container qualifier now always withholds `cleanup_verified` on the
-currently admitted observation surface. Its pre-down boundary records the
-missing immutable-container-identity observation explicitly. Effigy status.v1
-exposes names, status and ports, not full immutable container IDs; its Compose
-capture also lacks the finite framing/capture qualification required for this
-proof. A supported bounded independent observation of exact owned container
-IDs, scope/project/service identity and foreign preservation is needed before
-container cleanup can be certified. A successful down command or empty late
-inventory cannot substitute. No provider API is guessed and no VM, image or
-volume retirement follows from host-listener absence.
+The qualification-only container identity reader uses the direct Lima shell
+interface, bypassing Colima's buffered instance-list preflight. Its fixed recipe
+is an absolute admitted `limactl shell --workdir PRIVATE_CWD EXACT_INSTANCE sudo
+nerdctl --namespace ORIGINAL_NAMESPACE --address ORIGINAL_ADDRESS`, followed by
+`ps --all --no-trunc --quiet` or a single full-ID `container inspect --mode
+dockercompat --format` call. The fixed template projects only ID, creation,
+Compose project/working-directory/service/oneoff labels and running/status.
+It never requests environment, command or mount payloads. Complete inventories
+bracket inspection; this is a stable observation interval, not an atomic snapshot.
+
+The caller must independently admit the newly owned canonical Colima and Lima
+roots, configuration identity/hash, mounted private cwd, exact instance/backend
+boot, original namespace/address and complete original Compose service/scope
+policy. Primary-none and absent scope labels are not invented ownership fields.
+Foreign IDs and creation/state witnesses must already be independently bound.
+Missing or contradictory bindings refuse before dispatch; regular home/profile
+fallback is prohibited. The current default-container qualifier has no admitted
+original routing context and therefore holds scoped down and cleanup credit.
+The reader does not discover a context from late inventory or adopt held VMs.
+
+Each reader observation has a fixed 30-second absolute deadline, 8-second call
+bound, 64-ID limit, 65,536-byte stdout and 16,384-byte stderr limits before
+retained host collection. Both pipe EOFs and zero exit are required; stderr is
+counted and discarded, and any stderr refuses. Closed capture classes/counts,
+EOF/reap observations and projection digests accompany the evidence. Only the
+retained unreaped direct host child may be cancelled; no group or post-reap
+signal is used. This metadata reader is separate from native bounded-exec.v1.
+These are host projection limits, not remote metadata-memory or SSH cancellation
+guarantees. Nerdctl constructs metadata objects before formatting. Lima uses a
+guest login shell; unexpected startup output refuses framing and is not saved.
+
+Selected [Lima 2.2.1 shell source](https://github.com/lima-vm/lima/blob/v2.2.1/cmd/limactl/shell.go)
+supports explicit instance/workdir and direct SSH stdio. Its SSH alias arguments
+precede generated options; the fixed absolute SSH alias disables ControlMaster
+and ControlPersist, using documented [OpenSSH option precedence](https://man.openbsd.org/ssh_config).
+No preserve-env, reconnect, sync or start option is enabled. Binary hashes and
+version/help observations record provenance, not binary-to-source attestation.
+Actual source-sensitive routing, mounted cwd and backend-boot receipts remain
+required before any real observation is admitted.
+
+After one scoped down action, complete same-namespace observation must find no
+old owned IDs or same-project replacements and exactly unchanged foreign
+ID/creation/state witnesses. Inspect failure is never absence. Baselines cannot
+be invented, rebased or retried after an uncertain post-observation. The default
+container caller records baseline counts before down and independent evidence
+afterward; down-zero alone cannot pass. Reader sources are qualification assets
+and appear in compile and fresh source-hash inventories. Actual independent
+container cleanup remains unqualified until original routing admission and fresh
+runtime proof complete. Host-only evidence cannot pass whole-product cleanup;
+VMs, images, volumes and disks remain held, with retirement false.
 
 Generic refusal-accounting candidate interfaces require their owning reviewed
 source/API/artifact handover before integration and admission. The current
