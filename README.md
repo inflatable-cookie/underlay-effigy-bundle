@@ -180,6 +180,17 @@ configuration, environment or arguments. Stable reads do not prove atomic
 status association. Source controls do not explain historical missing tokens or
 certify fresh runtime/cleanup acceptance.
 
+Fresh main-profile execution with this decoder passed complete service-inventory
+agreement, API/front/admin CA-verified HTTPS readiness, HTTPS request/event
+origins, HMR upgrades and exact-origin Silo bucket CORS. Reference registration
+returned 200; login timed out before response headers at the existing eight-second
+request deadline. Its bounded auth trace reached the password-verification worker
+after successful user/credential lookups, without a captured verification result
+or join. This does not establish the verification failure mechanism or eventual
+outcome. Other-instance runtime, media, restart and remaining acceptance stages
+were not reached. Main scoped down returned zero; independent cleanup remains
+unverified and the new VM/images/volumes remain held.
+
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
 compares them with the current composed API declaration through a bounded,

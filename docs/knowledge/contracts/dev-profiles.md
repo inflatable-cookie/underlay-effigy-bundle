@@ -917,3 +917,31 @@ no recognized child-exit refusal diagnostic; this is limited to those tails and
 that diagnostic schema, not absence-of-error evidence. Interruption/recovery,
 collision/uncertainty, verified isolated teardown, dev:test and default-container
 execution were not reached after the first restart refusal.
+
+### Current repaired-inventory runtime boundary
+
+Fresh main-profile execution of the shared whole-inventory decoder recorded
+complete live/Compose/declaration agreement without a service-port refusal.
+Production startup reached API/front/admin listener readiness and CA/name/SNI
+verified HTTPS. Front/admin request/event origins, gateway HMR upgrades and Silo
+exact-origin bucket CORS passed. These observations cover that main instance,
+not simultaneous runtime across the assembled primary and two worktrees.
+
+Reference registration returned HTTP 200 with a complete decoded response.
+After the disposable administrative-role grant, login sent its request but
+timed out before response headers at the existing eight-second deadline.
+The bounded pre-cleanup auth trace records successful rate-limit, user, lockout
+and credential lookups, followed by password-verification worker entry. It has
+no verification outcome, join or handler-response observation. The diagnostic
+patch wraps the existing Argon2 verification call; worker entry does not prove
+completion, failure, deadlock or the eventual response. The smallest next
+assessment belongs to that Reference auth path and its bounded phase evidence;
+no service-port, gateway or generic supervisor defect follows from this timeout.
+
+The first refusal stopped acceptance before media operations, other-instance
+runtime, restart/dependent handoff, interruption/recovery, collision/uncertainty,
+dev:test and default-container execution. Recorded main scoped down returned
+zero, but exact child/group/socket/route absence and foreign preservation were
+not independently established. Cleanup remains unverified; the new VM/images/
+volumes and previous held resources remain held. No second attempt or timeout
+increase is justified by these observations.
