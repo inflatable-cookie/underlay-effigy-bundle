@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextvars import ContextVar
 from dataclasses import dataclass
 import hashlib
 import html
@@ -467,15 +468,48 @@ def _json_command(
 ) -> dict:
     command_env = dict(env)
     command_env.pop("EFFIGY_INTERNAL_SUPPRESS_HEADER", None)
-    result = _run_process(
-        identity,
-        [identity.binary, "--repo", str(repo), "--json", *args],
-        cwd=repo,
-        env=command_env,
-        timeout=timeout,
-        emit_stdout=False,
-        emit_stderr=not _CONTEXT_ACTION,
-    )
+    if _PORT_EVIDENCE.get() is not None and len(args)==3 and args[0]=="container" and args[2]=="status":
+        try:
+            verify_unchanged(identity)
+        except ProfileError:
+            _port_emit("service_status_capture",outcome="source_refused",stdout_bytes=None,stderr_bytes=None)
+            raise
+        try:
+            captured = silo_client.bounded_run([identity.binary,"--repo",str(repo),"--json",*args],
+                                              cwd=repo,env=command_env,timeout=timeout)
+        except (OSError, subprocess.SubprocessError):
+            _port_emit("service_status_capture",outcome="capture_unavailable",stdout_bytes=None,stderr_bytes=None)
+            _port_refuse("status_capture_unavailable")
+        _port_emit("service_status_capture",outcome=captured["outcome"],exit=captured.get("exit"),
+                   stdout_bytes=captured["stdout_bytes"],stderr_bytes=captured["stderr_bytes"],
+                   stdout_sha256=hashlib.sha256(captured["stdout"]).hexdigest(),
+                   stderr_sha256=hashlib.sha256(captured["stderr"]).hexdigest(),
+                   capture_finished_ns=time.monotonic_ns())
+        if captured["outcome"]!="complete":
+            _port_refuse("status_capture_unavailable")
+        result=subprocess.CompletedProcess([],captured["exit"],captured["stdout"].decode("utf-8",errors="replace"),"")
+        try:
+            envelope=silo_client.strict_json(result.stdout)
+        except ValueError:
+            _port_emit("service_status_envelope",schema_agrees=False)
+            _port_refuse("status_envelope_unavailable")
+        schema_agrees=(isinstance(envelope,dict) and envelope.get("schema")=="effigy.command.v1"
+                       and type(envelope.get("schema_version")) is int and envelope.get("schema_version")==1
+                       and type(envelope.get("ok")) is bool)
+        _port_emit("service_status_envelope",schema_agrees=schema_agrees)
+        if not schema_agrees:
+            _port_refuse("status_envelope_unavailable")
+        return context_json_result(result)
+    else:
+        result = _run_process(
+            identity,
+            [identity.binary, "--repo", str(repo), "--json", *args],
+            cwd=repo,
+            env=command_env,
+            timeout=timeout,
+            emit_stdout=False,
+            emit_stderr=not _CONTEXT_ACTION,
+        )
     # BEGIN nested context diagnostic
     if _CONTEXT_ACTION:
         return context_json_result(result)
@@ -528,21 +562,119 @@ def _gateway_json(
     return result_value if isinstance(result_value, dict) else {}
 
 
-def _compose_loopback_port_bindings(repo: Path, status: dict) -> list[tuple[str, int, int]]:
-    compose_value = status.get("compose_file")
-    if not isinstance(compose_value, str) or not compose_value:
-        return []
-    compose_candidate = Path(compose_value)
-    if not compose_candidate.is_absolute():
-        compose_candidate = repo / compose_candidate
+_PORT_EVIDENCE = ContextVar("profile_port_evidence", default=None)
+
+
+def _port_emit(event, **fields):
+    journal = _PORT_EVIDENCE.get()
+    if journal is not None:
+        journal.append(event, **fields)
+
+
+def _port_refuse(reason):
+    _port_emit("service_port_refusal", reason=reason)
+    raise ProfileError("service port source/loopback agreement refused") from None
+
+
+class StatusSource(dict):
+    pass
+
+
+class ComposeBindings(list):
+    def __init__(self, values, snapshot):
+        super().__init__(values)
+        self.snapshot = snapshot
+
+
+def _file_identity(info):
+    return {"device": info.st_dev, "inode": info.st_ino, "bytes": info.st_size,
+            "mtime_ns": info.st_mtime_ns, "uid": info.st_uid, "links": info.st_nlink}
+
+
+def _compose_identity(repo, status):
+    value = status.get("compose_file")
+    if not isinstance(value, str) or not value:
+        return None, {"state": "missing_source"}
+    candidate = Path(value)
+    candidate = candidate if candidate.is_absolute() else repo / candidate
+    # Validate lexical components before canonicalization can erase a symlink.
     try:
-        compose_path = _safe_repo_path(repo, compose_candidate)
-        lines = compose_path.read_text(encoding="utf-8").splitlines()
-    except (OSError, ProfileError):
+        relative = candidate.relative_to(repo)
+        if ".." in relative.parts:
+            return None, {"state": "foreign_source"}
+        current = repo
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                return None, {"state": "unsafe_source"}
+        path = _safe_repo_path(repo, candidate)
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid():
+            return None, {"state": "unsafe_source"}
+        if info.st_size > 131072:
+            return None, {"state": "oversized_source", "bytes": info.st_size}
+        return path, {"state": "observed", **_file_identity(info)}
+    except (OSError, ValueError, ProfileError):
+        return None, {"state": "unavailable_source"}
+
+
+def _status_source(repo, status, container):
+    valid = (isinstance(status, dict) and status.get("schema") == "effigy.container.status.v1"
+             and type(status.get("schema_version")) is int and status.get("schema_version") == 1 and status.get("ok") is True)
+    routing = valid and status.get("container") == container
+    project = status.get("project_name") if isinstance(status, dict) else None
+    project_valid = isinstance(project, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", project) is not None
+    shape = isinstance(status,dict) and (status.get("services") is None or
+        (isinstance(status.get("services"),list) and len(status["services"])<=64 and all(
+            isinstance(row,dict) and isinstance(row.get("name"),str) and
+            (row.get("ports") is None or (isinstance(row["ports"],list) and len(row["ports"])<=256 and all(isinstance(v,str) and len(v)<=256 for v in row["ports"])))
+            for row in status["services"]))) and (status.get("ports") is None or
+        (isinstance(status.get("ports"),list) and len(status["ports"])<=256 and all(isinstance(v,str) and len(v)<=256 for v in status["ports"])))
+    _port_emit("service_status_source", schema_agrees=valid, routing_agrees=routing, port_fields_shape_agrees=shape,
+               project_present=project is not None, project_valid=project_valid,
+               project_sha256=hashlib.sha256(project.encode()).hexdigest() if project_valid else None,
+               status_sha256=hashlib.sha256(json.dumps(status,sort_keys=True,separators=(",",":")).encode()).hexdigest(),
+               atomic_status_compose_association=False)
+    if not valid or not routing or not project_valid or not shape:
+        _port_refuse("status_identity_or_routing_unavailable")
+    result = StatusSource(status)
+    result.initial_path, result.initial_identity = _compose_identity(repo, result)
+    return result
+
+
+def _compose_loopback_port_bindings(repo: Path, status: dict) -> list[tuple[str, int, int]]:
+    path, identity = _compose_identity(repo, status)
+    initial = getattr(status, "initial_identity", identity)
+    _port_emit("compose_source_before_read", source=identity, initial_agrees=identity == initial,
+               read_started_ns=time.monotonic_ns(), path_inside_checkout=path is not None)
+    if path is None or identity != initial:
+        _port_emit("compose_source_refusal", reason="source_changed_before_read" if identity != initial else identity["state"])
+        if _PORT_EVIDENCE.get() is not None:
+            _port_refuse("compose_association_unavailable")
+        return []
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            before = _file_identity(os.fstat(stream.fileno()))
+            raw = stream.read(131073)
+            after = _file_identity(os.fstat(stream.fileno()))
+        _, current = _compose_identity(repo, status)
+        stable = before == after == {k:identity[k] for k in before} and current == identity and len(raw) <= 131072
+        snapshot = {"source": identity, "sha256": hashlib.sha256(raw).hexdigest(),
+                    "read_bytes": len(raw), "unchanged_during_read": stable,
+                    "read_finished_ns": time.monotonic_ns(), "atomic_association": False}
+        _port_emit("compose_source_consumed", **snapshot)
+        if not stable:
+            _port_refuse("source_changed_during_read")
+        lines = raw.decode("utf-8").splitlines()
+    except (OSError, UnicodeError):
+        _port_emit("compose_source_refusal", reason="source_unreadable")
+        if _PORT_EVIDENCE.get() is not None:
+            _port_refuse("compose_association_unavailable")
         return []
 
     service_header = re.compile(r"^  ([A-Za-z0-9_.-]+):$")
-    port_mapping = re.compile(r"^\s*-\s*['\"]?127\.0\.0\.1:(\d+):(\d+)(?:/(?:tcp|udp))?['\"]?\s*$")
+    port_mapping = re.compile(r"^\s*-\s*['\"]?127\.0\.0\.1:(\d+):(\d+)(?:/tcp)?['\"]?\s*$")
     service_starts = [
         (index, match.group(1))
         for index, line in enumerate(lines)
@@ -564,7 +696,7 @@ def _compose_loopback_port_bindings(repo: Path, status: dict) -> list[tuple[str,
                 continue
             if in_ports and line.strip() and indentation <= 4:
                 in_ports = False
-    return bindings
+    return ComposeBindings(bindings, snapshot)
 
 
 def _service_port(
@@ -575,11 +707,24 @@ def _service_port(
     *,
     compose_bindings: list[tuple[str, int, int]] | None = None,
 ) -> int:
-    target_pattern = re.compile(r"->" + str(target_port) + r"(?:/(?:tcp|udp))?$")
+    allocation_shape = re.compile(r"(?:127\.0\.0\.1:)?[0-9]+:[0-9]+(?:/tcp)?$")
+    invalid_allocations = 0
+    for allocation in status.get("ports") or []:
+        text = str(allocation)
+        tail = text.rsplit(":",1)[-1].split("/",1)[0]
+        parts = tail.split("-")
+        relevant = all(p.isdigit() for p in parts) and ((len(parts)==1 and int(parts[0])==target_port) or
+                     (len(parts)==2 and int(parts[0])<=target_port<=int(parts[1])))
+        if relevant and allocation_shape.fullmatch(text) is None:
+            invalid_allocations += 1
+    _port_emit("service_port_allocation_shape", unrecognized_relevant_count=invalid_allocations)
+    if invalid_allocations:
+        _port_refuse("unrecognized_or_public_allocation")
+    target_pattern = re.compile(r"->" + str(target_port) + r"(?:/tcp)?$")
     explicit_loopback_pattern = re.compile(
-        r"127\.0\.0\.1:(\d+)->" + str(target_port) + r"(?:/(?:tcp|udp))?$"
+        r"127\.0\.0\.1:(\d+)->" + str(target_port) + r"(?:/tcp)?$"
     )
-    unqualified_pattern = re.compile(r"(\d+)->" + str(target_port) + r"(?:/(?:tcp|udp))?$")
+    unqualified_pattern = re.compile(r"(\d+)->" + str(target_port) + r"(?:/tcp)?$")
     service_rows = status.get("services") or []
     matching_services = [service for service in service_rows if service.get("name") == service_name]
     bindings = (
@@ -587,13 +732,35 @@ def _service_port(
         if compose_bindings is not None
         else _compose_loopback_port_bindings(repo, status)
     )
+    _port_emit("service_port_input", service=service_name if service_name in {"postgres","mailpit","silo","dbgate"} else "unknown",
+               target=target_port if target_port in {5432,1025,8025,9000,9001,3000} else None,
+               service_rows=len(matching_services), declaration_rows=len(bindings),
+               snapshot_available=isinstance(bindings, ComposeBindings),
+               atomic_association=False)
+    if service_name not in {"postgres","mailpit","silo","dbgate"} or target_port not in {5432,1025,8025,9000,9001,3000}:
+        _port_refuse("unknown_service_or_target")
+    if len(matching_services)>1:
+        _port_refuse("ambiguous_service_rows")
     host_ports: list[int] = []
     explicit_loopback_ports: list[int] = []
     target_mappings: list[str] = []
+    unsupported_target_formats = 0
     for service in matching_services:
         for mapping in service.get("ports") or []:
             value = str(mapping)
+            generic = re.fullmatch(r"(?:[0-9]+(?:-[0-9]+)?/(?:tcp|udp)|(?:[^\s]+:)?[0-9]+(?:-[0-9]+)?->[0-9]+(?:-[0-9]+)?(?:/(?:tcp|udp))?)", value)
+            if generic is None:
+                _port_emit("service_port_refusal",reason="unrecognized_mapping_shape")
+                raise ProfileError("Effigy reported an unrecognized service mapping")
             if not target_pattern.search(value):
+                if "->" in value:
+                    target = value.split("->",1)[1].split("/",1)[0]
+                    parts = target.split("-")
+                    if all(part.isdigit() for part in parts) and ((len(parts)==1 and int(parts[0])==target_port) or (len(parts)==2 and int(parts[0])<=target_port<=int(parts[1]))):
+                        target_mappings.append(value)
+                        unsupported_target_formats += 1
+                elif value in (str(target_port), str(target_port)+"/tcp", str(target_port)+"/udp"):
+                    _port_emit("service_port_exposure", host_credit=False)
                 continue
             target_mappings.append(value)
             explicit_loopback = explicit_loopback_pattern.fullmatch(value)
@@ -604,43 +771,58 @@ def _service_port(
                 host_ports.append(host_port)
                 if explicit_loopback:
                     explicit_loopback_ports.append(host_port)
+    _port_emit("service_port_predicates", target_mapping_count=len(target_mappings),
+               recognized_mapping_count=len(host_ports), explicit_loopback_count=len(explicit_loopback_ports),
+               mapping_recognized=len(host_ports)==len(target_mappings),
+               host_unique=len(set(host_ports))<=1,
+               mapping_format_supported=unsupported_target_formats==0,
+               nonloopback_mapping_count=len(target_mappings)-len(host_ports)-unsupported_target_formats,
+               host_port_range_agrees=all(1<=p<=65535 for p in host_ports))
+    if unsupported_target_formats:
+        _port_emit("service_port_refusal",reason="unsupported_target_mapping")
+        raise ProfileError("Effigy reported an unsupported target mapping")
+    if any(not 1<=p<=65535 for p in host_ports):
+        _port_refuse("published_port_out_of_range")
     if target_mappings and len(host_ports) != len(target_mappings):
-        raise ProfileError(f"Effigy reported a non-loopback service mapping for {service_name}:{target_port}")
+        _port_emit("service_port_refusal",reason="nonloopback_mapping")
+        raise ProfileError("Effigy reported a non-loopback service mapping")
     if host_ports:
         if len(set(host_ports)) != 1:
-            raise ProfileError(f"Effigy reported conflicting host ports for {service_name}:{target_port}")
+            _port_emit("service_port_refusal",reason="ambiguous_published_ports")
+            raise ProfileError("Effigy reported conflicting host ports")
         host_port = host_ports[0]
-        allocation_pattern = re.compile(r"(?:127\.0\.0\.1:)?(\d+):(\d+)(?:/(?:tcp|udp))?$")
+        allocation_pattern = re.compile(r"(?:127\.0\.0\.1:)?(\d+):(\d+)(?:/tcp)?$")
         allocations = [
             int(match.group(1))
             for mapping in status.get("ports") or []
             if (match := allocation_pattern.fullmatch(str(mapping)))
             and int(match.group(2)) == target_port
         ]
+        _port_emit("service_port_allocation", allocation_count=len(allocations),
+                   allocation_agrees=not allocations or allocations==[host_port])
         if allocations and allocations != [host_port]:
-            raise ProfileError(
-                f"Effigy service mapping conflicts with its status allocation for {service_name}:{target_port} "
-                f"(reported={target_mappings!r}, allocations={allocations!r})"
-            )
+            _port_emit("service_port_refusal",reason="allocation_disagrees")
+            raise ProfileError("Effigy service mapping conflicts with its status allocation")
         if host_port > 0 and explicit_loopback_ports == host_ports:
+            _port_emit("service_port_agreement",path="explicit_live_loopback",accepted=True)
             return host_port
         service_bindings = [
             port for service, port, target in bindings
             if service == service_name and target == target_port
         ]
+        _port_emit("service_port_declaration", declaration_count=len(service_bindings),
+                   declaration_agrees=service_bindings==[host_port])
         if host_port > 0 and service_bindings == [host_port]:
+            _port_emit("service_port_agreement",path="live_and_declaration",accepted=True)
             return host_port
-        raise ProfileError(
-            f"Effigy service mapping is not a confirmed loopback port for {service_name}:{target_port} "
-            f"(reported={target_mappings!r}, compose_bindings={service_bindings!r}, "
-            f"compose_file={status.get('compose_file')!r})"
-        )
+        _port_emit("service_port_refusal",reason="declaration_unconfirmed")
+        raise ProfileError("Effigy service mapping is not a confirmed loopback port")
 
     # During container up, Effigy launches managed host processes before its
     # status rows are populated. Resolve only a unique published allocation,
     # then cross-check the exact service and loopback binding in generated
     # Compose instead of guessing from list order or a catalog default.
-    allocation_pattern = re.compile(r"(?:127\.0\.0\.1:)?(\d+):(\d+)(?:/(?:tcp|udp))?$")
+    allocation_pattern = re.compile(r"(?:127\.0\.0\.1:)?(\d+):(\d+)(?:/tcp)?$")
     allocations = [
         int(match.group(1))
         for mapping in status.get("ports") or []
@@ -648,24 +830,16 @@ def _service_port(
         and int(match.group(2)) == target_port
     ]
     target_bindings = [(service, port) for service, port, target in bindings if target == target_port]
+    _port_emit("service_port_fallback", allocation_count=len(allocations), target_binding_count=len(target_bindings),
+               selected_service_agrees=len(target_bindings)==1 and target_bindings[0][0]==service_name,
+               allocation_agrees=len(target_bindings)==1 and (not allocations or allocations==[target_bindings[0][1]]))
     if len(target_bindings) == 1 and target_bindings[0][0] == service_name:
         _, host_port = target_bindings[0]
         if host_port > 0 and (not allocations or allocations == [host_port]):
+            _port_emit("service_port_agreement",path="unique_declaration_allocation",accepted=True)
             return host_port
-    raise ProfileError(
-        f"Effigy did not report an unambiguous loopback host port for {service_name}:{target_port} "
-        f"(status_ports={status.get('ports')!r}, compose_file={status.get('compose_file')!r}, "
-        f"compose_target_bindings={target_bindings!r})"
-    )
-    for service in status.get("services") or []:
-        if service.get("name") != service_name:
-            continue
-        for mapping in service.get("ports") or []:
-            match = mapping_pattern.fullmatch(str(mapping))
-            if match:
-                return int(match.group(1))
-    raise ProfileError(f"Effigy did not report a loopback host port for {service_name}:{target_port}")
-
+    _port_emit("service_port_refusal",reason="missing_ambiguous_or_foreign_binding")
+    raise ProfileError("Effigy did not report an unambiguous loopback host port")
 
 def profile_for_containers(service_container: str, host_container: str) -> str:
     for profile, (expected_service, expected_host) in PROFILE_CONTAINERS.items():
@@ -677,12 +851,21 @@ def profile_for_containers(service_container: str, host_container: str) -> str:
 
 
 def profile_context(identity: BinaryIdentity, repo: Path, env: dict[str, str], container: str) -> dict:
+    journal = _silo_journal(repo, container, "service-port-context.jsonl")
+    token = _PORT_EVIDENCE.set(journal)
+    try:
+        return _profile_context(identity, repo, env, container)
+    finally:
+        _PORT_EVIDENCE.reset(token)
+
+
+def _profile_context(identity: BinaryIdentity, repo: Path, env: dict[str, str], container: str) -> dict:
     _context_mark("configuration", "private-root")
     private_root = env.get("EFFIGY_GATEWAY_PRIVATE_STATE_ROOT")
     if not private_root:
         raise ProfileError("private gateway state root was not provided to the profile child")
     _context_mark("service-status", container + ".status")
-    status = _json_command(identity, repo, env, "container", container, "status")
+    status = _status_source(repo, _json_command(identity, repo, env, "container", container, "status"), container)
     # `container hosts` may render another container composition and refresh
     # Effigy's generated Compose snapshot. Keep the exact service bindings that
     # accompanied this status response for any unqualified port mappings.
@@ -968,12 +1151,19 @@ _LAUNCHER_FIELDS = ('EFFIGY_PROFILE_SILO_BUCKET', *(
     for role in ('API','FRONT','ADMIN','S3','DBGATE','MAILPIT','SILO')))
 
 
-def _silo_journal(repo: Path, container: str):
+def _silo_journal(repo: Path, container: str, filename="silo-bootstrap.jsonl"):
+    if filename not in {"silo-bootstrap.jsonl", "service-port-context.jsonl"}:
+        raise ProfileError("profile journal name refused")
     if not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]{0,63}',container):
         raise ProfileError('Silo bootstrap container refused')
+    lexical=repo/".effigy"/"runtime"/"dev-profiles"/container
+    current=repo
+    for part in lexical.relative_to(repo).parts:
+        current/=part
+        if current.is_symlink():raise ProfileError("profile journal path refused")
     root=_safe_repo_path(repo,repo/'.effigy'/'runtime'/'dev-profiles'/container)
     root.mkdir(mode=0o700,parents=True,exist_ok=True)
-    path=root/'silo-bootstrap.jsonl'
+    path=root/filename
     class Journal:
         def append(self,event,**record):
             flags=os.O_WRONLY|os.O_CREAT|os.O_APPEND|os.O_NOFOLLOW

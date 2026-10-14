@@ -168,6 +168,16 @@ The current API assignment was received correctly. The diagnostic is
 used in that check were not retained. No port-parser repair, timeout increase,
 Compose race or native child-exit defect is established by that evidence.
 
+Production context validation now records bounded status capture and Compose
+file identity/digest/read timing, selected-container and project-shape evidence,
+and mapping/allocation/declaration agreement before port refusal. Missing,
+unsafe or observed changed snapshots refuse. The private mode0600 journal
+retains fixed reasons/counts/digests/booleans, never raw ports, native output,
+config, environment or arguments. UDP and unsupported grouped target mappings
+receive no TCP host credit. These controlled source counterexamples do not
+explain the historical SMTP refusal. Status-to-Compose atomicity remains
+unproven; changes before the first file observation cannot be excluded.
+
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
 compares them with the current composed API declaration through a bounded,

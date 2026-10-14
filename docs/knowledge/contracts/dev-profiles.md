@@ -846,6 +846,45 @@ demonstrated counterexample; a generic capability proposal belongs to the
 Effigy owner only if the supported source surface cannot provide the needed
 association. This diagnosis grants no runtime retry or cleanup authority.
 
+The production context now appends source-owned `service-port-context.jsonl`
+evidence in its selected profile directory. The journal is caller-owned mode
+0600, no-follow, single-link and bounded to 128KiB. It contains only fixed
+event/reason names, service/target names from the shared contract, counts,
+agreement booleans, file identity/read timing and content digests. Native status
+capture is finite and retained privately in memory; no raw status/Compose,
+port lists, arbitrary errors, arguments, environments or credentials are copied.
+
+The status report must match the reviewed schema/version, selected container,
+project token shape and bounded service/port field shapes. The project digest
+identifies the report's declaration; it is not an independent project or owner
+attestation. Compose paths must stay inside the checkout without symlink
+components, with caller ownership, one link, regular-file type and a 128KiB
+read ceiling. Metadata observed after status is compared before opening and
+after the bounded read, including the current pathname identity. Missing,
+unreadable, unsafe or observed changed source produces a closed refusal before
+any binding credit. Accepted cached bindings refer to the consumed bytes,
+not whatever a later host-inventory render writes to that pathname.
+
+Port evidence distinguishes unrecognized/nonloopback mapping, ambiguous
+published ports/service rows, allocation disagreement, unconfirmed declaration,
+and missing/ambiguous/foreign target binding. Exposure-only mappings give no
+host credit. Controlled genuine-format inputs demonstrate that the preceding
+validator credited a UDP mapping or ignored an unsupported grouped target and
+fell back to a declaration as though it proved TCP. Those inputs now refuse,
+as do out-of-range published ports and relevant public/unknown allocation tuples.
+The out-of-range case is also demonstrated against the preceding validator.
+Exact positive loopback and
+allocation/declaration checks remain; no permissive format fallback or retry
+was introduced. These are source counterexamples, not reconstruction of the
+historical SMTP input or proof of its cause.
+
+The reviewed native serializer supplies no status-to-Compose generation token;
+its renderer can rewrite a shared generated pathname. These observations do
+not prove atomicity or exclude replacement between native status production
+and the first file identity observation, nor same-identity changes outside the
+captured interval. Runtime acceptance remains incomplete and all previous
+resources remain held. Further execution requires separately bound authority.
+
 All three scoped downs returned zero. Independent exact child/group/socket/
 route absence was not established, so cleanup remains unverified and VM/images/
 volumes remain held. The bounded tails from all nine host-process logs contain
