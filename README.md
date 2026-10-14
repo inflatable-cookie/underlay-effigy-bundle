@@ -360,3 +360,9 @@ slash on the original private mount path. Structural mount tabs, ambiguous or
 extra mounts and foreign paths still refuse. Closed stage/refusal evidence is
 recorded before propagation, independently of child-settlement uncertainty.
 Backend startup alone supplies no service cleanup or runtime readiness credit.
+
+The full Reference proof also requires complete login server-phase evidence.
+Valid register/login HTTP observations alone do not satisfy that gate. An
+unclassified authentication refusal stops the batch before later lifecycle and
+default-container stages. Scoped down returning zero does not establish
+independent service, host, socket or route absence; uncertain resources stay held.

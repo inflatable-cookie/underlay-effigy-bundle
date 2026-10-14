@@ -1621,3 +1621,15 @@ publication unavailable without replacing the primary refusal. No record grants
 signal, remote cancellation, service cleanup or retirement authority. Historical
 missing refusal reasons remain unknown. Backend startup and semantic config
 admission alone do not establish actual profile readiness or independent cleanup.
+
+The real generated-profile boundary has admitted the producer's terminal-slash
+mount spelling and unrelated tabs through original-route association and pinned
+image preparation. That observation does not qualify the remaining product
+gates. Authentication can return valid register and login HTTP observations while
+the required login server-phase reader refuses. The sanitized log distinguishes
+accepted diagnostic records from protocol-omitted lines, but omitted lines do
+not retain their original grammar or establish the exact thrown reason. An
+unknown authentication projection remains unknown; it is not a timeout or
+crypto defect diagnosis. No native retry follows that refusal. Scoped down exit
+zero remains separate from independently observed service/host/socket/route
+absence, foreign preservation and VM settlement.
