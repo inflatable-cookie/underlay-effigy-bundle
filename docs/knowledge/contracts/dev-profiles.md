@@ -1515,3 +1515,53 @@ artifact transport acceptance follows. Prior success at different helper inputs
 retains its original scope; it cannot certify this changed worker. Native source,
 escaped descendants, synchronous mid-call interruption and service/runtime
 qualification remain separate limits.
+
+### Startup predicate and canonical source evidence
+
+The artifact worker now publishes a bounded fixed startup predicate schema
+before aggregate refusal, separate from response bytes. Unknown fields,
+duplicate fields and non-boolean values refuse; unavailable CA/name/keylog
+predicates remain explicitly unknown until the context is inspected. Successful
+context inspection updates the same schema. Isolated flags, site suppression,
+environment contract and source agreement must hold before request release;
+CA/name verification, keylog exclusion and CA availability must hold before
+acceptance.
+
+The selected fresh interpreter entry added only the predefined CoreFoundation
+field category to the explicit minimal parent environment. Closed observations
+identified this environment predicate while flags, site suppression and source
+agreement passed. Command-local sanitization removes only that exact field.
+The selected `os.py` implementation deletes through `unsetenv` and its local
+mapping; before-entry and post-sanitization observations stay distinct. Unknown
+extras still refuse. Native CoreFoundation creation semantics were not
+reconstructed, and no inherited hook execution or historical cause is inferred.
+Separate controls reached startup and verified exclusion of inherited Python
+home/path, proxy, keylog and CA override inputs.
+
+Canonical source agreement requires resolved physical identity plus no-follow
+owned regular single-link files, stable device/inode/full source SHA and the
+owned mode-0700 root. Lexical `/var` versus `/private/var` equality is insufficient.
+The maintained source inventory excludes deliberate changed-file and symlink
+fixtures; changed or linked source refuses. Both interpreter entry and shared
+parent guard inputs require admission.
+
+The corrected public path reached actual startup/context assertions, owned
+child reap, pipe EOF and exact positive-group signal-zero ESRCH. Read errors,
+trickle deadlines, status/length/truncation refusals, seeded-secret privacy,
+caller duplicate JSON/digest/size refusals and unknown predicate framing were
+exercised through the closed helper interfaces. Final completion and decoded
+journal controls now require witnessed callbacks before advancing the control
+clock past the original deadline. These virtual clock cases establish the
+post-emission checks; earlier real short-window cases that expired before that
+stage retain their failure scope.
+
+The final coherent matrix still refused one startup case at its unchanged
+0.8-second fixture deadline, despite the other 54 controls passing. The refused
+case retained all mandatory startup and TLS predicates as true, but observed
+EOF on neither pipe before the deadline. Its primary refusal was `deadline`
+during capture, with group absence unknown. This is not evidence of
+a failed startup predicate, native dependency, host load or production HTTP failure,
+and the fixture window is distinct from the unchanged 30-second HTTP policy.
+No timer increase or unchanged retry follows. Complete mandatory startup
+qualification therefore remains outstanding; individual successful controls
+do not authorize artifact acquisition, service runtime or cleanup.
