@@ -207,7 +207,7 @@ def validate_retained_lifecycle_inputs(prior_diagnostics: Path, source: Path) ->
         metadata = path.stat()
         if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
             raise RuntimeError(f"retained diagnostic input is not a private regular file: {path.name}")
-    rows = [json.loads(line) for line in journal_path.read_text(encoding="utf-8").splitlines()]
+    rows = __import__("reference_storage_probe").decode_journal_rows(journal_path.read_text(encoding="utf-8"))
     events = {row.get("event"): row for row in rows}
     prior = json.loads(cleanup_path.read_text(encoding="utf-8"))
     start = events.get("attempt_started") or {}
@@ -545,7 +545,7 @@ def validate_retained_restart_inputs(directory: Path) -> dict:
                    "PASS front/admin Vite HMR WebSockets upgraded with 101 through gateway port"):
         if marker not in log:
             raise RuntimeError("retained restart/origin acceptance marker is missing")
-    rows = [json.loads(line) for line in paths[2].read_text().splitlines()]
+    rows = __import__("reference_storage_probe").decode_journal_rows(paths[2].read_text())
     events = {row.get("event"): row for row in rows}
     start = events.get("attempt_started") or {}
     if (start.get("effigy_source") != "8ecd64b37963cd6832a2b6ffa528034c56828504"
@@ -1923,6 +1923,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
     finally:
         if diagnostics is not None:
             try:
+                diagnostics.enter_cleanup()
                 for checkout in checkouts:
                     listener_snapshot.capture_owned_exit_observations(checkout, diagnostics.append)
                 capture_profile_context_errors(checkouts, diagnostics)

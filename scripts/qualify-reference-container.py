@@ -317,6 +317,7 @@ def main() -> int:
         if isinstance(error,container_identity_observer.Refusal):receipts['refusal_class']=safe['reason_id']
         print(f"REFERENCE DEFAULT-CONTAINER QUALIFICATION BLOCKED: {failure}", flush=True)
     finally:
+        journal.enter_cleanup()
         cleanup_verified=False
         if checkout is not None and stack_attempted:
             try:

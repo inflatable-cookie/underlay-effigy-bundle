@@ -136,7 +136,7 @@ class StorageDiagnosticTests(unittest.TestCase):
             journal.close()
 
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
-            records = [json.loads(line) for line in path.read_text().splitlines()]
+            records = __import__("reference_storage_probe").decode_journal_rows(path.read_text())
             self.assertEqual([record["event"] for record in records],
                              ["operation", "operation_phase", "operation_exception"])
             self.assertEqual(records[-1]["exception_type"], "TimeoutError")
@@ -181,14 +181,14 @@ class StorageDiagnosticTests(unittest.TestCase):
                                outcome='before_validation',snapshot={'closed':'same','source_sha256':'a'*64})
             journal.append('listener_probe_snapshot',snapshot={'closed':'changed','source_sha256':'b'*64})
             journal.close()
-            rows=[json.loads(line) for line in (root/'evidence/storage-diagnostics.jsonl').read_text().splitlines()]
+            rows=__import__("reference_storage_probe").decode_journal_rows((root/'evidence/storage-diagnostics.jsonl').read_text())
             self.assertEqual(len(rows),3)
             self.assertEqual(rows[-1]['counts']['listener_probe_snapshot'],399)
             self.assertFalse(rows[-1]['cache_authority'])
             (root/'capacity').mkdir(mode=0o700)
             journal=StorageDiagnosticJournal(root/'capacity/storage-diagnostics.jsonl',root/'fixture')
             with self.assertRaisesRegex(RuntimeError,'diagnostic_capacity_refused'):
-                for i in range(100):journal.append('closed_control',count=i,full_source_digest='a'*4096)
+                for i in range(1000):journal.append('closed_control',count=i,full_source_digest='a'*4096)
             with self.assertRaisesRegex(RuntimeError,'diagnostic_capacity_refused'):journal.assert_admitted()
             journal.close()
             path=root/'capacity/storage-diagnostics.jsonl'

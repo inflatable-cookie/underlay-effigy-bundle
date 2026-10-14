@@ -699,7 +699,8 @@ class ListenerSnapshotTests(unittest.TestCase):
     def rows(self):
         text = self.journal.path.read_text()
         self.assertNotIn(self.secret, text)
-        return [json.loads(line) for line in text.splitlines()]
+        from reference_storage_probe import decode_journal_rows
+        return decode_journal_rows(text)
 
     def validate(self, helper):
         if helper == "managed_listener_state":

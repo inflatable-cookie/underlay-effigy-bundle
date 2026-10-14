@@ -263,7 +263,7 @@ class AuthTests(unittest.TestCase):
         record=publish(bad,'runtime_profile',journal.append);journal.close()
         self.assertEqual(record['reason_id'],'auth_operation_protocol')
         frames=(diagnostic/'storage-diagnostics.jsonl').read_text();self.assertNotIn(SEED,frames)
-        self.assertEqual(json.loads(frames)['projection']['protocol_shape']['sgr_count'],32)
+        self.assertEqual(__import__('reference_storage_probe').decode_journal_rows(frames)[0]['projection']['protocol_shape']['sgr_count'],32)
         # Non-SGR controls and style codes inside an enum are not normalization.
         base=line('auth_verify_worker','valid').rstrip().encode()
         for raw in (base.replace(b'valid',b'va\x1b[0mlid'),base+b'\x1b[0m'*33,base+b'\x1b[;m',base+b'\x1b[31m'):

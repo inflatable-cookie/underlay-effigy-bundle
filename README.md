@@ -373,3 +373,8 @@ independent service, host, socket or route absence; uncertain resources stay hel
 The diagnostic journal also has a fixed sticky capacity guard. Exhausting its
 reserved append budget stops later commands, including cleanup dispatch; earlier
 successful stages do not establish whole-product acceptance or resource absence.
+
+Qualification evidence uses a bounded lossless stream of complete already typed
+records. The same 128KiB journal retains its original identity, ordering and sticky
+guard, with 24KiB reserved before effects for cleanup evidence. Decoding restores
+original fields and clocks; partial, reordered or oversized records refuse.

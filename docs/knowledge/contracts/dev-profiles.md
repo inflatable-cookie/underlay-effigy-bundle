@@ -1668,3 +1668,12 @@ An outer unknown RuntimeError projection remains separate from that recorded
 capacity predicate. Earlier successful stages, a log prefix or an unavailable
 late record supply no independent cleanup or retirement credit. No budget reset,
 larger cap, replay or independent native cleanup bypass is implied.
+
+The fixed journal now encodes complete approved typed/redacted records as an
+ordered lossless stream in the same file. No native bytes or new secret-bearing
+fields enter that representation. Bounded decoding restores every original
+identity, generation, cause, foreign fact and clock; framing/order/size/duplicate
+ambiguity refuses. The 128KiB sticky budget and file identity guards remain.
+A 24KiB cleanup reserve is assigned before effects; entering cleanup preserves
+the same byte counter and stream and cannot clear an existing refusal. Retained
+producer round-trip controls are source evidence, never runtime or cleanup credit.

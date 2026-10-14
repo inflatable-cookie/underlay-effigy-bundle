@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 import auth_operation
+import base64
+import zlib
 
 
 _FRAMING_HEADERS = ("content-length", "transfer-encoding", "connection", "content-type")
@@ -58,6 +60,10 @@ class StorageDiagnosticJournal:
         self._refusal_reason = None
         self._snapshot_seen = {}
         self._duplicates = {"listener_probe_snapshot":0,"managed_transition_snapshot":0}
+        self._record_compressor = zlib.compressobj()
+        self._decoded_bytes = 0
+        self._cleanup_phase = False
+        self._cleanup_reserve = 24576
         self._sequence = 0
         self._operation = 0
         self._started: dict[str, int] = {}
@@ -65,6 +71,14 @@ class StorageDiagnosticJournal:
     def assert_admitted(self):
         if self._refusal_reason or self._capacity_refused:
             raise RuntimeError(self._refusal_reason or "diagnostic_capacity_refused")
+
+    def enter_cleanup(self):
+        # Same admitted file, byte counter and sticky guard; never recovery.
+        self.assert_admitted()
+        if not self._cleanup_phase:
+            self._cleanup_phase=True
+            self.append('cleanup_evidence_phase',reserved_bytes=self._cleanup_reserve,
+                        capacity_bytes=128*1024,budget_reset=False)
 
     def append(self, event: str, **fields) -> None:
         self.assert_admitted()
@@ -93,13 +107,24 @@ class StorageDiagnosticJournal:
             "monotonic_ns": time.monotonic_ns(),
             **fields,
         }
-        payload = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        complete=json.dumps(record,sort_keys=True,separators=(',',':')).encode()
+        if len(complete)>256*1024:
+            self._refusal_reason='diagnostic_typed_fields_limit';raise RuntimeError(self._refusal_reason)
+        if self._decoded_bytes+len(complete)>4*1024*1024:
+            self._capacity_refused=True
+            refusal=(json.dumps({'schema':'underlay.reference-storage-diagnostic.v1','event':'diagnostic_capacity_refused','reason':'decoded_total_limit','decoded_bytes':self._decoded_bytes,'requested_bytes':len(complete),'cap_bytes':128*1024})+'\n').encode()
+            os.write(self._fd,refusal);os.fsync(self._fd);raise RuntimeError('diagnostic_capacity_refused')
+        self._decoded_bytes+=len(complete)
+        # Complete ALREADY typed/redacted record, including original clocks.
+        packed={'event':event,'sequence':self._sequence,'typed_record_encoding':'underlay.journal.typed-record.deflate-stream.v1',
+                'typed_record_bytes':len(complete),'typed_record':base64.b64encode(self._record_compressor.compress(complete)+self._record_compressor.flush(zlib.Z_SYNC_FLUSH)).decode('ascii')}
+        payload=(json.dumps(packed,sort_keys=True,separators=(',',':'))+'\n').encode()
         info=os.fstat(self._fd)
         if (not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid!=os.geteuid()
                 or info.st_size!=self._bytes):
             self._refusal_reason="diagnostic_journal_identity_refused"
             raise RuntimeError(self._refusal_reason)
-        if self._bytes+len(payload)>128*1024-(1024 if event=="duplicate_snapshot_aggregate" else 2048):
+        if self._bytes+len(payload)>128*1024-((1024 if event=="duplicate_snapshot_aggregate" else 2048) if self._cleanup_phase else self._cleanup_reserve):
             self._capacity_refused=True
             refusal=(json.dumps({"schema":"underlay.reference-storage-diagnostic.v1",
                 "event":"diagnostic_capacity_refused","bytes":self._bytes,
@@ -485,3 +510,30 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
             "presigned_authority": f"https://{s3_domain}:{gateway_port}", "finalised_state": "ready",
             "signed_get_status": get_status, "signed_delete_status": delete_status, "bytes_equal": True,
             "credential_or_presigned_query_recorded": False}
+
+
+def decode_journal_rows(text):
+    """Restore complete approved facts, rejecting partial/unknown encoding."""
+    if len(text.encode())>128*1024 or (text and not text.endswith('\n')):raise ValueError('diagnostic_journal_framing')
+    rows=[];decoder=zlib.decompressobj();decoded_total=0;expected=1
+    for line in text.splitlines():
+        row=json.loads(line,object_pairs_hook=auth_operation.unique)
+        if type(row) is not dict:raise ValueError('diagnostic_journal_schema')
+        if 'typed_record_encoding' in row:
+            if set(row)!={'event','sequence','typed_record_encoding','typed_record_bytes','typed_record'} or row['typed_record_encoding']!='underlay.journal.typed-record.deflate-stream.v1':raise ValueError('diagnostic_typed_record_encoding')
+            size=row['typed_record_bytes'];value=row['typed_record']
+            if type(size) is not int or not 0<size<=256*1024 or type(value) is not str or len(value)>128*1024:raise ValueError('diagnostic_typed_record_bound')
+            try:
+                compressed=base64.b64decode(value,validate=True)
+                if row['sequence']!=expected or not compressed.endswith(b'\x00\x00\xff\xff'):raise ValueError('diagnostic_typed_record_order')
+                raw=decoder.decompress(compressed,size+1)
+                if len(raw)!=size or decoder.eof or decoder.unused_data or decoder.unconsumed_tail:raise ValueError('diagnostic_typed_record_framing')
+                restored=json.loads(raw,object_pairs_hook=auth_operation.unique)
+            except (ValueError,zlib.error,UnicodeError):raise ValueError('diagnostic_typed_record_invalid') from None
+            if type(restored) is not dict or restored.get('schema')!='underlay.reference-storage-diagnostic.v1' or restored.get('event')!=row['event'] or type(row['sequence']) is not int or restored.get('sequence')!=row['sequence']:raise ValueError('diagnostic_typed_record_association')
+            decoded_total+=len(raw);expected+=1
+            if decoded_total>4*1024*1024:raise ValueError('diagnostic_typed_record_total')
+            row=restored
+        elif any(k.startswith('typed_record') for k in row):raise ValueError('diagnostic_typed_record_encoding')
+        rows.append(row)
+    return rows

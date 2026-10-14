@@ -169,3 +169,15 @@ run_in = "host"
 [tasks."proof:dev-profiles:auth-evidence-journal-controls"]
 run = "python3 scripts/silo_fixture_test.py StorageDiagnosticTests ReferenceAuthTracePatchTests"
 run_in = "host"
+
+[tasks."proof:dev-profiles:journal-capacity-controls"]
+run = "python3 scripts/journal_capacity_test.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:journal-snapshot-caller-controls"]
+run = "python3 scripts/reference_lifecycle_test.py ListenerSnapshotTests TransitionCollectorTests"
+run_in = "host"
+
+[tasks."proof:dev-profiles:journal-source-affected-controls"]
+run = "python3 scripts/reference_lifecycle_test.py ListenerSnapshotTests.test_owned_exit_structural_capture_excludes_log_payload_and_bounds_tail ListenerSnapshotTests.test_unavailable_is_source_supported_without_granting_readiness"
+run_in = "host"
