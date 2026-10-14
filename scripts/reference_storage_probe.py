@@ -55,6 +55,7 @@ class StorageDiagnosticJournal:
         os.fchmod(self._fd, 0o600)
         self._bytes = 0
         self._capacity_refused = False
+        self._refusal_reason = None
         self._snapshot_seen = {}
         self._duplicates = {"listener_probe_snapshot":0,"managed_transition_snapshot":0}
         self._sequence = 0
@@ -62,8 +63,8 @@ class StorageDiagnosticJournal:
         self._started: dict[str, int] = {}
 
     def assert_admitted(self):
-        if self._capacity_refused:
-            raise RuntimeError("diagnostic_capacity_refused")
+        if self._refusal_reason or self._capacity_refused:
+            raise RuntimeError(self._refusal_reason or "diagnostic_capacity_refused")
 
     def append(self, event: str, **fields) -> None:
         self.assert_admitted()
@@ -96,7 +97,8 @@ class StorageDiagnosticJournal:
         info=os.fstat(self._fd)
         if (not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid!=os.geteuid()
                 or info.st_size!=self._bytes):
-            raise RuntimeError("diagnostic_journal_identity_refused")
+            self._refusal_reason="diagnostic_journal_identity_refused"
+            raise RuntimeError(self._refusal_reason)
         if self._bytes+len(payload)>128*1024-(1024 if event=="duplicate_snapshot_aggregate" else 2048):
             self._capacity_refused=True
             refusal=(json.dumps({"schema":"underlay.reference-storage-diagnostic.v1",
@@ -107,11 +109,19 @@ class StorageDiagnosticJournal:
             raise RuntimeError("diagnostic_capacity_refused")
         offset = 0
         while offset < len(payload):
-            written=os.write(self._fd,payload[offset:])
-            if not written:raise RuntimeError("diagnostic_journal_write_refused")
+            try:written=os.write(self._fd,payload[offset:])
+            except OSError:
+                self._refusal_reason="diagnostic_journal_write_refused"
+                raise RuntimeError(self._refusal_reason) from None
+            if not written:
+                self._refusal_reason="diagnostic_journal_write_refused"
+                raise RuntimeError(self._refusal_reason)
             offset+=written
         self._bytes+=len(payload)
-        os.fsync(self._fd)
+        try:os.fsync(self._fd)
+        except OSError:
+            self._refusal_reason="diagnostic_journal_write_refused"
+            raise RuntimeError(self._refusal_reason) from None
 
     def begin(self, operation: str, method: str, path_template: str, *,
               public_name: str | None, connect_address: str) -> str:
@@ -209,7 +219,7 @@ class StorageDiagnosticJournal:
     def close(self) -> None:
         if self._fd >= 0:
             try:
-                if any(self._duplicates.values()) and not self._capacity_refused:
+                if any(self._duplicates.values()) and not self._capacity_refused and not self._refusal_reason:
                     self.append("duplicate_snapshot_aggregate",counts=self._duplicates,
                         distinct_source_payloads=len(self._snapshot_seen),
                         omitted_byte_equivalent_observations=sum(self._duplicates.values()),

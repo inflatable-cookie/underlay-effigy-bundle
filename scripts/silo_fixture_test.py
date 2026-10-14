@@ -160,6 +160,18 @@ class StorageDiagnosticTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "bounded Reference auth fixture patch"):
                 journal.write_artifact("unexpected.patch", payload)
 
+    def test_journal_refusal_remains_sticky_before_next_selector(self):
+        with tempfile.TemporaryDirectory(prefix='ur.005-journal-identity.') as root:
+            root=Path(root).resolve();(root/'fixture').mkdir(mode=0o700);(root/'evidence').mkdir(mode=0o700)
+            path=root/'evidence/storage-diagnostics.jsonl'
+            journal=StorageDiagnosticJournal(path,root/'fixture')
+            path.write_bytes(b'foreign-change')
+            with self.assertRaisesRegex(RuntimeError,'diagnostic_journal_identity_refused'):
+                journal.append('closed_control',count=1)
+            with self.assertRaisesRegex(RuntimeError,'diagnostic_journal_identity_refused'):
+                journal.assert_admitted()
+            journal.close()
+
     def test_diagnostic_capacity_and_unchanged_snapshot_aggregation(self):
         with tempfile.TemporaryDirectory(prefix='ur.005-journal-controls.') as root:
             root=Path(root).resolve();(root/'fixture').mkdir(mode=0o700);(root/'evidence').mkdir(mode=0o700)
