@@ -250,3 +250,9 @@ The bundle declares the shared Underlay runtime secret contract, including:
 - `auth_google_client_secret`
 
 App-specific secrets should stay in the consuming repo.
+
+The finite context evidence can distinguish a Silo target-format refusal from
+SMTP disagreement: `unsupported_target_mapping` with a recognized-binding count
+of zero refuses before API listener publication. Stable Compose reads do not
+prove atomic status association, and an unsupported format requires exact
+source controls before a correction; no declaration-only fallback is admitted.

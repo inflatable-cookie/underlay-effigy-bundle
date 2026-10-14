@@ -878,6 +878,21 @@ allocation/declaration checks remain; no permissive format fallback or retry
 was introduced. These are source counterexamples, not reconstruction of the
 historical SMTP input or proof of its cause.
 
+An actual exported-profile context can also refuse the Silo API target before
+any host application listener is published. The retained finite evidence shows
+one relevant target-9000 mapping, zero recognized bindings and
+`mapping_format_supported=false`, followed by `unsupported_target_mapping`.
+PostgreSQL and both Mailpit targets had passed their allocation and declaration
+checks in that context. The consumed Compose read had matching initial identity
+and unchanged descriptor/pathname identity across the read. This localizes the
+refusal to the supported mapping predicate; it does not establish a snapshot
+race, a native ownership defect or the exact rejected mapping bytes. The raw
+failure-time native mapping is deliberately not persisted by this evidence
+contract. A correction requires a separately scoped source control against the
+reviewed formatter's exact relevant published-target form, with independent
+full loopback TCP allocation/Compose equality. Declaration fallback alone,
+relaxed SMTP checks and runtime retries provide no acceptance credit.
+
 The reviewed native serializer supplies no status-to-Compose generation token;
 its renderer can rewrite a shared generated pathname. These observations do
 not prove atomicity or exclude replacement between native status production
