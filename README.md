@@ -213,8 +213,9 @@ operation budget, including preparation, TLS, request, bounded headers/body and
 session decoding. This is a finite functional proof policy, not a production
 latency promise. Other request limits and auth costs stay unchanged. The private
 client refuses incomplete/late responses and records closed phases;
-a timed-out mutation stays uncertain and is never resent. Actual application trace
-format and strict three-second post-capture timing remain qualification gaps. See the
+a timed-out mutation stays uncertain and is never resent. The shared decoder now covers genuine application traces; final writer and
+post-window deadline checks refuse observable overrun. Remaining application
+and lifecycle acceptance is separate from these source controls. See the
 [auth operation contract](docs/knowledge/contracts/dev-profiles.md#absolute-auth-operation-policy).
 
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared

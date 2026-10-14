@@ -1091,7 +1091,7 @@ phase, strict names/CA, malformed/framing/schema/capture refusal, seeded-secret
 privacy, unknown group refusal and bounded file windows. These controls launch
 no Reference application or backend and grant no service acceptance credit.
 
-### Current auth capture boundary
+### Auth capture counterexample and corrected source boundary
 
 Actual verified registration and login returned complete valid sessions in
 6,907 ms and 8,043 ms respectively under the fixed 20-second operation policy.
@@ -1100,7 +1100,7 @@ stdout bytes and no stderr. No group-absence or remote-cancellation inference
 follows from reaping. The application/auth parameters and public source remain
 unchanged. These are individual functional observations, not latency maxima.
 
-The new phase parser currently accepts equals-style fields. The actual Reference
+The initial phase parser accepted only equals-style fields. The actual Reference
 tracing formatter emits colon-style fields: a bounded retained tail contains
 26 genuine auth lines, none accepted by the new parser, while the existing
 source-backed sanitizer recognizes all 26. This is a bundle capture counterexample,
@@ -1112,21 +1112,21 @@ join `ok` at 7,374 ms and handler `success` at 7,499 ms; those server origins
 must not be subtracted from the client clock or used to reconstruct historical
 causes. These observations do not replace the refused pre-cleanup capture.
 
-The final success journal emission also follows the parent's last deadline
+The initial final-success journal emission followed the parent's last deadline
 check, with no post-emission check before returning. Synchronous journal I/O
 can therefore overrun without subsequent refusal at that boundary. No such
-client overrun is established for these successful requests; the source policy
-still needs a post-emission deadline check and a corresponding controlled
-counterexample before claiming complete absolute-operation qualification.
+client overrun is established for these successful requests; that source boundary required a post-emission deadline check and a corresponding
+controlled counterexample before complete absolute-operation qualification.
 
 The registration post window measured 3,005 ms against the configured 3,000 ms
 polling allowance. Its strict whole-window bound is therefore unproven;
 filesystem/scheduling cause is not established. The short-deadline and virtual
 clock controls allowed boundary overrun and did not establish the selected
-strict total. A source correction needs genuine formatter controls, closed
+strict total. The source correction required genuine formatter controls, closed
 enum/duplicate refusal, and whole-window deadline/overrun refusal before further
-application acceptance. The current parser and window are preserved as the
-counterexample; no post-effect repair or request replay supplies acceptance.
+application acceptance. Original source and immutable receipts preserve this
+counterexample; later source controls do not retroactively pass it or replay
+the completed request.
 
 Only the main profile reached this auth boundary. The other instances, media
 finalisation/read/delete, restart/dependent handoff, interruption/recovery,
@@ -1134,3 +1134,32 @@ collision/uncertainty, dev:test and default Silo container acceptance remain
 unproven on these inputs. Main scoped down returned zero, but independent exact
 child/group/socket/route absence and foreign preservation were not established.
 The new VM/images/volumes stay held; scoped down supplies no retirement credit.
+
+The current qualification decoder is shared by file observation and sanitized
+log capture. It full-matches the known diagnostic target, correlation and four
+source-ordered fields in the genuine colon formatter or quoted equal formatter;
+unknown/duplicate/mixed fields, invalid UTF-8, missing fields, bad integer types
+or range and unknown enums refuse. Retained genuine bytes stay in memory during
+controls. The CPU helper's distinct typed JSON phase protocol remains unchanged;
+it is not a second server-trace parser and no CPU operation is repeated.
+
+Registration takes one snapshot with login-trace applicability explicitly absent.
+Login accepts observation completeness only when its actual verification, join
+and handler success markers are present in an untruncated complete tail; HTTP
+session validity remains a separate condition. Post windows share one three-second
+origin across read/decode, optional bounded polling and journal emission. They
+stop before forced exhaustion with partial/unavailable evidence, never a success
+prefix, and refuse observable overrun after final emission. Final client HTTP
+validity is published as a pending observation; a subsequent deadline check must
+succeed before response return. Slow writer controls establish refusal without
+re-emission/retry. Synchronous filesystem midcalls remain uninterruptible limits.
+
+The storage diagnostic journal now enforces its 128 KiB total, owned single-link
+identity and a finite 256-distinct-snapshot index. Only byte-equivalent typed
+listener/transition snapshots collapse; source reads and validation still occur,
+changed identities/tuples/causes/refusals remain recorded, and closed aggregate
+omission counts declare that the cache grants no authority. Capacity refusal is
+sticky across best-effort logging; selectors and final receipt publication check
+it before further credit. Reserved bytes admit the closed refusal/aggregate
+record without raising the cap. Source controls do not establish the remaining
+three-instance/application/lifecycle/default-container acceptance.

@@ -25,12 +25,7 @@ _MAX_LOG_BYTES = 24 * 1024
 _MAX_LOG_LINES = 80
 _MAX_ARTIFACT_BYTES = 24 * 1024
 _AUTH_TRACE_TARGET = "underlay_profile_auth_diagnostic"
-_AUTH_TRACE_FIELDS = re.compile(
-    r'["\']?correlation["\']?\s*[:=]\s*["\']?fixture-auth-login["\']?[, ]+'
-    r'["\']?phase["\']?\s*[:=]\s*["\']?([a-z_]+)["\']?[, ]+'
-    r'["\']?elapsed_ms["\']?\s*[:=]\s*["\']?(\d+)["\']?[, ]+'
-    r'["\']?outcome["\']?\s*[:=]\s*["\']?([a-z_]+)["\']?'
-)
+
 
 
 class StorageDiagnosticJournal:
@@ -58,11 +53,36 @@ class StorageDiagnosticJournal:
         flags |= getattr(os, "O_NOFOLLOW", 0)
         self._fd = os.open(self.path, flags, 0o600)
         os.fchmod(self._fd, 0o600)
+        self._bytes = 0
+        self._capacity_refused = False
+        self._snapshot_seen = {}
+        self._duplicates = {"listener_probe_snapshot":0,"managed_transition_snapshot":0}
         self._sequence = 0
         self._operation = 0
         self._started: dict[str, int] = {}
 
+    def assert_admitted(self):
+        if self._capacity_refused:
+            raise RuntimeError("diagnostic_capacity_refused")
+
     def append(self, event: str, **fields) -> None:
+        self.assert_admitted()
+        # Only byte-equivalent typed snapshots collapse; fresh reads/validation
+        # still happen. Changed owners, tuples, causes or refusal outcomes persist.
+        if event in self._duplicates:
+            stable={key:value for key,value in fields.items()
+                    if key not in ("observation_sequence","observation_monotonic_ns")}
+            digest=hashlib.sha256(json.dumps(stable,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+            key=(event,digest)
+            if key in self._snapshot_seen:
+                self._duplicates[event]+=1
+                self._snapshot_seen[key]+=1
+                return
+            if len(self._snapshot_seen)>=256:
+                self.append("diagnostic_capacity_refused",reason="distinct_snapshot_limit",limit=256)
+                self._capacity_refused=True
+                raise RuntimeError("diagnostic_capacity_refused")
+            self._snapshot_seen[key]=0
         self._sequence += 1
         record = {
             "schema": "underlay.reference-storage-diagnostic.v1",
@@ -73,9 +93,24 @@ class StorageDiagnosticJournal:
             **fields,
         }
         payload = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        info=os.fstat(self._fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid!=os.geteuid()
+                or info.st_size!=self._bytes):
+            raise RuntimeError("diagnostic_journal_identity_refused")
+        if self._bytes+len(payload)>128*1024-(1024 if event=="duplicate_snapshot_aggregate" else 2048):
+            self._capacity_refused=True
+            refusal=(json.dumps({"schema":"underlay.reference-storage-diagnostic.v1",
+                "event":"diagnostic_capacity_refused","bytes":self._bytes,
+                "requested_bytes":len(payload),"cap_bytes":128*1024,
+                "duplicate_observations":self._duplicates},sort_keys=True)+"\n").encode()
+            os.write(self._fd,refusal);os.fsync(self._fd)
+            raise RuntimeError("diagnostic_capacity_refused")
         offset = 0
         while offset < len(payload):
-            offset += os.write(self._fd, payload[offset:])
+            written=os.write(self._fd,payload[offset:])
+            if not written:raise RuntimeError("diagnostic_journal_write_refused")
+            offset+=written
+        self._bytes+=len(payload)
         os.fsync(self._fd)
 
     def begin(self, operation: str, method: str, path_template: str, *,
@@ -173,8 +208,15 @@ class StorageDiagnosticJournal:
 
     def close(self) -> None:
         if self._fd >= 0:
-            os.close(self._fd)
-            self._fd = -1
+            try:
+                if any(self._duplicates.values()) and not self._capacity_refused:
+                    self.append("duplicate_snapshot_aggregate",counts=self._duplicates,
+                        distinct_source_payloads=len(self._snapshot_seen),
+                        omitted_byte_equivalent_observations=sum(self._duplicates.values()),
+                        cache_authority=False)
+            finally:
+                os.close(self._fd)
+                self._fd = -1
 
 
 def sanitize_service_log_line(line: str) -> str:
@@ -193,12 +235,11 @@ def sanitize_service_log_line(line: str) -> str:
     line = re.sub(r"(?i)(qualification-local-only|minioadmin)", "[credential omitted]", line)
     line = re.sub(r'(?i)(user_id\s*[=:]\s*)"?[0-9a-f-]{36}', r'\1<id>', line)
     if _AUTH_TRACE_TARGET in line:
-        match = _AUTH_TRACE_FIELDS.search(line)
-        if not match:
-            return "[auth diagnostic line omitted: unexpected format]"
-        phase, elapsed_ms, outcome = match.groups()
-        return (f"AUTH_DIAGNOSTIC correlation=fixture-auth-login phase={phase} "
-                f"elapsed_ms={elapsed_ms} outcome={outcome}")
+        try: observed=auth_operation.decode_trace(line.rstrip('\n').encode('utf-8'))
+        except auth_operation.AuthRefusal:
+            return "[auth diagnostic line omitted: protocol refusal]"
+        return ("AUTH_DIAGNOSTIC correlation=fixture-auth-login "
+                f"phase={observed['phase']} elapsed_ms={observed['elapsed_ms']} outcome={observed['outcome']}")
     if not re.search(r"(?i)error|warn|timeout|request|response|status|listening|shutdown|ready|started|stopped|configur|db_configured", line):
         return ""
     return line[:1000]
@@ -281,12 +322,14 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
             def emit(event, **fields):
                 diagnostics.append("auth_" + event, operation=operation, operation_id=op_id, **fields)
             api_log = checkout / ".effigy/runtime/host-processes/hybrid_services/effigy/api.log"
-            auth_operation.capture(api_log, checkout.resolve(), emit)
+            auth_operation.capture(api_log, checkout.resolve(), emit, operation=operation)
             try:
                 result = auth_operation.request(api_domain, gateway_port, gateway_root / "ca/rootCA.pem",
                                                 operation, payload, origin, emit)
             finally:
-                auth_operation.capture(api_log, checkout.resolve(), emit, post=True)
+                observations,complete = auth_operation.capture(api_log, checkout.resolve(), emit, post=True, operation=operation)
+                if operation == "login" and not complete:
+                    raise auth_operation.AuthRefusal("protocol")
             outcomes.append({"operation":operation, "method":method, "status":200,
                              "absolute_budget_ms":20000, "session_schema_valid":True})
             return result

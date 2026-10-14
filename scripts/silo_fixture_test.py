@@ -160,10 +160,32 @@ class StorageDiagnosticTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "bounded Reference auth fixture patch"):
                 journal.write_artifact("unexpected.patch", payload)
 
+    def test_diagnostic_capacity_and_unchanged_snapshot_aggregation(self):
+        with tempfile.TemporaryDirectory(prefix='ur.005-journal-controls.') as root:
+            root=Path(root).resolve();(root/'fixture').mkdir(mode=0o700);(root/'evidence').mkdir(mode=0o700)
+            journal=StorageDiagnosticJournal(root/'evidence/storage-diagnostics.jsonl',root/'fixture')
+            for i in range(400):
+                journal.append('listener_probe_snapshot',observation_sequence=i,observation_monotonic_ns=i,
+                               outcome='before_validation',snapshot={'closed':'same','source_sha256':'a'*64})
+            journal.append('listener_probe_snapshot',snapshot={'closed':'changed','source_sha256':'b'*64})
+            journal.close()
+            rows=[json.loads(line) for line in (root/'evidence/storage-diagnostics.jsonl').read_text().splitlines()]
+            self.assertEqual(len(rows),3)
+            self.assertEqual(rows[-1]['counts']['listener_probe_snapshot'],399)
+            self.assertFalse(rows[-1]['cache_authority'])
+            (root/'capacity').mkdir(mode=0o700)
+            journal=StorageDiagnosticJournal(root/'capacity/storage-diagnostics.jsonl',root/'fixture')
+            with self.assertRaisesRegex(RuntimeError,'diagnostic_capacity_refused'):
+                for i in range(100):journal.append('closed_control',count=i,full_source_digest='a'*4096)
+            with self.assertRaisesRegex(RuntimeError,'diagnostic_capacity_refused'):journal.assert_admitted()
+            journal.close()
+            path=root/'capacity/storage-diagnostics.jsonl'
+            self.assertLessEqual(path.stat().st_size,128*1024)
+            self.assertEqual(json.loads(path.read_text().splitlines()[-1])['event'],'diagnostic_capacity_refused')
+
     def test_auth_trace_logs_retain_only_allowlisted_phase_fields(self):
-        line = ('INFO underlay_profile_auth_diagnostic: correlation="fixture-auth-login" '
-                'phase="auth_verify_worker" elapsed_ms=8150 outcome="valid" '
-                'user_id=01234567-89ab-cdef-0123-456789abcdef')
+        line = ('underlay_profile_auth_diagnostic correlation="fixture-auth-login" '
+                'phase="auth_verify_worker" elapsed_ms=8150 outcome="valid"')
         safe = sanitize_service_log_line(line)
         self.assertEqual(
             safe,

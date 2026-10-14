@@ -57,7 +57,12 @@ RETAINED_LIFECYCLE_HEAD = "7a31fb0f0c1c93d281f541e2de02ed92e70c86a4"
 RETAINED_LIFECYCLE_TASK = "b3ae8bae-190d-42f4-8132-430253bb02fe"
 
 
+ACTIVE_DIAGNOSTICS = None
+
+
 def selector(checkout: Path, name: str, env: dict[str, str], timeout: int = 5400) -> subprocess.CompletedProcess[str]:
+    if ACTIVE_DIAGNOSTICS is not None:
+        ACTIVE_DIAGNOSTICS.assert_admitted()
     if name == "dev:hybrid:down":
         transition_snapshot.collect_known(checkout, "before_cleanup")
     return RUNTIME.run([EFFIGY, "--repo", str(checkout), name], cwd=checkout,
@@ -2020,7 +2025,7 @@ def _verify_stopped(checkout: Path, states: dict[str, dict], env: dict[str, str]
 
 
 def main() -> int:
-    global EFFIGY
+    global EFFIGY, ACTIVE_DIAGNOSTICS
     EFFIGY = require_effigy_binary()
     REFERENCE.EFFIGY = EFFIGY
     RUNTIME.EFFIGY = EFFIGY
@@ -2057,6 +2062,7 @@ def main() -> int:
     print(f"PRIVATE OPT-IN REFERENCE ROOT: {fixture_root}", flush=True)
     diagnostics = (StorageDiagnosticJournal(diagnostic_dir / "storage-diagnostics.jsonl", fixture_root)
                    if diagnostic_dir is not None else None)
+    ACTIVE_DIAGNOSTICS = diagnostics
     listener_snapshot.configure(diagnostics.append if diagnostics is not None else None)
     transition_snapshot.configure(diagnostics.append if diagnostics is not None else None, fixture_root)
     if diagnostics is not None:
@@ -2190,6 +2196,7 @@ def main() -> int:
         receipts["effigy_binary_sha256"] = "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938"
         receipts["silo_images"] = image_receipt
         receipts["reference_source"] = str(source)
+        diagnostics.assert_admitted()
         receipt_path = fixture_root / "profile-selector-receipts.json"
         receipt_path.write_text(json.dumps(receipts, indent=2) + "\n", encoding="utf-8")
         receipt_path.chmod(0o600)

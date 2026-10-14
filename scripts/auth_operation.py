@@ -254,9 +254,10 @@ def isolated(call, budget, emit):
         if seen != ['prepare','connect','tls','send','headers','body','decode','complete']:
             raise AuthRefusal('protocol')
         remaining(deadline)
-        emit('client_result', outcome='success', elapsed_ms=int((time.monotonic()-started)*1000),
+        emit('client_result', outcome='http_valid_observation', acceptance='pending', elapsed_ms=int((time.monotonic()-started)*1000),
              stdout_bytes=counts['stdout'], stderr_bytes=counts['stderr'], leader_reaped=True,
              group_absence='not_independently_observed')
+        remaining(deadline)
         return result
     except BaseException as caught:
         error = caught if isinstance(caught, AuthRefusal) else AuthRefusal('protocol')
@@ -269,7 +270,8 @@ def isolated(call, budget, emit):
                 child, _ = os.waitpid(pid, os.WNOHANG)
                 if child: reaped = True; break
                 time.sleep(.005)
-        emit('client_result', outcome=error.reason, elapsed_ms=int((time.monotonic()-started)*1000),
+        if time.monotonic() < deadline:
+            emit('client_result', outcome=error.reason, elapsed_ms=int((time.monotonic()-started)*1000),
              stdout_bytes=counts['stdout'], stderr_bytes=counts['stderr'], leader_reaped=reaped,
              settlement=settlement, group_absence='not_independently_observed', remote_mutation='uncertain')
         raise error from None
@@ -283,13 +285,34 @@ def request(domain, port, ca, operation, payload, origin, emit):
     return isolated(lambda end, phase: transport(domain, port, ca, operation, payload, origin, end, phase), AUTH_SECONDS, emit)
 
 
-TRACE = re.compile(r'correlation="?fixture-auth-login"?\s+phase="?([a-z_]+)"?\s+elapsed_ms=(\d+)\s+outcome="?([a-z_]+)"?')
+TARGET = 'underlay_profile_auth_diagnostic'
+# Reviewed tracing pretty output and compact equal-field output. Full-line
+# framing is mandatory: no search/normalization of arbitrary suffix fields.
+PREFIX = r' *(?:[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z +INFO +)?' + TARGET
+TRACE_COLON = re.compile(PREFIX + r': +correlation: "fixture-auth-login", +phase: "([a-z_]+)", +elapsed_ms: (0|[1-9][0-9]{0,9}), +outcome: "([a-z_]+)" *')
+TRACE_EQUAL = re.compile(PREFIX + r' +correlation="fixture-auth-login" +phase="([a-z_]+)" +elapsed_ms=(0|[1-9][0-9]{0,9}) +outcome="([a-z_]+)" *')
 SERVER_PHASES = {'api_login_handler','api_login_response','api_login_auth_call','api_login_role_lookup',
                  'auth_verify_spawn','auth_verify_worker','auth_verify_join','auth_rate_limit','auth_user_lookup',
                  'auth_lockout_check','auth_locked_attempt_record','auth_credential_lookup','auth_failed_attempt_write',
                  'auth_failed_attempt_reset','auth_credential_last_used','auth_totp_lookup','auth_session_create'}
 OUTCOMES = {'started','ok','error','completed','success','validation_error','auth_error','valid','invalid',
             'join_error','found','not_found','locked','clear','recorded','recorded_and_locked','configured','not_configured'}
+
+
+def decode_trace(raw):
+    if not isinstance(raw,bytes) or len(raw)>65536:
+        raise AuthRefusal('protocol')
+    if TARGET.encode() not in raw:
+        return None
+    try: line=raw.decode('utf-8')
+    except UnicodeError: raise AuthRefusal('protocol') from None
+    found=TRACE_COLON.fullmatch(line) or TRACE_EQUAL.fullmatch(line)
+    if found is None:
+        raise AuthRefusal('protocol')
+    phase,elapsed,outcome=found.groups()
+    if phase not in SERVER_PHASES or outcome not in OUTCOMES or int(elapsed)>4294967295:
+        raise AuthRefusal('protocol')
+    return {'phase':phase,'outcome':outcome,'elapsed_ms':int(elapsed)}
 
 
 def tail(path, root):
@@ -309,33 +332,41 @@ def tail(path, root):
         lines = raw.splitlines()
         if incomplete: lines = lines[:-1]
         for line in lines:
-            if b'underlay_profile_auth_diagnostic' not in line: continue
-            found = TRACE.search(line.decode('utf-8', errors='replace'))
-            if not found: raise AuthRefusal('protocol')
-            phase, elapsed, outcome = found.groups()
-            if phase not in SERVER_PHASES or outcome not in OUTCOMES or len(elapsed)>10:
-                raise AuthRefusal('protocol')
-            key = (phase,outcome)
+            observed=decode_trace(line)
+            if observed is None: continue
+            key=(observed['phase'],observed['outcome'])
             if key in keys: raise AuthRefusal('protocol')
-            keys.add(key)
-            observations.append({'phase':phase,'outcome':outcome,'elapsed_ms':int(elapsed)})
+            keys.add(key);observations.append(observed)
         return {'available':True,'bytes':len(raw),'digest':hashlib.sha256(raw).hexdigest(),
-                'tail_truncated':bool(start), 'incomplete_line':incomplete, 'observations':observations[-16:], 'observation_limit':len(observations)>16}
+                'tail_truncated':bool(start), 'incomplete_line':incomplete, 'observations':observations[-16:], 'observation_limit':len(observations)>16, 'observations_omitted':max(0,len(observations)-16), 'total_observations':len(observations)}
     finally:
         os.close(fd)
 
 
-def capture(path, root, emit, *, post=False):
-    started = time.monotonic(); end = started + (POST_SECONDS if post else 0)
-    latest = None
+def capture(path, root, emit, *, post=False, operation='login'):
+    started=time.monotonic(); end=started+POST_SECONDS
+    if operation not in ('register','login'):raise AuthRefusal('protocol')
+    reads=0
     while True:
-        try: latest = tail(path, root)
-        except OSError: latest = {'available':False,'observations':[], 'reason':'file_unavailable'}
-        except AuthRefusal:
-            emit('server_phase_window', window='post' if post else 'pre', available=False, reason='phase_protocol', observations=[])
-            raise
-        if not post or any(x['phase']=='api_login_response' for x in latest['observations']) or time.monotonic() >= end:
+        remaining(end)
+        try: latest=tail(path,root)
+        except OSError: latest={'available':False,'observations':[], 'reason':'file_unavailable'}
+        reads+=1; remaining(end)
+        facts={(x['phase'],x['outcome']) for x in latest['observations']}
+        complete=({('auth_verify_worker','valid'),('auth_verify_join','ok'),('api_login_response','success')} <= facts
+                  and latest['available'] and not latest.get('tail_truncated') and not latest.get('incomplete_line'))
+        # Register has no login instrumentation. One snapshot, no impossible
+        # marker wait. An unavailable/incomplete login snapshot is never success.
+        if (not post or operation=='register' or complete or not latest['available']
+                or latest.get('tail_truncated') or latest.get('incomplete_line') or reads>=60
+                or end-time.monotonic()<=.05):
             break
-        time.sleep(min(.05,max(0,end-time.monotonic())))
-    emit('server_phase_window', window='post' if post else 'pre', elapsed_ms=int((time.monotonic()-started)*1000),
-         **latest, authority='observation_only', clock='server_elapsed_not_client_clock')
+        time.sleep(min(.05,remaining(end)/2))
+    remaining(end)
+    emit('server_phase_window', window='post' if post else 'pre', operation_trace=operation,
+         elapsed_ms=int((time.monotonic()-started)*1000), reads=reads,
+         trace_applicability='not_applicable' if operation=='register' else 'login',
+         trace_complete=complete if operation=='login' else False,
+         **latest, authority='observation_only', clock='server_elapsed_not_client_clock', acceptance='pending')
+    remaining(end)
+    return latest,complete

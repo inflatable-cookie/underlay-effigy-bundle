@@ -163,7 +163,7 @@ class AuthTests(unittest.TestCase):
         events=[]; started=time.monotonic()
         with patch.object(auth,'POST_SECONDS',.12):
             auth.capture(path,self.root,lambda event,**fields:events.append(fields),post=True)
-        self.assertLess(time.monotonic()-started,.3)
+        self.assertLess(time.monotonic()-started,.12)
         self.assertFalse(events[0]['observations']); self.assertNotIn(SEED,json.dumps(events))
         value=json.loads(self.wire().split(b'\r\n\r\n',1)[1])
         auth.session_schema(value,'login',{'email':'test@example.invalid'})
@@ -172,6 +172,66 @@ class AuthTests(unittest.TestCase):
                         {'data':{**value['data'],'user':{**value['data']['user'],'roles':['user']}}}):
             with self.assertRaises(auth.AuthRefusal): auth.session_schema(altered,'login',{'email':'test@example.invalid'})
         path.unlink()
+
+    def test_genuine_retained_formatter_and_shared_decoder(self):
+        path=Path('/Users/tom/ur.vx6BB8/home/reference/main/.effigy/runtime/host-processes/hybrid_services/effigy/api.log')
+        # The brief admits these retained source bytes, never queries a process.
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+        import stat,hashlib
+        info=os.fstat(fd);self.assertTrue(stat.S_ISREG(info.st_mode));self.assertEqual(info.st_nlink,1)
+        os.lseek(fd,max(0,info.st_size-65536),os.SEEK_SET);raw=os.read(fd,65536);os.close(fd)
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),'ee614f059f02ae3f7fa4c5b507c35958818a40fcf9a7616546bd4144c6946d9f')
+        from reference_storage_probe import sanitize_service_log_line
+        lines=[line for line in raw.splitlines() if auth.TARGET.encode() in line]
+        self.assertEqual(len(lines),26)
+        observed=[auth.decode_trace(line) for line in lines]
+        self.assertTrue(all(value is not None for value in observed))
+        self.assertIn({'phase':'auth_verify_worker','elapsed_ms':7373,'outcome':'valid'},observed)
+        for line in lines:
+            self.assertTrue(sanitize_service_log_line(line.decode()).startswith('AUTH_DIAGNOSTIC'))
+        for line in (lines[0]+b' '+SEED.encode(),lines[0].replace(b'elapsed_ms: 0',b'elapsed_ms: true'),
+                     lines[0].replace(b'outcome:',b'outcome='),lines[0]+b', phase: "api_login_handler"',
+                     lines[0].replace(b'phase:',b'unknown:'),lines[0]+b'\xff'):
+            with self.assertRaises(auth.AuthRefusal):auth.decode_trace(line)
+        events=[];started=time.monotonic()
+        latest,complete=auth.capture(path,Path('/Users/tom/ur.vx6BB8/home/reference/main'),lambda e,**kw:events.append(kw),post=True)
+        self.assertTrue(complete);self.assertEqual(latest['total_observations'],26)
+        self.assertEqual(latest['observations_omitted'],10)
+        self.assertLess(time.monotonic()-started,.1)
+        # Retained bytes stay in memory; generated controlled files use no raw
+        # application log payload. Duplicate/partial fixtures are separate.
+        controlled=self.root/'genuine-control.log'
+        line=b'underlay_profile_auth_diagnostic: correlation: "fixture-auth-login", phase: "auth_verify_worker", elapsed_ms: 1, outcome: "valid"'
+        controlled.write_bytes(line+b'\n'+line+b'\n')
+        with self.assertRaises(auth.AuthRefusal):auth.tail(controlled,self.root)
+        controlled.write_bytes(line[:20])
+        self.assertTrue(auth.tail(controlled,self.root)['incomplete_line'])
+        controlled.unlink()
+
+    def test_register_no_marker_wait_and_post_writer_deadline(self):
+        path=self.root/'register.log';path.write_text('unrelated '+SEED+'\n')
+        events=[];started=time.monotonic()
+        latest,complete=auth.capture(path,self.root,lambda e,**kw:events.append(kw),post=True,operation='register')
+        self.assertLess(time.monotonic()-started,.1)
+        self.assertFalse(complete);self.assertEqual(events[0]['reads'],1)
+        self.assertEqual(events[0]['trace_applicability'],'not_applicable')
+        with patch.object(auth,'POST_SECONDS',.05):
+            with self.assertRaises(auth.AuthRefusal):
+                auth.capture(path,self.root,lambda *a,**kw:time.sleep(.08),post=True,operation='register')
+        path.unlink()
+
+    def test_final_client_writer_overrun_has_no_return_or_retry(self):
+        def call(end,phase):
+            for name in PHASES:phase(name)
+            return {'data':{'access_token':SEED}}
+        events=[]
+        def emit(event,**kw):
+            events.append((event,kw))
+            if event=='client_result':time.sleep(.15)
+        with self.assertRaises(auth.AuthRefusal):auth.isolated(call,.1,emit)
+        self.assertEqual(len([x for x in events if x[0]=='client_result']),1)
+        self.assertEqual(events[-1][1]['acceptance'],'pending')
+        self.assertNotIn(SEED,json.dumps(events))
 
     def test_remaining_uses_absolute_origin_and_unknown_group_no_signal(self):
         with patch.object(auth.time,'monotonic',side_effect=[10,10.9,11.1]):
@@ -185,7 +245,7 @@ class AuthTests(unittest.TestCase):
     def test_file_phase_privacy_limits_duplicate_unknown_and_post_window(self):
         path=self.root/'api.log'
         def trace(phase='auth_verify_worker',outcome='valid'):
-            return f'underlay_profile_auth_diagnostic correlation="fixture-auth-login" phase="{phase}" elapsed_ms=8053 outcome="{outcome}" {SEED}\n'
+            return f'underlay_profile_auth_diagnostic correlation="fixture-auth-login" phase="{phase}" elapsed_ms=8053 outcome="{outcome}"\n'
         path.write_text(trace()); os.chmod(path,0o600)
         value=auth.tail(path,self.root)
         self.assertNotIn(SEED,json.dumps(value)); self.assertEqual(value['observations'][0]['elapsed_ms'],8053)
@@ -195,10 +255,18 @@ class AuthTests(unittest.TestCase):
         path.write_text('x'*70000+'\n'+trace())
         self.assertTrue(auth.tail(path,self.root)['tail_truncated'])
         events=[]
-        # Virtual time demonstrates a single shared 3s post window, no resetting on reread.
-        with patch.object(auth.time,'monotonic',side_effect=[0,1,1,1,3.1,3.1,3.1]), patch.object(auth.time,'sleep'):
-            auth.capture(path,self.root,lambda event,**fields:events.append(fields),post=True)
-        self.assertEqual(len(events),1); self.assertEqual(events[0]['elapsed_ms'],3100)
+        # Read/decode or accepted journal emission crossing the single origin
+        # must refuse, rather than publish a successful prefix/return.
+        clock=[0.0]
+        original=auth.tail
+        def slow_read(*args):
+            value=original(*args);clock[0]=3.001;return value
+        with patch.object(auth.time,'monotonic',side_effect=lambda:clock[0]), patch.object(auth,'tail',side_effect=slow_read):
+            with self.assertRaises(auth.AuthRefusal):auth.capture(path,self.root,lambda *a,**kw:None,post=True)
+        clock[0]=0
+        def slow_emit(*args,**fields): clock[0]=3.001
+        with patch.object(auth.time,'monotonic',side_effect=lambda:clock[0]):
+            with self.assertRaises(auth.AuthRefusal):auth.capture(path,self.root,slow_emit,post=True,operation='register')
         self.assertEqual(auth.POST_SECONDS,3)
         path.unlink(); path.symlink_to(self.cert)
         with self.assertRaises(OSError):auth.tail(path,self.root)
