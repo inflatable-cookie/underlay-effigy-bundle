@@ -150,7 +150,12 @@ class Observer:
     def _admit(self, context, inherited_env, fixture, original):
         self.context=context;self.fixture=Path(fixture);self.bound={}
         required={'schema','limactl','limactl_sha256','ssh','ssh_sha256','colima_home','lima_home','cwd','config','config_sha256','instance','namespace','address','boot','scopes','foreign'}
-        if type(context) is not dict or set(context)!=required or context['schema']!='underlay.container-observer-context.v1':raise Refusal('context_schema')
+        if type(context) is not dict:raise Refusal('context_schema')
+        if context.get('schema')=='underlay.container-observer-context.v2':
+            required|={'private_home','startup_intent_sha256'}
+        elif context.get('schema')!='underlay.container-observer-context.v1':raise Refusal('context_schema')
+        if set(context)!=required:raise Refusal('context_schema')
+        if 'startup_intent_sha256' in context and not re.fullmatch('[a-f0-9]{64}',str(context['startup_intent_sha256'])):raise Refusal('startup_intent_identity')
         if any(type(context[k]) is not str for k in required-{'scopes','foreign','boot'}):raise Refusal('context_type')
         if type(context['scopes']) is not list or not 1<=len(context['scopes'])<=3 or type(context['foreign']) is not dict or len(context['foreign'])>MAX_IDS:raise Refusal('context_cardinality')
         if any(key.startswith(('CONTAINERD_','NERDCTL_')) or (key.startswith('LIMA_') and key!='LIMA_HOME') or key in ('SSH','COLIMA_PROFILE','DOCKER_HOST','DOCKER_CONTEXT') for key in inherited_env):raise Refusal('inherited_override')
@@ -161,7 +166,7 @@ class Observer:
         original_fields=required-{'schema'}
         if type(original) is not dict or set(original)!=original_fields or any(context[k]!=original[k] for k in original_fields):raise Refusal('original_input_mismatch')
         identity(self.fixture,True)
-        for key in ('colima_home','lima_home','cwd'):
+        for key in ('colima_home','lima_home','cwd')+ (('private_home',) if 'private_home' in context else ()):
             path=Path(context[key]);path.relative_to(self.fixture)
             self.bound[key]=identity(path,True)
         if context['colima_home']==context['lima_home']:raise Refusal('independent_lima_root')
@@ -190,16 +195,20 @@ class Observer:
             if not ID.fullmatch(full_id) or projection((json.dumps(value)+'\n').encode(),full_id)!=value:raise Refusal('foreign_witness')
             if value['project'] in projects:raise Refusal('foreign_scope_conflict')
         self.context=copy.deepcopy(context)
-        self.env={'HOME':str(self.fixture),'COLIMA_HOME':context['colima_home'],'LIMA_HOME':context['lima_home'],
+        self.env={'HOME':context.get('private_home',str(self.fixture)),'COLIMA_HOME':context['colima_home'],'LIMA_HOME':context['lima_home'],
                   'SSH':shlex.join([context['ssh'],'-o','ControlMaster=no','-o','ControlPersist=no']),'PATH':'/usr/bin:/bin','LANG':'C','LC_ALL':'C'}
         self._baseline=None;self._post_attempted=False;self.capture_evidence=[];self.cwd_evidence=[]
         self.binding=hashlib.sha256(json.dumps({'context':context,'identities':self.bound},sort_keys=True).encode()).hexdigest()
 
     def guard(self):
+        admission=getattr(self,'original_admission',None)
+        if admission is not None:
+            admission.guard();admission.verify_tools()
+            if self.env!=admission.reader_environment():raise Refusal('original_reader_environment_changed')
         current=hashlib.sha256(json.dumps({'context':self.context,'identities':self.bound},sort_keys=True).encode()).hexdigest()
         if current!=self.binding:raise Refusal('context_changed')
         for key,value in self.bound.items():
-            directory=key in ('colima_home','lima_home','cwd')
+            directory=key in ('colima_home','lima_home','cwd','private_home')
             current=identity(self.context[key],directory,key in ('limactl','ssh'))
             if (current[:4] if directory else current)!=(value[:4] if directory else value):raise Refusal('routing_changed')
             if key in ('limactl','ssh','config') and file_sha(self.context[key],1048576 if key=='config' else 268435456)!=self.context[key+'_sha256']:raise Refusal('provenance_changed')

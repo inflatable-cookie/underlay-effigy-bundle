@@ -49,6 +49,7 @@ import listener_snapshot  # noqa: E402
 import transition_snapshot
 import qualification_cleanup
 from fresh_backend_admission import FreshBackend, selected_tools
+import container_identity_observer
 from qualification_cleanup_action import ListenerObserver
 import pending_start_identity  # noqa: E402
 from listener_snapshot import observed, read_document  # noqa: E402
@@ -1850,7 +1851,12 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                     "foreign_survivors": [str(path) for path in foreign_before],
                     "exact_identity_and_https_checks": True,
                 }
-                backend_admission.observer_for(main, env)
+                service_observer=backend_admission.observer_for(main,env,'disposable_test',
+                    [(str(path),'hybrid_services') for path in checkouts[1:]])
+                # Original context and foreign witnesses precede the test selector.
+                # Live owned service IDs must be captured inside the ready action
+                # wrapper and handed back immutably before selector teardown.
+                raise container_identity_observer.Refusal('disposable_service_baseline_handoff_missing')
                 receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before)
                 for index, checkout in enumerate(checkouts[1:], start=1):
                     before_states = app_records[checkout]
@@ -1870,7 +1876,12 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                 for checkout, before_states in foreign_before.items():
                     _verify_live(checkout, before_states, env)
                 receipts["foreign_survivors_after_main_down"] = [str(path) for path in foreign_before]
-                backend_admission.observer_for(main, env)
+                service_observer=backend_admission.observer_for(main,env,'disposable_test',
+                    [(str(path),'hybrid_services') for path in checkouts[1:]])
+                # Original context and foreign witnesses precede the test selector.
+                # Live owned service IDs must be captured inside the ready action
+                # wrapper and handed back immutably before selector teardown.
+                raise container_identity_observer.Refusal('disposable_service_baseline_handoff_missing')
                 receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before)
                 for checkout in checkouts[1:]:
                     selector(checkout, "dev:hybrid:down", env)
@@ -2076,7 +2087,7 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py")},
                            effigy_source="77d22adcbdbca20752720d6671310f13894d219f",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938",
@@ -2175,9 +2186,15 @@ def main() -> int:
         for checkout in checkouts:
             original_config=RUNTIME.run([EFFIGY,'--repo',str(checkout),'config','--inspect'],cwd=checkout,env=runtime_env,timeout=120,print_output=False)
             backend_admission.original_scope(checkout,original_config.stdout.encode(),hashlib.sha256((ROOT/'export.toml').read_bytes()).hexdigest())
+            scope_capture=RUNTIME.run([EFFIGY,'--json','--repo',str(checkout),'container','scope'],cwd=checkout,env=runtime_env,timeout=120,print_output=False)
+            for container in ('hybrid_services','disposable_test'):
+                policy_capture=RUNTIME.run([EFFIGY,'--json','--repo',str(checkout),'config','--inspect','--path','containers.'+container],cwd=checkout,env=runtime_env,timeout=120,print_output=False)
+                backend_admission.original_policy(checkout,container,policy_capture.stdout.encode(),scope_capture.stdout.encode())
+
 
         RUNTIME.run(backend_admission.start_command(runtime_env),env=runtime_env,timeout=1200)
         started_colima = True
+        backend_admission.admit_original_route(runtime_env)
         if diagnostics is None:raise RuntimeError('full-profile finite diagnostics required')
         observe(runtime_env,fixture_root,diagnostics)
         import importlib.util as _import_util

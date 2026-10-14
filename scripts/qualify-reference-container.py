@@ -80,7 +80,7 @@ def services_up(status: dict) -> dict[str, str]:
 
 
 def independently_observe_container_down(effigy, checkout, runtime_env, receipts, observer):
-    # A reader is supplied only after original new-backend/boot/mounted-cwd/Compose
+    # A reader is supplied only after original new-backend/read-only association/mounted-cwd/Compose
     # inputs are independently admitted. No late inventory or environment fallback.
     if not isinstance(observer, container_identity_observer.Observer):
         receipts.append({"container_cleanup_verified":False,
@@ -94,8 +94,11 @@ def independently_observe_container_down(effigy, checkout, runtime_env, receipts
     before=observer.baseline()
     receipts.append({"container_baseline_observed":True,"binding_sha256":before['binding'],
                      "owned_count":len(before['owned']),"foreign_count":len(before['foreign'])})
+    admission=getattr(observer,'original_admission',None)
+    if admission is not None:admission.admit_original_route(runtime_env)
     try:effigy_json(effigy, checkout, runtime_env, "container", "down", "--json", timeout=600,private=True)
     except Exception:raise container_identity_observer.Refusal("scoped_down_unavailable") from None
+    if admission is not None:admission.admit_original_route(runtime_env)
     proof=observer.after(before)
     receipts.append(proof)
     return proof['container_cleanup_verified']
@@ -135,7 +138,7 @@ def main() -> int:
         "container_up": None,
         "cleanup": [],
         "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
-                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","qualify-reference-container.py")},
+                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py")},
     }
     checkout: Path | None = None
     gateway_attempted = False
@@ -185,6 +188,14 @@ def main() -> int:
             raise RuntimeError("private Reference default inputs or siblings=false task resolution changed")
         receipts["default_dev_plan"] = plan_receipt
         backend_admission.original_scope(checkout,config.stdout.encode(),hashlib.sha256((REPO/'export.toml').read_bytes()).hexdigest())
+        original_policy=run([effigy,'--json','--repo',str(checkout),'config','--inspect','--path','containers'],cwd=checkout,env=runtime_env,timeout=120,private=True)
+        original_scope=run([effigy,'--json','--repo',str(checkout),'container','scope'],cwd=checkout,env=runtime_env,timeout=120,private=True)
+        backend_admission.original_policy(checkout,'default',original_policy.stdout.encode(),original_scope.stdout.encode())
+        # A foreign witness cannot be invented from empty late inventory. This actual
+        # default fixture currently has no independently configured foreign service.
+        # Hold before backend/gateway/service effects until that fixture is supplied.
+        raise container_identity_observer.Refusal('default_container_foreign_fixture_recipe_missing')
+
 
         receipts['backend_admission']=backend_admission.observation_requirements()
 
@@ -215,6 +226,7 @@ def main() -> int:
 
         run(backend_admission.start_command(runtime_env),env=runtime_env,timeout=1200,output=False)
         profile_started = True
+        backend_admission.admit_original_route(runtime_env)
 
         receipts['formatter']=observe(runtime_env,fixture_root,journal)
         from silo_fixture import prepare_published_images, IMAGE, CLIENT_IMAGE
@@ -280,6 +292,7 @@ def main() -> int:
         print('PASS private Reference default container build/startup and production Silo bootstrap',flush=True)
     except Exception as error:
         failure = type(error).__name__
+        if isinstance(error,container_identity_observer.Refusal):receipts['refusal_class']=str(error)
         print(f"REFERENCE DEFAULT-CONTAINER QUALIFICATION BLOCKED: {failure}", flush=True)
     finally:
         cleanup_verified=False

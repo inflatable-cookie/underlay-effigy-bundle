@@ -93,3 +93,11 @@ run_in = "host"
 [tasks."proof:dev-profiles:fresh-backend-admission-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/fresh_backend_admission_test.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:original-route-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/original_container_route_test.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:fresh-backend-admission-affected-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/fresh_backend_admission_test.py AdmissionTests.test_original_intent_roots_before_effect_and_fixed_isolation_recipe AdmissionTests.test_observer_and_scoped_down_cannot_use_owner_boolean_or_late_inventory AdmissionTests.test_actual_both_qualifier_entrypoints_refuse_unqualified_sources_before_effects"
+run_in = "host"

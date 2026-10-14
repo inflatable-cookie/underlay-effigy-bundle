@@ -152,15 +152,20 @@ and hermetic-control preparation; fresh runtime proof remains required.
 A qualification-only direct-Lima reader now implements bounded full-ID/creation
 and Compose-label observation with independent post-down foreign preservation.
 Both qualifiers prepare fresh private HOME/Colima/Lima startup intent and refuse
-inherited overrides and preexisting profiles. Read-only association leaves boot
-and VM/agent identity unknown and grants no signal or retirement authority.
-The reader performs a bounded private nonce correspondence read before inventory;
-this is not universal mount or escape proof. The entrypoints currently stop at
-an unqualified original nerdctl namespace/address source recipe. Original
-routing/config/service policy admission and fresh runtime cleanup qualification
-remain required; the disposable service baseline/handoff is incomplete. Partial
-host absence cannot pass whole-product cleanup, and no VM/image/volume retirement
-is inferred.
+inherited overrides and preexisting profiles. The original-route read recipe is
+now source-qualified: bounded rootful metadata, version and matching nerdctl help
+reads establish the selected config and namespace/address before Compose. Source
+defaults alone never supply a live route receipt. Semantic pre-start config/scope
+policy, original file identities and private cwd nonce correspondence bind the
+reader; boot/VM/agent identity stays unknown with no signal/retirement authority.
+
+This is source and hermetic-control preparation. The default fixture still needs
+an independent foreign-service witness recipe, and dev:test needs its service
+baseline captured inside the ready action wrapper and handed back before
+teardown. These paths hold safely rather than grant cleanup credit. Qualified
+Effigy159 handover, fresh runtime acceptance and the five independent review
+subjects remain required. Partial host absence cannot pass whole-product cleanup.
+
 
 
 Earlier `0412cc7b` disposable Reference evidence covers production bootstrap, three

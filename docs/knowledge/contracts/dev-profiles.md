@@ -1335,8 +1335,8 @@ original namespace/address and complete original Compose service/scope
 policy. Primary-none and absent scope labels are not invented ownership fields.
 Foreign IDs and creation/state witnesses must already be independently bound.
 Missing or contradictory bindings refuse before dispatch; regular home/profile
-fallback is prohibited. The current default-container qualifier has no admitted
-original routing context and therefore holds scoped down and cleanup credit.
+fallback is prohibited. The default-container qualifier still requires a configured independent foreign
+service witness before startup and cleanup credit.
 The reader does not discover a context from late inventory or adopt held VMs.
 
 Both actual qualifier entrypoints now create the original fresh-backend admission
@@ -1365,17 +1365,58 @@ explicit instance routing and original Compose ownership policy must establish
 association independently of inventory. A late `Running` projection can report
 availability only; it cannot construct that association.
 
-The current precise source boundary is
-`original_nerdctl_namespace_address_source_unqualified`. At admitted Effigy
-`77d22adc`, `compose_invocation_for_repo` delegates to Colima without explicit
-namespace/address arguments. Retained Colima `cmd/nerdctl.go` forwards
-`CONTAINERD_*`/`NERDCTL_*` overrides but does not define the guest CLI's effective
-defaults or configuration precedence. The selected nerdctl root-command/config
-source establishing that original route is not available in the retained source
-packet. No `default` namespace or socket path is inferred from test fixtures.
-Both actual entrypoints hold before runtime effects at this narrower routing
-boundary. This is a missing original route recipe, not a required boot/provider
-API, a global capability-absence claim or a new core task.
+The original route source contract is now admitted against nerdctl
+`04f63fe15f3f8d77fe41e56ab7ff1d1f3e312860`, its containerd dependency
+`64b425cf570b3b8dd1d4cc46da7c1fce65c6651a`, Colima `00f6c297`, Cobra 1.10.2 and
+pflag 1.0.10. Source defaults are namespace `default`, Linux address
+`/run/containerd/containerd.sock` and rootful config selection
+`/etc/nerdctl/nerdctl.toml`. Nerdctl loads TOML with unknown-field refusal and
+falls back only on ENOENT; precedence is CLI, environment, TOML, then built-ins.
+These facts never establish a live guest's effective route or config absence.
+
+The qualification-only original-route reader uses the explicit Lima root,
+instance and cwd. A fixed read-only privileged metadata script checks rootful
+UID and absence of relevant route/rootless environment overrides, then projects
+only selected binary/config digests and config presence class. Absolute guest
+id/sha256sum utility availability must succeed; arbitrary config/error or
+environment bytes are not journaled. A reported nerdctl 2.3.1 version and two
+matching root help reads bracket matching metadata projections. The source
+`main.go` config selection/flag registration and pflag quoted DefValue grammar
+are decoded strictly, with complete exit/EOF and closed malformed/duplicate/
+unknown/error refusal. All collected payloads remain bounded and private.
+
+Help prints flag defaults after TOML/environment selection; it does not prove
+CLI-supplied values. The admitted original Compose delegation has no namespace
+or address CLI flags, and forwarded host overrides are refused. A guest route
+or config override, rootless selection or contradictory source context refuses.
+A custom TOML namespace/address is retained exactly, never normalized to source
+defaults. Binary version/hash observations are provenance, not source-artifact
+attestation. Metadata/help matching establishes a stable observation interval,
+not atomic config association, continuous immutability or command-policy proof.
+
+Both actual qualifiers call the route admission after their fresh backend start
+and before their first planned Compose effect. Original pre-start config JSON
+and checkout scope JSON are decoded through supported schemas and the production
+Git/scope decoder, including default-container alias resolution and the complete
+service inventory with portless clients. At Effigy `77d22adc`, manifest driver
+and profile omissions mean Colima/effigy; explicit contradictions refuse.
+Original manifest/policy records, host tools, profile roots and generated config
+identities are rechecked. Generated Lima's sole private writable mount must match
+the original startup intent, in addition to successful nonce correspondence.
+The factory constructs a v2 reader context with original private HOME and startup
+intent digest. These are bundle qualification fields, not provider API fields.
+
+Foreign scopes are independently bound to original policy before full-ID witness
+capture. Unknown or incomplete inventory refuses; it cannot be shrunk to chosen
+names. The default down caller rechecks the original route around its baseline/
+single down/post-absence sequence, and physical association guards run for every
+reader query. The current default entrypoint holds before backend/gateway/service
+effects because an independent foreign-service fixture recipe is not configured.
+The disposable caller prepares its original context and sibling witnesses but
+holds before dev:test because the ready action wrapper's service-ID baseline and
+immutable post-action handoff remain unwired. These are concrete caller gaps;
+source-default availability is no longer a blocker. No real route, profile,
+service or cleanup acceptance follows from hermetic controls.
 
 A bounded cwd correspondence read is now part of the actual reader's snapshot
 path, before each inventory collection. It creates a new exclusive no-follow
@@ -1392,12 +1433,11 @@ receives no cleanup credit. No guest write or operator path is requested.
 This establishes only byte correspondence for that path at that interval. It
 still requires original explicit sole-private-mount startup/config association;
 it is not universal mount, escape, boot or remote cancellation proof. Physical
-roots, config and tool hashes are rechecked for every read. The default and
-whole-profile callers still cannot obtain a complete Observer until the original
-namespace/address source recipe, supported semantic Compose policy decode and
-new profile/config association are supplied. Fingerprints and matching nonce
-bytes do not substitute for those original inputs. The disposable service
-baseline/handoff remains incomplete; host-only cleanup cannot satisfy it.
+roots, config and tool hashes are rechecked for every read. Actual new-backend profile/config, nonce and effective-route observations still
+must supply the prepared constructor. Fingerprints and matching nonce bytes do
+not substitute for original semantic policy. The default foreign fixture and
+disposable ready-action service baseline/handoff remain incomplete; host-only
+cleanup cannot satisfy them.
 
 
 Each reader observation has a fixed 30-second absolute deadline, 8-second call

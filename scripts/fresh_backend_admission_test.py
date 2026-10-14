@@ -10,7 +10,8 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from fresh_backend_admission import FreshBackend, Refusal, MISSING
+from fresh_backend_admission import FreshBackend, Refusal
+import original_container_route as route
 
 class AdmissionTests(unittest.TestCase):
     def setUp(self):
@@ -36,7 +37,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(args[args.index('--mount')+1],str(self.root)+':w')
         self.assertNotIn('/Users/operator',str(args))
         with self.assertRaises(Refusal) as caught:backend.start_command(backend.env)
-        self.assertEqual(str(caught.exception),MISSING)
+        self.assertEqual(str(caught.exception),'original_semantic_policy_missing')
     def test_operator_environment_never_inherited_and_no_partial_creation(self):
         for name in ('DOCKER_CONTEXT','CONTAINERD_ADDRESS','NERDCTL_CONFIG','LIMA_HOME','SSH','COLIMA_HOME','XDG_CONFIG_HOME'):
             with self.subTest(name=name):
@@ -77,10 +78,10 @@ class AdmissionTests(unittest.TestCase):
     def test_observer_and_scoped_down_cannot_use_owner_boolean_or_late_inventory(self):
         backend,checkout,tools=self.prepared()
         with self.assertRaises(Refusal) as caught:backend.observer_for(checkout,backend.env)
-        self.assertEqual(str(caught.exception),MISSING)
+        self.assertEqual(str(caught.exception),'original_semantic_policy_missing')
         self.assertFalse((backend.paths['LIMA_HOME']/'colima-effigy').exists())
         self.assertEqual(backend.observation_requirements()['late_inventory_authority'],False)
-    def test_actual_both_qualifier_entrypoints_refuse_before_query_or_runtime(self):
+    def test_actual_both_qualifier_entrypoints_refuse_unqualified_sources_before_effects(self):
         for filename in ('qualify-reference-container.py','qualify-reference-optin.py'):
             with self.subTest(filename=filename),tempfile.TemporaryDirectory(dir=self.root) as directory:
                 fixture=Path(directory).resolve();fixture.chmod(0o700)
@@ -90,9 +91,9 @@ class AdmissionTests(unittest.TestCase):
                 for name in ('colima','lima','ssh'):
                     p=self.root/(filename+name);p.write_text('#!/bin/sh\nexit 18\n');p.chmod(0o700);tools.append(p)
                 env={'UNDERLAY_PROFILE_STORAGE_DIAGNOSTICS_DIR':str(self.root),'UNDERLAY_PROFILE_EFFIGY_SOURCE':str(self.root)}
-                with patch.dict(os.environ,env,clear=True),patch.object(module,'require_effigy_binary',return_value=str(tools[0])),patch.object(module.REFERENCE,'reference_source',return_value=self.root),patch.object(module.RUNTIME,'mktemp_root',return_value=fixture),patch.object(module,'selected_tools',return_value=tuple(tools)),patch.object(module.RUNTIME,'fixed_default_ports_available',side_effect=AssertionError('native query forbidden')),patch.object(module.RUNTIME,'run',side_effect=AssertionError('runtime forbidden')):
+                with patch.object(route,'OWNER_RECEIPT',str(self.root/'missing-source-receipt')),patch.dict(os.environ,env,clear=True),patch.object(module,'require_effigy_binary',return_value=str(tools[0])),patch.object(module.REFERENCE,'reference_source',return_value=self.root),patch.object(module.RUNTIME,'mktemp_root',return_value=fixture),patch.object(module,'selected_tools',return_value=tuple(tools)),patch.object(module.RUNTIME,'fixed_default_ports_available',side_effect=AssertionError('native query forbidden')),patch.object(module.RUNTIME,'run',side_effect=AssertionError('runtime forbidden')):
                     with self.assertRaises(Refusal) as caught:module.main()
-                self.assertEqual(str(caught.exception),MISSING)
+                self.assertEqual(str(caught.exception),'route_source_unavailable')
                 self.assertTrue((fixture/'backend-intent.json').is_file())
                 self.assertTrue((fixture/'backend-prepared.json').is_file())
                 self.assertFalse((fixture/'lima-home'/'colima-effigy').exists())
