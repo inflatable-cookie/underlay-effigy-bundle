@@ -1203,3 +1203,77 @@ independent teardown, dev:test and default Silo container acceptance remain
 unqualified on these inputs. Further source/receipt diagnosis must preserve the
 native bounded failure and unknown command evidence before any new execution
 selection; no post-effect source correction or timer change supplies acceptance.
+
+### Routing-guard transport evidence boundary
+
+The exported hybrid and disposable-test launchers share `_start_profile` →
+`_bootstrap_silo` → `evaluate_guard` → `finite_shell`. Each bootstrap checks the
+server and then the client before alias, readiness, bucket, permission or CORS
+commands. The client wrapper binds and exports `HOME=/root` before the guard;
+the guard itself uses shell assignments, `test` and `printf`, with no MC call,
+network request or polling loop. False predicates are collected before semantic
+refusal, rather than making the transport time out. This describes the command
+body, not the preceding login-shell initialization or transport completion.
+
+Closed observations distinguish the following cases. All use the unchanged
+8,000 ms native deadline and 65,536/16,384-byte stdout/stderr limits.
+
+| Observation | Retained evidence | Supported conclusion |
+| --- | --- | --- |
+| Main client guards | Two completions; each one attempt, two preparation captures, inner/outer exit zero, 701-byte framed region, all predicates agree | Those calls passed the client input and guard contracts. |
+| First-worktree client guards | Two completions with the same attempt/capture/exit/framing results | Those calls passed; this does not certify a later call. |
+| Second-worktree earlier client guard | One completion with the same results | The same worktree had passed before its later refusal; a permanently invalid predicate is not established. |
+| Second-worktree later client guard | One attempt, two completed preparation captures, `deadline`/`command_execution`; host capture complete, exit one, 1,163 stdout bytes and zero stderr | The native operation refused. Inner execution, predicates and completion remain unknown. |
+
+At qualified Effigy source `77d22adcbdbca20752720d6671310f13894d219f`,
+`command_execution` labels the whole resolved Compose invocation. The supported
+Colima path runs the host Colima client through nerdctl Compose, selecting the
+policy's files/project and service, then `exec -T … sh -lc` with the shared PATH
+prefix and command body. It does not rerun the image entrypoint. The native
+absolute deadline starts before discovery, spans preparation and execution,
+and is never reset for final drain. The reader waits for both stream-completion
+outcomes before reaping the leader and returning its status. A deadline can
+therefore cover dispatch, shell initialization/execution, transport waiting or
+an inherited pipe writer after leader exit; its phase alone separates none of
+these. One recorded attempt means dispatch accounting began, not proof that
+the remote shell reached its first statement. No fallback was recorded.
+
+The failed call reports cumulative retained counts equal to its completed
+preparation counts: 1,940 stdout and 588 stderr bytes. In the reviewed source,
+`BoundedCommandBudget::run_command` adds capture bytes only after a successful
+capture result. A failed command's buffered bytes are not added to those totals.
+Equality with preparation counts thus does **not** prove zero command output,
+no shell execution or absence of a partial marker. The failure schema omits
+command bytes deliberately. The bundle refuses before HOME/marker/predicate
+decoding, preserving that privacy boundary. Its separate ten-second host
+collector completed with the native error envelope; a host-collector timeout
+is not the recorded failure.
+
+The retained selected-image receipt identifies the pinned server/client
+platform manifests, OCI entrypoints and executable interface observations.
+It does not provide the exact image `/bin/sh` implementation, login-profile
+contents or init behavior for this refusal. Those bytes were not found among
+the admitted closed fixture/source files; no live inspection or reconstruction
+fills that gap. Declared image/configuration identity is not evidence of the
+failed shell's initialization, effective environment or process settlement.
+No historical malformed-process input recurrence, load, network, predicate,
+crypto or generic core cause is established. Remote cancellation and exact
+group/socket/route absence remain unverified.
+
+The smallest proposed next scope is generic, secret-free native refusal
+accounting: one operation clock; preparation and attempt elapsed/remaining
+budget; spawn reached; bounded per-stream byte counts and EOF/read/overflow
+state; and safely observed direct-child state before owned termination. Keep
+failed bytes, argv, environment and arbitrary errors omitted, and distinguish
+unavailable observations explicitly. Do not reap early merely to obtain a
+status or use diagnostics as signal/cleanup authority. Controlled transport
+proofs should distinguish pre-spawn expiry, pending execution, completed leader
+with inherited writer, partial output and completed transport under the same
+eight-second bound. The bundle would then strictly project those supported
+fields through `finite_shell`, both profile callers and storage-correlation
+callers, with missing/unknown/duplicate/privacy/capture refusal controls.
+Selected-image shell/login-init provenance remains a separate required input
+before any image-specific explanation. This is an owning proposal, not an
+implemented API, a demonstrated transport defect or execution permission;
+predicate edits, timer increases and remote mutation replay have no evidence
+basis here.
