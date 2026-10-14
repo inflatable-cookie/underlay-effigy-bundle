@@ -1677,3 +1677,13 @@ ambiguity refuses. The 128KiB sticky budget and file identity guards remain.
 A 24KiB cleanup reserve is assigned before effects; entering cleanup preserves
 the same byte counter and stream and cannot clear an existing refusal. Retained
 producer round-trip controls are source evidence, never runtime or cleanup credit.
+
+The encoded journal has also preserved a failed-start cleanup phase and its
+scoped-down exit without exhausting the fixed budget. That is evidence of
+diagnostic publication, not product cleanup. A managed listener report that its
+child identity is unavailable with ESRCH supplies no independently verified
+child/group settlement. Missing front/admin logs or absent startup observations
+are not absence proofs. A successful earlier configured check does not diagnose
+the later child failure or qualify its host build. Such ownership uncertainty
+stops relaunch and retains the original scope; no compiler/core cause, retry or
+VM-stop authority is inferred from it.

@@ -378,3 +378,6 @@ Qualification evidence uses a bounded lossless stream of complete already typed
 records. The same 128KiB journal retains its original identity, ordering and sticky
 guard, with 24KiB reserved before effects for cleanup evidence. Decoding restores
 original fields and clocks; partial, reordered or oversized records refuse.
+An admitted journal does not resolve managed-child ownership failures. A startup
+reporting an unavailable child identity leaves kernel-bound settlement and
+independent cleanup unproven, even when a later scoped down returns zero.
