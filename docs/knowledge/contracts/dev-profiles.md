@@ -1167,11 +1167,15 @@ three-instance/application/lifecycle/default-container acceptance.
 ### Accepted auth boundary and native bootstrap refusal
 
 With the corrected decoder and writer checks, actual registration and login
-returned valid sessions at 7,694 ms and 8,309 ms under the unchanged 20-second
-policy. Registration's post snapshot took 1 ms with login instrumentation
-explicitly not applicable. Login's post snapshot took under 1 ms, parsed all 26
+produced HTTP-valid observations at 7,694 ms and 8,309 ms; private response
+return was then admitted by the post-emission check under the unchanged
+20-second policy. Registration's post snapshot recorded 1 ms before publication
+with login instrumentation explicitly not applicable. Login's post snapshot
+recorded 0 ms before publication and parsed all 26
 source-supported observations, retained the last 16 with ten declared omissions,
-and observed verification, join and handler success. Main media initiation,
+and observed verification, join and handler success. Both whole post-window
+checks passed after emission within their separate three-second allowance;
+the recorded snapshot timings exclude final emission. Main media initiation,
 presigned upload, server-digest finalisation, signed read and delete passed.
 These observations provide functional evidence, not a latency maximum or a
 historical CPU/load explanation.
