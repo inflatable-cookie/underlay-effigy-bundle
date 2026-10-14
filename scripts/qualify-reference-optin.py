@@ -24,6 +24,8 @@ from urllib.parse import urlsplit
 from datetime import datetime
 
 from qualification_runtime import require_effigy_binary
+from reference_compile_capture import capture as capture_compile
+import qualification_batch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -642,6 +644,26 @@ def install_reference_auth_trace_fixture(
         )
         diagnostics.append("reference_auth_fixture_patched", **receipt)
     return receipt
+
+
+def capture_reference_compile(effigy, checkout, env, patch_receipt, diagnostics):
+    result = capture_compile(
+        [effigy, "--repo", str(checkout / "apps/acme-api"), "check"],
+        cwd=checkout / "apps/acme-api", env=env,
+        timeout=qualification_batch.cap(900),
+    )
+    append_diagnostic_best_effort(
+        diagnostics, "reference_auth_fixture_compile",
+        selector="acme-api/check", capture=result,
+        reference_source_commit=patch_receipt["reference_source_commit"],
+        patch_sha256=patch_receipt["patch_sha256"],
+        cargo_lock_sha256=patch_receipt["cargo_lock_sha256"],
+    )
+    if (result["exit"] != 0 or result["refusal"] is not None
+            or not result["identity_admitted"] or not result["leader_reaped"]
+            or not all(result[name]["eof"] for name in ("stdout", "stderr"))):
+        raise RuntimeError("instrumented disposable Reference auth fixture compile failed")
+    return result
 
 
 def record_reference_auth_build_identity(
@@ -1995,7 +2017,7 @@ def verify_disposable_action(checkout, env, foreign, service_observer):
     qualification_cleanup.require_product_cleanup(proof)
     proof['action_exit']=None if action_unknown else result.returncode
     proof['qualification_sources']={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
+                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','reference_compile_capture.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
     qualification_cleanup.write_private(root/'absence.json',root,proof)
     if action_unknown:raise qualification_cleanup.CleanupUnknown('configured_action_unknown')
     if result.returncode!=0:raise qualification_cleanup.CleanupUnknown('configured_action_failed')
@@ -2095,7 +2117,7 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py")},
                            effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",
@@ -2167,20 +2189,9 @@ def main() -> int:
     attempt_succeeded = False
     try:
         if not remaining_lifecycle:
-            compile_result = RUNTIME.run(
-                [EFFIGY, "--repo", str(checkouts[0] / "apps/acme-api"), "check"],
-                cwd=checkouts[0] / "apps/acme-api", env=runtime_env,
-                timeout=900, expected=None, print_output=False,
+            capture_reference_compile(
+                EFFIGY, checkouts[0], runtime_env, auth_patch_receipt, diagnostics,
             )
-            append_diagnostic_best_effort(
-                diagnostics, "reference_auth_fixture_compile",
-                selector="acme-api/check", exit=compile_result.returncode,
-                reference_source_commit=auth_patch_receipt["reference_source_commit"],
-                patch_sha256=auth_patch_receipt["patch_sha256"],
-                cargo_lock_sha256=auth_patch_receipt["cargo_lock_sha256"],
-            )
-            if compile_result.returncode != 0:
-                raise RuntimeError("instrumented disposable Reference auth fixture compile failed")
         from formatter_provenance import bind_host, bound_colima, observe, version_arguments
         bind_host(runtime_env)
         version_arguments(runtime_env,fixture_root)

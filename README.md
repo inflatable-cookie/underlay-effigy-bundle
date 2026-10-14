@@ -341,5 +341,8 @@ after construction still refuse, and the ready wrapper checks the original root
 context instead of rebuilding or stripping it.
 
 Reference acceptance also requires its instrumented API compile to pass before
-backend startup. A failed compile stops the attempt; assembly and private vault
+backend startup. Bounded compile capture records stream counts, framing, safe diagnostic categories
+and Rust error codes without raw compiler payloads. The pinned Reference dependencies
+use SSH; a fresh Cargo cache can require authentication that the isolated child
+environment does not inherit. A failed compile stops the attempt; assembly and private vault
 checks alone provide no runtime or cleanup acceptance.

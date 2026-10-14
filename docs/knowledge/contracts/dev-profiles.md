@@ -1555,7 +1555,20 @@ cancellation or cleanup authority.
 The Reference qualifier runs its instrumented `acme-api/check` once before
 private backend startup. A task-command failure halts acceptance; successful
 assembly, private vault initialization and scope/host-map plans do not replace
-that compile. The retained compile observation includes exit status and source,
-patch and lockfile hashes, with compiler output omitted. If the completed task
-record supplies only the command-failure family, the compiler cause remains
-unknown and must not be attributed to environment, dependencies or Effigy.
+that compile. Compile capture retains at most 262144 bytes per stream privately in memory,
+then publishes only closed categories, Rust diagnostic codes and validated
+repository-relative Rust locations, alongside counts, EOF, exit and direct-child
+identity/reaping observations. Raw compiler messages, source lines, URLs, argv
+and environment values are omitted. A nonzero exit, incomplete framing, overflow,
+unknown identity or unsettled leader prevents compile credit. Reaping the host
+leader does not prove compiler group absence. The normal qualifier retains its
+900-second compile limit; a separately authorized diagnostic uses 600 seconds
+and at most two Cargo build jobs.
+
+Reference's pinned Cargo dependencies use SSH Git URLs. A fresh private Cargo
+home can fail dependency fetching with SSH authentication errors before rustc
+produces a diagnostic. Private invocation isolation excludes the operator SSH
+agent; it does not grant credential access, dependency URL changes or permission
+to populate a cache from unrelated held resources. That failure needs an admitted
+build-input solution before product startup. Historical exit-only observations
+remain unknown and are not retroactively assigned this cause.

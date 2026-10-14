@@ -133,3 +133,7 @@ run_in = "host"
 [tasks."proof:dev-profiles:original-route-caller-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/original_container_route_test.py RouteControls.test_actual_default_entry_semantic_policy_precedes_foreign_hold_and_effects"
 run_in = "host"
+
+[tasks."proof:dev-profiles:compile-capture-controls"]
+run = "python3 scripts/reference_compile_capture_test.py"
+run_in = "host"
