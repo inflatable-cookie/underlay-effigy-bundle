@@ -835,7 +835,7 @@ class ListenerSnapshotTests(unittest.TestCase):
                     self.validate(helper)
                 self.assertEqual(self.rows()[-1]["outcome"], "validation_rejected")
 
-    def test_only_diagnostic_read_substitutions_match_retained_function(self):
+    def test_scope_extension_refuses_retained_function_reuse(self):
         import subprocess
         for filename, name in (("qualify-reference-optin.py", "listener_state"),
                                ("qualify-reference-profiles.py", "managed_listener_state")):
@@ -844,9 +844,15 @@ class ListenerSnapshotTests(unittest.TestCase):
                                       check=True, capture_output=True, text=True, timeout=15).stdout
             current = Path(__file__).with_name(filename).read_text()
             digest = optin._source_function_sha256(baseline, name)
-            self.assertEqual(digest, optin._source_function_sha256(current, name))
+            current_digest = optin._source_function_sha256(current, name)
+            if filename == "qualify-reference-optin.py":
+                # The explicit disposable scope is a changed qualification input,
+                # not diagnostic-only substitution or historical runtime credit.
+                self.assertNotEqual(digest, current_digest)
+            else:
+                self.assertEqual(digest, current_digest)
             weakened = current.replace('state.get("status") != "ready"', 'state.get("status") != "starting"')
-            self.assertNotEqual(digest, optin._source_function_sha256(weakened, name))
+            self.assertNotEqual(current_digest, optin._source_function_sha256(weakened, name))
 
     def test_service_logs_are_unavailable_without_finite_backend_capture(self):
         with patch.object(optin.RUNTIME,'run',side_effect=AssertionError('backend effect forbidden')) as run:

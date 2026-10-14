@@ -1,0 +1,75 @@
+"""Private qualification action wrapper; no product selector or supervisor."""
+import importlib.util
+import os
+from pathlib import Path
+import sys
+import qualification_cleanup as cleanup
+
+
+def load_qualifier():
+    path=Path(__file__).with_name('qualify-reference-optin.py')
+    spec=importlib.util.spec_from_file_location('cleanup_qualifier',path)
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    return module
+
+
+class ListenerObserver:
+    def __init__(self, qualifier, checkout, env, container="disposable_test", profile="test"):
+        self.q=qualifier;self.checkout=checkout;self.env=env;self.container=container;self.profile=profile
+    def match_role(self,state,role):return self.q.pending_start_identity.match_role(state,role)
+    def kernel_identity(self,pid):return self.q.pending_start_identity.kernel_identity(pid)
+    def boot_identity(self):return self.q.pending_start_identity.boot_identity()
+    def group_members(self,pid):return self.q.pending_start_identity.group_members(pid)
+    def socket_pids(self,address):
+        return sorted(x['pid'] for x in self.q.RUNTIME.socket_snapshot(address)['listening_pids'])
+    def address_accepts(self,address):return self.q.RUNTIME.address_accepts_connection(address)
+    def gateway(self):
+        return self.q.RUNTIME.gateway_json(self.q.EFFIGY,self.env,self.q.profile_root(self.checkout,self.profile),'status')
+    def routes(self):
+        gateway=self.gateway()
+        if type(gateway.get('routes')) is not list or type(gateway.get('running')) is not bool:
+            raise cleanup.CleanupUnknown('gateway_observation_unknown')
+        routes=gateway['routes']
+        if any(type(x) is not dict or not isinstance(x.get('domain'),str) or not isinstance(x.get('target'),str) for x in routes):
+            raise cleanup.CleanupUnknown('gateway_route_schema')
+        if len({x['domain'] for x in routes})!=len(routes):
+            raise cleanup.CleanupUnknown('gateway_route_duplicate')
+        return routes
+    def route_matches(self,state):
+        routes=self.routes();matches=[x for x in routes if x.get('domain')==state['route_domain']]
+        return len(matches)==1 and matches[0].get('target')==state['address']
+    def route_absent(self,state):
+        return not any(x.get('domain')==state['route_domain'] for x in self.routes())
+    def capture(self):
+        states={name:self.q.listener_state(self.checkout,name,self.env,container=self.container)[1]
+                for name in ('api','front','admin')}
+        return cleanup.capture(states,self)
+
+
+def main():
+    # Only a fixture-owned checkout and a new private receipt directory are admitted.
+    if len(sys.argv)!=3:raise cleanup.CleanupUnknown('wrapper_arguments')
+    checkout=Path(sys.argv[1]).resolve(strict=True);root=Path(sys.argv[2]).resolve(strict=True)
+    if not (checkout/'.git').exists() or not root.is_relative_to(checkout):
+        raise cleanup.CleanupUnknown('fixture_boundary')
+    info=root.stat()
+    if info.st_uid!=os.geteuid() or info.st_mode&0o777!=0o700:
+        raise cleanup.CleanupUnknown('receipt_root')
+    q=load_qualifier();q.EFFIGY=q.require_effigy_binary();env=dict(os.environ)
+    observer=ListenerObserver(q,checkout,env)
+    def save(record):
+        name='pending.json' if record['action']=='pending' else 'completed.json'
+        cleanup.write_private(root/name,root,record)
+    def action():
+        # The fixed original Reference selector is dispatched exactly once with inherited
+        # profile environment and the original 900s configured qualification bound.
+        return q.RUNTIME.run([q.EFFIGY,'--repo',str(checkout),'acme-api/test'],cwd=checkout,
+                             env=env,timeout=900,expected=None,print_output=False).returncode
+    return cleanup.action_once(observer.capture,action,save)
+
+
+if __name__=='__main__':
+    try:sys.exit(main())
+    except BaseException:
+        # Never publish exception, child output, arguments or environment.
+        sys.stderr.write('qualification_cleanup_action_refused\n');sys.exit(1)

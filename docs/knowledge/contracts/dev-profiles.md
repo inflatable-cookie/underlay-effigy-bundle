@@ -1306,16 +1306,29 @@ state, exact boot/start/group identity and the generation-bound barrier before
 signaling; completed, failed or unavailable observations grant no interruption
 or cleanup credit.
 
-There are remaining qualification evidence boundaries. The `dev:test` qualifier
-currently observes post-action service/gateway inventory without retaining a
-pre-cleanup disposable-listener ownership baseline. The default-container
-qualifier derives its `cleanup_verified` field from successful scoped down and
-inventory observations. These observations do not satisfy independent exact
-child/group/socket/route absence or unchanged foreign/sibling identity. Neither
-field supplies the mandatory cleanup acceptance gate. Future qualification must
-capture the owned baseline before cleanup and independently compare the exact
-resources afterward, holding uncertainty without inferring release from empty
-inventory or a successful down command.
+The qualification-only `dev:test` action wrapper dispatches the original
+`acme-api/test` selector once with its existing 900-second bound and inherited
+profile environment. It records a private immutable baseline before dispatch,
+checks the same baseline before returning to launcher cleanup, and restores the
+fixture manifest afterward. Independent post-action observation requires exact
+boot/start-microsecond child, supervisor and listener identities, retained group
+members, absent groups/sockets/routes and unchanged independently captured
+sibling identities plus HTTPS routes. An action error and unknown cleanup are
+separate outcomes. Missing, reused or unreadable identities refuse credit;
+empty inventories and stopped/failed state labels supply no absence proof.
+These helpers are qualification assets, not exported product hooks or another
+supervisor. Their source hashes accompany fresh qualification inputs.
+
+The default-container qualifier now always withholds `cleanup_verified` on the
+currently admitted observation surface. Its pre-down boundary records the
+missing immutable-container-identity observation explicitly. Effigy status.v1
+exposes names, status and ports, not full immutable container IDs; its Compose
+capture also lacks the finite framing/capture qualification required for this
+proof. A supported bounded independent observation of exact owned container
+IDs, scope/project/service identity and foreign preservation is needed before
+container cleanup can be certified. A successful down command or empty late
+inventory cannot substitute. No provider API is guessed and no VM, image or
+volume retirement follows from host-listener absence.
 
 Generic refusal-accounting candidate interfaces require their owning reviewed
 source/API/artifact handover before integration and admission. The current

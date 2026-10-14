@@ -247,9 +247,14 @@ def main() -> int:
         run([effigy,'--repo',str(checkout),'silo:reconcile'],cwd=checkout,env=runtime_env,timeout=180)
         print('PASS private Reference default container build/startup and production Silo bootstrap',flush=True)
     except Exception as error:
-        failure = f"{type(error).__name__}: {error}"
+        failure = type(error).__name__
         print(f"REFERENCE DEFAULT-CONTAINER QUALIFICATION BLOCKED: {failure}", flush=True)
     finally:
+        # The admitted status.v1 surface has names/status/ports but no full immutable
+        # IDs or independently bounded absence observation. Preserve uncertainty before down.
+        receipts["cleanup_baseline"] = {"status": "unavailable",
+            "reason": "immutable_container_identity_surface_unqualified",
+            "independent_absence_verified": False}
         if checkout is not None and stack_attempted:
             try:
                 down = effigy_json(effigy, checkout, runtime_env, "container", "down", "--json", timeout=600)
@@ -264,9 +269,8 @@ def main() -> int:
                 if active:
                     raise RuntimeError("private default container stack scoped shutdown is uncertain")
             except Exception as error:
-                receipts["cleanup"].append({"container_cleanup_error": f"{type(error).__name__}: {error}"})
-        cleanup_verified = bool(checkout is not None and stack_attempted and not any(
-            item.get('container_cleanup_error') for item in receipts['cleanup']))
+                receipts["cleanup"].append({"container_cleanup_error": type(error).__name__})
+        cleanup_verified = False  # down success and empty inventories are not identity evidence.
         if profile_started and checkout is not None:
             try:
                 inventory_result = json.loads(run(

@@ -47,6 +47,8 @@ from silo_fixture import CLIENT_IMAGE, IMAGE, RELEASE, prepare_published_images 
 from reference_storage_probe import StorageDiagnosticJournal  # noqa: E402
 import listener_snapshot  # noqa: E402
 import transition_snapshot
+import qualification_cleanup
+from qualification_cleanup_action import ListenerObserver
 import pending_start_identity  # noqa: E402
 from listener_snapshot import observed, read_document  # noqa: E402
 
@@ -777,8 +779,11 @@ def listener_state(
     name: str,
     env: dict[str, str],
     effective_routes: dict[str, str] | None = None,
+    container: str = "hybrid_services",
 ) -> tuple[Path, dict]:
-    path = checkout / ".effigy/runtime/host-processes/hybrid_services/effigy" / f"{name}.listener.json"
+    if container not in ("hybrid_services", "disposable_test"):
+        raise RuntimeError("unsupported qualification listener scope")
+    path = checkout / f".effigy/runtime/host-processes/{container}/effigy" / f"{name}.listener.json"
     state = read_document(path, checkout, name, "listener_state", "state")
     if state.get("status") != "ready" or not state.get("route_owner"):
         raise RuntimeError(f"production profile listener {name} is not owned and ready")
@@ -1844,6 +1849,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                     "foreign_survivors": [str(path) for path in foreign_before],
                     "exact_identity_and_https_checks": True,
                 }
+                receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before)
                 for index, checkout in enumerate(checkouts[1:], start=1):
                     before_states = app_records[checkout]
                     selector(checkout, "dev:hybrid:down", env)
@@ -1862,6 +1868,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                 for checkout, before_states in foreign_before.items():
                     _verify_live(checkout, before_states, env)
                 receipts["foreign_survivors_after_main_down"] = [str(path) for path in foreign_before]
+                receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before)
                 for checkout in checkouts[1:]:
                     selector(checkout, "dev:hybrid:down", env)
                     receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid:down", "exit": 0})
@@ -1874,58 +1881,6 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                 receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid:down", "exit": 0})
                 _verify_stopped(checkout, app_records[checkout], env)
 
-            test_checkout = main
-            selector(test_checkout, "dev:test", env, timeout=5400)
-            receipts["production_selectors"].append({"checkout": str(test_checkout), "selector": "dev:test", "exit": 0,
-                                                      "configured_task": "acme-api/test", "timeout_secs": 900})
-            test_status = effigy_json(test_checkout, env, "container", "disposable_test", "status", "--json")
-            active = [service.get("name") for service in test_status.get("services", [])
-                      if str(service.get("status", "")).lower() in {"up", "running", "created", "restarting"}]
-            test_gateway = RUNTIME.gateway_json(EFFIGY, env, profile_root(test_checkout, "test"), "status")
-            if active or test_gateway.get("running") or test_gateway.get("routes"):
-                raise RuntimeError(f"dev:test did not clean its disposable profile: services={active} gateway={test_gateway}")
-            receipts["dev_test_cleanup"] = {"services_active": active, "gateway_running": False, "routes": []}
-            selector(test_checkout, "dev:test:status", env)
-            selector(test_checkout, "dev:test:down", env)
-            receipts["production_selectors"].extend([
-                {"checkout": str(test_checkout), "selector": "dev:test:status", "exit": 0},
-                {"checkout": str(test_checkout), "selector": "dev:test:down", "exit": 0},
-            ])
-            manifest_path = test_checkout / "effigy.toml"
-            manifest = manifest_path.read_text(encoding="utf-8")
-            profile_pattern = r'(?m)^profiles = \{(?=[^\n]*enabled = true)[^\n]*test_task = "acme-api/test", test_timeout_secs = 900[^\n]*\}$'
-            profile_input, count = re.subn(
-                profile_pattern,
-                lambda match: match.group(0).replace(
-                    'test_task = "acme-api/test", test_timeout_secs = 900',
-                    'test_task = "qualification:profile-interrupt", test_timeout_secs = 2',
-                ),
-                manifest,
-                count=1,
-            )
-            if count != 1:
-                raise RuntimeError("could not configure the bounded disposable interruption selector")
-            profile_input += (
-                '\n\n[tasks."qualification:profile-interrupt"]\n'
-                'run = "sleep 30"\nrun_in = "host"\n'
-            )
-            manifest_path.write_text(profile_input, encoding="utf-8")
-            interrupted = RUNTIME.run([EFFIGY, "--repo", str(test_checkout), "dev:test"],
-                                      cwd=test_checkout, env=env, timeout=5400,
-                                      expected=None, print_output=False)
-            if interrupted.returncode == 0:
-                raise RuntimeError("the bounded disposable interruption selector unexpectedly succeeded")
-            interrupted_status = effigy_json(test_checkout, env, "container", "disposable_test", "status", "--json")
-            interrupted_active = [service.get("name") for service in interrupted_status.get("services", [])
-                                  if str(service.get("status", "")).lower() in {"up", "running", "created", "restarting"}]
-            interrupted_gateway = RUNTIME.gateway_json(EFFIGY, env, profile_root(test_checkout, "test"), "status")
-            if interrupted_active or interrupted_gateway.get("running") or interrupted_gateway.get("routes"):
-                raise RuntimeError("timed-out dev:test action did not clean its exact disposable profile")
-            receipts["bounded_action_interruption"] = {
-                "selector": "qualification:profile-interrupt", "timeout_secs": 2,
-                "dev_test_exit": interrupted.returncode, "services_active": interrupted_active,
-                "gateway_running": False, "routes": [],
-            }
 
         return receipts
     finally:
@@ -1980,6 +1935,55 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                     selector="dev:hybrid:down", exception_type=type(error).__name__)
                 raise RuntimeError(f"production profile cleanup is held for {checkout}: {error}") from error
 
+
+
+def verify_disposable_action(checkout, env, foreign):
+    import tempfile
+    import shlex
+    import sys as interpreter
+    if len(foreign)!=2:
+        raise qualification_cleanup.CleanupUnknown('foreign_baseline_missing')
+    foreign_observers={}
+    foreign_baselines={}
+    for sibling,states in foreign.items():
+        _verify_live(sibling,states,env)
+        observer=ListenerObserver(sys.modules[__name__],sibling,env,container="hybrid_services",profile="hybrid")
+        foreign_observers[sibling]=observer;foreign_baselines[sibling]=observer.capture()
+    root=Path(tempfile.mkdtemp(prefix='qualification-cleanup-',dir=checkout))
+    root.chmod(0o700)
+    manifest_path=checkout/'effigy.toml';original=manifest_path.read_text()
+    pattern=r'(?m)^profiles = \{(?=[^\n]*enabled = true)[^\n]*test_task = "acme-api/test", test_timeout_secs = 900[^\n]*\}$'
+    changed,count=re.subn(pattern,lambda m:m.group(0).replace('test_task = "acme-api/test"','test_task = "qualification:cleanup-action"'),original,count=1)
+    if count!=1:raise qualification_cleanup.CleanupUnknown('configured_action_shape')
+    command=shlex.join([interpreter.executable,str(SCRIPTS/'qualification_cleanup_action.py'),str(checkout),str(root)])
+    changed+='\n[tasks."qualification:cleanup-action"]\nrun = '+json.dumps(command)+'\nrun_in = "host"\n'
+    manifest_path.write_text(changed)
+    action_unknown=False
+    try:
+        result=RUNTIME.run([EFFIGY,'--repo',str(checkout),'dev:test'],cwd=checkout,env=env,
+                           timeout=5400,expected=None,print_output=False)
+    except Exception:
+        action_unknown=True;result=None
+    finally:manifest_path.write_text(original)
+    # Pending evidence survives action errors; action outcome and cleanup are independent.
+    record=qualification_cleanup.read_private(root/'pending.json',root)
+    observer=ListenerObserver(sys.modules[__name__],checkout,env)
+    def foreign_check():
+        for sibling,states in foreign.items():
+            if foreign_observers[sibling].capture()!=foreign_baselines[sibling]:
+                raise qualification_cleanup.CleanupUnknown("foreign_baseline_changed")
+            _verify_live(sibling,states,env)
+    proof=qualification_cleanup.verify_absent(record['baseline'],observer,foreign_check)
+    proof['action_exit']=None if action_unknown else result.returncode
+    proof['qualification_sources']={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
+                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py')}
+    qualification_cleanup.write_private(root/'absence.json',root,proof)
+    if action_unknown:raise qualification_cleanup.CleanupUnknown('configured_action_unknown')
+    if result.returncode!=0:raise qualification_cleanup.CleanupUnknown('configured_action_failed')
+    complete=qualification_cleanup.read_private(root/'completed.json',root)
+    if complete['baseline']!=record['baseline'] or complete['action']!='passed':
+        raise qualification_cleanup.CleanupUnknown('action_completion_unknown')
+    return proof
 
 def _verify_live(checkout: Path, states: dict[str, dict], env: dict[str, str]) -> None:
     root, port, gateway = gateway_context(checkout, env)
@@ -2068,6 +2072,8 @@ def main() -> int:
     if diagnostics is not None:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
+                           cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py")},
                            effigy_source="77d22adcbdbca20752720d6671310f13894d219f",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938",
@@ -2200,6 +2206,8 @@ def main() -> int:
         receipt_path = fixture_root / "profile-selector-receipts.json"
         receipt_path.write_text(json.dumps(receipts, indent=2) + "\n", encoding="utf-8")
         receipt_path.chmod(0o600)
+        # Publish partial stage evidence before refusing whole-product credit.
+        qualification_cleanup.require_product_cleanup(receipts.get("dev_test_cleanup"))
         attempt_succeeded = True
         print(f"PASS production opt-in Reference profile selectors; receipt: {receipt_path}", flush=True)
         return 0

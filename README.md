@@ -145,9 +145,13 @@ real command interfaces, native bounds, privacy and independent cleanup remain
 mandatory; this does not change the native login-shell command.
 
 Post-down inventory and gateway observations alone do not prove cleanup.
-The disposable-test and default-container qualification paths still need
-pre-cleanup resource baselines and independent exact absence/foreign-survivor
-verification before their cleanup observations can receive acceptance credit.
+The disposable-test qualification wrapper now captures exact owned listener
+identities before its single configured action returns, then independently checks
+child/group/socket/route absence and unchanged sibling identities. This is source
+and hermetic-control preparation; fresh runtime proof remains required.
+Default-container cleanup stays unverified until a supported bounded immutable
+container-ID observation is qualified. Partial host absence cannot pass the
+whole-product cleanup gate, and no VM/image/volume retirement is inferred.
 
 
 Earlier `0412cc7b` disposable Reference evidence covers production bootstrap, three

@@ -81,3 +81,7 @@ run_in = "host"
 [tasks."proof:dev-profiles:auth-operation-controls"]
 run = "python3 scripts/auth_operation_test.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:cleanup-contract-tests"]
+run = "python3 scripts/qualification_cleanup_test.py"
+run_in = "host"
