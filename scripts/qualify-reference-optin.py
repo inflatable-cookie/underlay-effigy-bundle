@@ -1667,9 +1667,9 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                         "reference_checkout": str(checkout),
                         "reference_commit": reference_commit,
                         "auth_fixture": auth_patch_receipt or {},
-                        "effigy_source": "77d22adcbdbca20752720d6671310f13894d219f",
+                        "effigy_source": "bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                         "effigy_binary": str(Path(EFFIGY).resolve()),
-                        "effigy_binary_sha256": "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938",
+                        "effigy_binary_sha256": "2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",
                         "checkout_generation": states["api"].get("runtime_generation"),
                         "listeners": {
                             name: {key: state.get(key) for key in
@@ -1786,7 +1786,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                 except UncertainProfileOwnership as error:
                     held_for_uncertain_owner = True
                     receipts["owner_uncertainty"] = {
-                        "status": "held", "reason": str(error)[:600],
+                        "status": "held", "reason": "ownership_or_operation_unknown",
                         "checkout": str(main), "stage": "interruption_recovery",
                         "cleanup_authorized": False,
                     }
@@ -1818,7 +1818,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                 except UncertainProfileOwnership as error:
                     held_for_uncertain_owner = True
                     receipts["owner_uncertainty"] = {
-                        "status": "held", "reason": str(error)[:600],
+                        "status": "held", "reason": "ownership_or_operation_unknown",
                         "checkout": str(main), "stage": "partial_failure",
                         "cleanup_authorized": False,
                     }
@@ -1856,8 +1856,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                 # Original context and foreign witnesses precede the test selector.
                 # Live owned service IDs must be captured inside the ready action
                 # wrapper and handed back immutably before selector teardown.
-                raise container_identity_observer.Refusal('disposable_service_baseline_handoff_missing')
-                receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before)
+                receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before, service_observer)
                 for index, checkout in enumerate(checkouts[1:], start=1):
                     before_states = app_records[checkout]
                     selector(checkout, "dev:hybrid:down", env)
@@ -1881,8 +1880,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                 # Original context and foreign witnesses precede the test selector.
                 # Live owned service IDs must be captured inside the ready action
                 # wrapper and handed back immutably before selector teardown.
-                raise container_identity_observer.Refusal('disposable_service_baseline_handoff_missing')
-                receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before)
+                receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before, service_observer)
                 for checkout in checkouts[1:]:
                     selector(checkout, "dev:hybrid:down", env)
                     receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid:down", "exit": 0})
@@ -1943,7 +1941,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                     selector="dev:hybrid:down", exit=0)
             except BaseException as error:
                 receipts["cleanup"].append({"checkout": str(checkout), "selector": "dev:hybrid:down",
-                                            "held": True, "error": str(error)[:600]})
+                                            "held": True, "error": "cleanup_unavailable"})
                 append_diagnostic_best_effort(
                     diagnostics, "cleanup_failed", checkout=str(checkout),
                     selector="dev:hybrid:down", exception_type=type(error).__name__)
@@ -1951,7 +1949,8 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
 
 
 
-def verify_disposable_action(checkout, env, foreign):
+def verify_disposable_action(checkout, env, foreign, service_observer):
+    import service_baseline_handoff as services
     import tempfile
     import shlex
     import sys as interpreter
@@ -1971,6 +1970,7 @@ def verify_disposable_action(checkout, env, foreign):
     if count!=1:raise qualification_cleanup.CleanupUnknown('configured_action_shape')
     command=shlex.join([interpreter.executable,str(SCRIPTS/'qualification_cleanup_action.py'),str(checkout),str(root)])
     changed+='\n[tasks."qualification:cleanup-action"]\nrun = '+json.dumps(command)+'\nrun_in = "host"\n'
+    association_stamp=services.prepare(service_observer,root,manifest_path,changed.encode())
     manifest_path.write_text(changed)
     action_unknown=False
     try:
@@ -1988,9 +1988,13 @@ def verify_disposable_action(checkout, env, foreign):
                 raise qualification_cleanup.CleanupUnknown("foreign_baseline_changed")
             _verify_live(sibling,states,env)
     proof=qualification_cleanup.verify_absent(record['baseline'],observer,foreign_check)
+    service_proof=services.accept(service_observer,root,association_stamp)
+    proof['container_cleanup_verified']=service_proof['container_cleanup_verified']
+    proof['service_absence']=service_proof
+    qualification_cleanup.require_product_cleanup(proof)
     proof['action_exit']=None if action_unknown else result.returncode
     proof['qualification_sources']={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py')}
+                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
     qualification_cleanup.write_private(root/'absence.json',root,proof)
     if action_unknown:raise qualification_cleanup.CleanupUnknown('configured_action_unknown')
     if result.returncode!=0:raise qualification_cleanup.CleanupUnknown('configured_action_failed')
@@ -2087,10 +2091,10 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py")},
-                           effigy_source="77d22adcbdbca20752720d6671310f13894d219f",
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py")},
+                           effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
-                           effigy_binary_sha256="95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938",
+                           effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",
                            selector=("proof:dev-profiles:reference-storage" if storage_only
                                      else "proof:dev-profiles:reference-runtime"),
                            continuation=("remaining_lifecycle" if remaining_lifecycle
@@ -2142,6 +2146,8 @@ def main() -> int:
     REFERENCE.initialize_reference_fixture_secrets(checkouts, runtime_env)
     if not remaining_lifecycle:
         REFERENCE.prove_worktree_plans(checkouts, runtime_env)
+    import qualification_batch
+    qualification_batch.enter("runtime")
     for checkout in checkouts:
         prepared = RUNTIME.run([EFFIGY, "--repo", str(checkout), "workspace:js:prepare"],
                                cwd=checkout, env=runtime_env, timeout=900, print_output=False)
@@ -2220,9 +2226,9 @@ def main() -> int:
                 gateway=RUNTIME.gateway_json(EFFIGY,runtime_env,profile_root(checkout,state_name),"status")
                 if gateway.get("running") or gateway.get("routes"):
                     raise RuntimeError("new private gateway remains held after scoped cleanup")
-        receipts["effigy_source"] = "77d22adcbdbca20752720d6671310f13894d219f"
+        receipts["effigy_source"] = "bd2597693f7c4c9ad786896a9448a7e746ff13a8"
         receipts["effigy_binary"] = str(Path(EFFIGY).resolve())
-        receipts["effigy_binary_sha256"] = "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938"
+        receipts["effigy_binary_sha256"] = "2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59"
         receipts["silo_images"] = image_receipt
         receipts["reference_source"] = str(source)
         diagnostics.assert_admitted()
@@ -2231,6 +2237,7 @@ def main() -> int:
         receipt_path.chmod(0o600)
         # Publish partial stage evidence before refusing whole-product credit.
         qualification_cleanup.require_product_cleanup(receipts.get("dev_test_cleanup"))
+        qualification_batch.passed("runtime",receipt_path)
         attempt_succeeded = True
         print(f"PASS production opt-in Reference profile selectors; receipt: {receipt_path}", flush=True)
         return 0

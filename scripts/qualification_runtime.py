@@ -10,8 +10,8 @@ import subprocess
 from pathlib import Path
 
 
-SUPPORTED_EFFIGY_SOURCE = "77d22adcbdbca20752720d6671310f13894d219f"
-SUPPORTED_EFFIGY_SHA256 = "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938"
+SUPPORTED_EFFIGY_SOURCE = "bd2597693f7c4c9ad786896a9448a7e746ff13a8"
+SUPPORTED_EFFIGY_SHA256 = "2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59"
 
 
 def require_effigy_binary() -> str:
@@ -48,6 +48,12 @@ def require_effigy_binary() -> str:
             f"Effigy source must be {SUPPORTED_EFFIGY_SOURCE}, got {revision}"
         )
 
+    from dev.profile_launcher import SUPPORTED_TREE, SUPPORTED_API
+    tree = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD^{tree}"],
+                          check=True, capture_output=True, text=True, timeout=10).stdout.strip()
+    if tree != SUPPORTED_TREE or any(hashlib.sha256((source/name).read_bytes()).hexdigest() != digest
+                                     for name,digest in SUPPORTED_API.items()):
+        raise RuntimeError("qualified Effigy source tree/public API differs")
     cleanliness = subprocess.run(
         ["git", "-C", str(source), "status", "--porcelain"],
         check=True,

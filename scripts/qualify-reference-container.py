@@ -16,6 +16,7 @@ from pathlib import Path
 from qualification_runtime import require_effigy_binary
 import container_identity_observer
 from fresh_backend_admission import FreshBackend, selected_tools
+from foreign_container_fixture import ForeignFixture
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -33,22 +34,14 @@ RUNTIME_SPEC.loader.exec_module(RUNTIME)
 
 def run(args: list[str], *, env: dict[str, str], cwd: Path | None = None,
         timeout: int = 900, expected: int = 0, output: bool = False, private: bool = False) -> subprocess.CompletedProcess[str]:
-    if not private:print(f"COMMAND: {' '.join(args)}", flush=True)
+    print(f"COMMAND: argc={len(args)}", flush=True)
+    import qualification_batch
+    timeout=qualification_batch.cap(timeout)
     result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True,
                             timeout=timeout, check=False)
     print(f"EXIT: {result.returncode}", flush=True)
-    if output:
-        if result.stdout.strip():
-            print(result.stdout.rstrip(), flush=True)
-        if result.stderr.strip():
-            print(result.stderr.rstrip(), flush=True)
-    else:
-        print(f"OUTPUT: captured stdout={len(result.stdout)} bytes stderr={len(result.stderr)} bytes", flush=True)
-    if result.returncode != expected:
-        if private:raise RuntimeError("native_command_nonzero")
-        detail = RUNTIME.safe_effigy_error(result.stdout) or RUNTIME.safe_effigy_error(result.stderr)
-        raise RuntimeError(f"expected exit {expected}, got {result.returncode}: {' '.join(args)}"
-                           + (f"; {detail}" if detail else ""))
+    print(f"OUTPUT: captured stdout={len(result.stdout.encode())} bytes stderr={len(result.stderr.encode())} bytes", flush=True)
+    if result.returncode != expected:raise RuntimeError("native_command_nonzero")
     return result
 
 
@@ -79,7 +72,7 @@ def services_up(status: dict) -> dict[str, str]:
             for item in status.get("services", []) if isinstance(item, dict)}
 
 
-def independently_observe_container_down(effigy, checkout, runtime_env, receipts, observer):
+def independently_observe_container_down(effigy, checkout, runtime_env, receipts, observer, *, expected_owned=None, expected_foreign=None):
     # A reader is supplied only after original new-backend/read-only association/mounted-cwd/Compose
     # inputs are independently admitted. No late inventory or environment fallback.
     if not isinstance(observer, container_identity_observer.Observer):
@@ -92,6 +85,8 @@ def independently_observe_container_down(effigy, checkout, runtime_env, receipts
     if len(scopes)!=1 or scopes[0]['checkout']!=str(checkout.resolve(strict=True)):
         raise container_identity_observer.Refusal("caller_scope_mismatch")
     before=observer.baseline()
+    if expected_owned is not None and before['owned']!=expected_owned:raise container_identity_observer.Refusal('owned_fixture_replaced')
+    if expected_foreign is not None and before['foreign']!=expected_foreign:raise container_identity_observer.Refusal('foreign_fixture_replaced')
     receipts.append({"container_baseline_observed":True,"binding_sha256":before['binding'],
                      "owned_count":len(before['owned']),"foreign_count":len(before['foreign'])})
     admission=getattr(observer,'original_admission',None)
@@ -144,6 +139,7 @@ def main() -> int:
     gateway_attempted = False
     profile_started = False
     stack_attempted = False
+    foreign_fixture = None
     cleanup_verified = False
     # The strict original admission object owns construction; no late context injection.
     failure: str | None = None
@@ -191,14 +187,15 @@ def main() -> int:
         original_policy=run([effigy,'--json','--repo',str(checkout),'config','--inspect','--path','containers'],cwd=checkout,env=runtime_env,timeout=120,private=True)
         original_scope=run([effigy,'--json','--repo',str(checkout),'container','scope'],cwd=checkout,env=runtime_env,timeout=120,private=True)
         backend_admission.original_policy(checkout,'default',original_policy.stdout.encode(),original_scope.stdout.encode())
-        # A foreign witness cannot be invented from empty late inventory. This actual
-        # default fixture currently has no independently configured foreign service.
-        # Hold before backend/gateway/service effects until that fixture is supplied.
-        raise container_identity_observer.Refusal('default_container_foreign_fixture_recipe_missing')
-
+        foreign_fixture=ForeignFixture(backend_admission)
+        foreign_policy=run([effigy,'--json','--repo',str(foreign_fixture.checkout),'config','--inspect','--path','containers'],env=runtime_env,timeout=120,private=True)
+        foreign_scope=run([effigy,'--json','--repo',str(foreign_fixture.checkout),'container','scope'],env=runtime_env,timeout=120,private=True)
+        backend_admission.original_policy(foreign_fixture.checkout,'default',foreign_policy.stdout.encode(),foreign_scope.stdout.encode())
 
         receipts['backend_admission']=backend_admission.observation_requirements()
 
+        import qualification_batch
+        qualification_batch.enter('container')
         run([effigy,'--repo',str(checkout),'silo:prepare'],cwd=checkout,env=runtime_env,timeout=60)
         run([effigy,'--repo',str(checkout),'silo:admit'],cwd=checkout,env=runtime_env,timeout=60)
         from formatter_provenance import bind_host, bound_colima, observe, version_arguments
@@ -232,6 +229,10 @@ def main() -> int:
         from silo_fixture import prepare_published_images, IMAGE, CLIENT_IMAGE
         prepare_published_images(fixture_root,runtime_env,client_probe=lambda shape:interfaces.client_image_provenance(runtime_env,journal,shape))
         interfaces.image_interfaces(runtime_env,journal,__import__('secrets').token_hex(16))
+        foreign_fixture.start(effigy,runtime_env,effigy_json)
+        foreign_reader=backend_admission.observer_for(foreign_fixture.checkout,runtime_env,foreign_fixture=foreign_fixture)
+        foreign_fixture.baseline=foreign_reader.baseline()
+        receipts["foreign_fixture"]={"original_intent_sha256":foreign_fixture.sha,"owned_count":len(foreign_fixture.baseline["owned"]),"service_health_verified":False}
         stack_attempted = True
         up = effigy_json(effigy, checkout, runtime_env, "container", "up", "--detach", "--json", timeout=5400)
         status = effigy_json(effigy, checkout, runtime_env, "container", "status", "--json", timeout=180)
@@ -299,27 +300,24 @@ def main() -> int:
         if checkout is not None and stack_attempted:
             try:
                 cleanup_verified=independently_observe_container_down(
-                    effigy,checkout,runtime_env,receipts['cleanup'],backend_admission.observer_for(checkout,runtime_env))
+                    effigy,checkout,runtime_env,receipts['cleanup'],backend_admission.observer_for(checkout,runtime_env,foreign_scopes=[(str(foreign_fixture.checkout),"default")]),expected_foreign=foreign_fixture.baseline["owned"])
             except container_identity_observer.Refusal as error:
                 receipts['cleanup'].append({"container_cleanup_verified":False,
                     "reason":str(error),"capture":getattr(error,'evidence',None)})
             except Exception:
                 receipts['cleanup'].append({"container_cleanup_verified":False,
                     "reason":"independent_cleanup_observation_unavailable"})
-        if profile_started and checkout is not None:
+        if cleanup_verified and foreign_fixture is not None and foreign_fixture.up_attempted:
             try:
-                inventory_result = json.loads(run(
-                    [effigy, "container", "status", "--global", "--json"],
-                    env=runtime_env, timeout=120,
-                ).stdout)
-                inventory = inventory_result.get("result") or {}
-                count = inventory.get("environment_count")
-                receipts["cleanup"].append({"global_runtime_environment_count": count})
-                if inventory_result.get("ok") is not True or count != 0:
-                    cleanup_verified = False
-            except Exception as error:
-                receipts["cleanup"].append({"global_runtime_inventory_error": type(error).__name__})
-                cleanup_verified = False
+                reader=backend_admission.observer_for(foreign_fixture.checkout,runtime_env,foreign_fixture=foreign_fixture)
+                before=reader.baseline()
+                if before['owned']!=foreign_fixture.baseline['owned']:
+                    raise container_identity_observer.Refusal('foreign_fixture_replaced')
+                cleanup_verified=independently_observe_container_down(effigy,foreign_fixture.checkout,runtime_env,receipts['cleanup'],
+                    backend_admission.observer_for(foreign_fixture.checkout,runtime_env,foreign_fixture=foreign_fixture),expected_owned=foreign_fixture.baseline["owned"])
+            except Exception:
+                cleanup_verified=False
+                receipts['cleanup'].append({'foreign_fixture_cleanup_verified':False,'held':True})
         if gateway_attempted:
             try:
                 gateway = gateway_json(effigy, runtime_env, gateway_root, "status")
@@ -347,6 +345,7 @@ def main() -> int:
 
     if failure or not receipts.get("container_up") or not cleanup_verified:
         return 1
+    qualification_batch.passed('container',receipt_path)
     return 0
 
 

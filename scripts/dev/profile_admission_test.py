@@ -82,8 +82,8 @@ class ProfileAdmissionTests(unittest.TestCase):
         patch.object(profiles, "_resolved_service_ports", return_value={(n,t):t+10000 for n,ts in profiles.port_inventory.PROFILE_TARGETS.items() for t in ts}).start()
 
     def test_reviewed_source_pin_refuses_historical_capability(self):
-        self.assertEqual(profiles.SUPPORTED_SOURCE, "77d22adcbdbca20752720d6671310f13894d219f")
-        self.assertEqual(profiles.SUPPORTED_BINARY_SHA256, "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938")
+        self.assertEqual(profiles.SUPPORTED_SOURCE, "bd2597693f7c4c9ad786896a9448a7e746ff13a8")
+        self.assertEqual(profiles.SUPPORTED_BINARY_SHA256, "2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59")
         with tempfile.TemporaryDirectory(prefix="underlay-old-pin-") as temporary:
             source = Path(temporary).resolve()
             binary = source / "effigy"
@@ -195,13 +195,13 @@ class ProfileAdmissionTests(unittest.TestCase):
             binary = root / "effigy"
             binary.write_bytes(b"qualified fixture binary")
             binary.chmod(0o700)
-            git_outputs = iter((str(source), profiles.SUPPORTED_SOURCE, ""))
+            git_outputs = iter((str(source), profiles.SUPPORTED_SOURCE, profiles.SUPPORTED_TREE, ""))
 
             def git(_source: Path, *_args: str) -> str:
                 return next(git_outputs)
 
             run = unittest.mock.Mock(return_value=unittest.mock.Mock(stdout=profiles.SUPPORTED_VERSION))
-            with patch.object(profiles, "_git", side_effect=git), patch.object(profiles, "_hash_file", return_value=profiles.SUPPORTED_BINARY_SHA256), patch.object(profiles.subprocess, "run", run):
+            with patch.object(profiles, "_git", side_effect=git), patch.object(profiles, "_hash_file", side_effect=lambda path: profiles.SUPPORTED_API.get(str(path.relative_to(source)) if path.is_relative_to(source) else "", profiles.SUPPORTED_BINARY_SHA256)), patch.object(profiles.subprocess, "run", run):
                 identity = profiles.verify_binary(str(source), str(binary))
             self.assertEqual(identity.source, str(source))
             self.assertEqual(identity.binary, str(binary))
@@ -216,9 +216,9 @@ class ProfileAdmissionTests(unittest.TestCase):
             binary = root / "effigy"
             binary.write_bytes(b"old or unknown build")
             binary.chmod(0o700)
-            git_outputs = iter((str(source), profiles.SUPPORTED_SOURCE, ""))
+            git_outputs = iter((str(source), profiles.SUPPORTED_SOURCE, profiles.SUPPORTED_TREE, ""))
             run = unittest.mock.Mock(return_value=unittest.mock.Mock(stdout=profiles.SUPPORTED_VERSION))
-            with patch.object(profiles, "_git", side_effect=lambda *_args: next(git_outputs)), patch.object(profiles, "_hash_file", return_value="0" * 64), patch.object(profiles.subprocess, "run", run):
+            with patch.object(profiles, "_git", side_effect=lambda *_args: next(git_outputs)), patch.object(profiles, "_hash_file", side_effect=lambda path: profiles.SUPPORTED_API.get(str(path.relative_to(source)) if path.is_relative_to(source) else "", "0" * 64)), patch.object(profiles.subprocess, "run", run):
                 with self.assertRaisesRegex(profiles.ProfileError, "SHA-256 is not the qualified"):
                     profiles.verify_binary(str(source), str(binary))
 

@@ -189,8 +189,9 @@ sys.exit(85)
             (checkout/'effigy.toml').write_text('siblings = false\n');checkouts.append(checkout);return [checkout]
         def producer(args,**kwargs):
             calls.append(args)
-            checkout=checkouts[0]
+            checkout=Path(args[args.index('--repo')+1])
             tail=args[args.index(str(checkout))+1:]
+            if checkout!=checkouts[0]:raise Refusal('foreign_source_capture_unqualified')
             if tail==['bundle','inspect','--json']:
                 value={'result':{'source':{'source_type':'path','source_path':str(module.REPO)}}}
             elif tail==['dev','--plan']:return SimpleNamespace(returncode=0,stdout='workspace-rust-bun',stderr='')
@@ -206,10 +207,10 @@ sys.exit(85)
         with patch.dict(os.environ,{'UNDERLAY_PROFILE_EFFIGY_SOURCE':str(self.root)},clear=True),patch.object(module,'require_effigy_binary',return_value=str(self.colima)),patch.object(module,'selected_tools',return_value=(self.colima,self.lima,self.ssh)),patch.object(module.REFERENCE,'reference_source',return_value=self.root),patch.object(module.REFERENCE,'make_reference_instances',instances),patch.object(module.REFERENCE,'point_bundle_at_task_branch',return_value=None),patch.object(module.REFERENCE,'initialize_reference_fixture_secrets',return_value={'vaults':[]}),patch.object(module.RUNTIME,'mktemp_root',return_value=fixture),patch.object(module.RUNTIME,'fixed_default_ports_available',return_value=[]),patch.object(module,'run',producer),patch.object(module.subprocess,'run',run):
             self.assertEqual(module.main(),1)
         receipt=json.loads((fixture/'default-container-receipts.json').read_text())
-        self.assertEqual(receipt['refusal_class'],'default_container_foreign_fixture_recipe_missing')
+        self.assertEqual(receipt['refusal_class'],'foreign_source_capture_unqualified')
         self.assertFalse(receipt['cleanup_verified']);self.assertFalse((fixture/'backend-start-intent.json').exists())
         self.assertEqual(len(list(fixture.glob('policy-*.json'))),1)
-        self.assertEqual(len(calls),5);self.assertFalse((fixture/'lima-home/colima-effigy').exists())
+        self.assertEqual(len(calls),6);self.assertFalse((fixture/'lima-home/colima-effigy').exists())
     def test_source_defaults_are_not_a_runtime_route_or_late_policy_authority(self):
         with self.assertRaises(Refusal):route.help_route(b'')
         self.start()

@@ -138,4 +138,88 @@ class BootstrapTests(unittest.TestCase):
             with self.assertRaises(ValueError):shared.bounded_payload(text,0,'silo_client')
         with self.assertRaises(ValueError):shared.bounded_arguments('silo_client','ignored','../foreign')
 
+class RefusalObservationTests(unittest.TestCase):
+    def observation(self):
+        return {'version':1,'operation_elapsed_ms':8001,'remaining_budget_ms':0,
+                'preparation_elapsed_ms':4,'attempt_elapsed_ms':7997,'spawn_disposition':'spawned',
+                'stdout':{'state':'overflow','retained_prefix_bytes':{'semantics':'exact','bytes':65536},
+                          'read_bytes':{'semantics':'lower_bound','bytes':70000}},
+                'stderr':{'state':'pending','retained_prefix_bytes':{'semantics':'unknown'},
+                          'read_bytes':{'semantics':'unknown'}},'leader_exit_observed':'unknown'}
+    def envelope(self, observation):
+        value={'schema':'effigy.container.bounded-exec.v1','schema_version':1,'ok':False,
+            'container':'hybrid_services','service':'silo_client','failure':'stdout_overflow',
+            'limits':shared.BOUNDS,'retained':{'stdout_bytes':65536,'stderr_bytes':0},
+            'preparation':{'captures':1,'retained':{'stdout_bytes':0,'stderr_bytes':0}},
+            'attempts':1,'workspace_user_fallback':False,'phase':'command_execution',
+            'termination_scope':'owned_host_client_group','remote_cancellation':'unverified'}
+        if observation is not None:value['refusal_observations']=observation
+        return json.dumps({'schema':'effigy.command.v1','schema_version':1,'ok':False,
+                           'error':{'details':value,'message':'SEEDED_SECRET'},'result':None})
+    def test_native_shape_overflow_and_independent_unknown_counts_never_output(self):
+        output,projection=shared.bounded_payload(self.envelope(self.observation()),1,'silo_client')
+        self.assertIsNone(output)
+        self.assertEqual(projection['refusal_observations'],self.observation())
+        self.assertNotIn('SEEDED',json.dumps(projection))
+        self.assertEqual(projection['remote_cancellation'],'unverified')
+        _,legacy=shared.bounded_payload(self.envelope(None),1,'silo_client')
+        self.assertNotIn('refusal_observations',legacy)
+    def test_malformed_version_clocks_states_bytes_and_extra_secret_refuse(self):
+        import copy
+        variants=[]
+        for key,value in [('version',2),('version',True),('remaining_budget_ms',8001),
+                          ('operation_elapsed_ms',-1),('attempt_elapsed_ms','SECRET'),
+                          ('spawn_disposition','executed_in_guest'),('leader_exit_observed','reaped')]:
+            v=self.observation();v[key]=value;variants.append(v)
+        v=self.observation();v['argv']='SECRET';variants.append(v)
+        for key,value in [('state','closed'),('read_bytes',{'semantics':'unknown','bytes':0}),
+                          ('retained_prefix_bytes',{'semantics':'exact','bytes':65537}),
+                          ('read_bytes',{'semantics':'exact','bytes':0}),
+                          ('read_bytes',{'semantics':'exact','bytes':True})]:
+            v=self.observation();v['stdout'][key]=value;variants.append(v)
+        for v in variants:
+            with self.subTest(value=v),self.assertRaises(ValueError):shared.bounded_payload(self.envelope(v),1,'silo_client')
+        for failure in ('complete','inner_command_failed'):
+            with self.assertRaises(ValueError):shared.refusal_observations(self.observation(),failure)
+        text=self.envelope(self.observation()).replace('"version": 1','"version": 1, "version": 1')
+        with self.assertRaises(ValueError):shared.bounded_payload(text,1,'silo_client')
+    def test_actual_qualified_native_refusal_overflow_with_private_fake_backend(self):
+        import shutil
+        with tempfile.TemporaryDirectory(prefix='underlay-native-refusal-',dir=Path.home()) as temporary:
+            root=Path(temporary).resolve();repo=root/'checkout';repo.mkdir()
+            bindir=root/'bin';bindir.mkdir();home=root/'home';home.mkdir(mode=0o700)
+            (repo/'compose.yml').write_text('services:\n  silo_client:\n    image: private-fake-never-executed\n')
+            (repo/'effigy.toml').write_text('[containers.hybrid_services]\ncompose_file = "compose.yml"\nproject_name = "native-owned"\nworking_dir = "/workspace"\nprimary_service = "silo_client"\n')
+            target=repo/'infra/dev/catalog/silo-mc';target.parent.mkdir(parents=True)
+            shutil.copytree(Path(__file__).parent/'catalog/silo-mc',target)
+            fake=bindir/'colima'
+            fake.write_text('#!'+sys.executable+'\nimport sys,json\nif sys.argv[1:]==["status","--profile","effigy"]:print("colima is running using containerd")\nelif sys.argv[1:]==["list","--json"]:print(json.dumps({"name":"effigy","status":"Running","cpus":2,"memory":4294967296,"disk":34359738368}))\nelse:sys.stdout.write("X"*70000)\n')
+            fake.chmod(0o700)
+            env={**os.environ,'HOME':str(home),'COLIMA_HOME':str(root/'colima'),
+                 'EFFIGY_COMPOSE_BACKEND':'colima','PATH':str(bindir)+os.pathsep+os.environ['PATH']}
+            for key in ('DOCKER_HOST','DOCKER_CONTEXT','COLIMA_PROFILE'):env.pop(key,None)
+            result=shared.bounded_run([os.environ['UNDERLAY_PROFILE_EFFIGY_BIN'],'--repo',str(repo),
+                     *shared.bounded_arguments('silo_client','printf SHOULD_NOT_EXECUTE')],env=env,timeout=12)
+            self.assertEqual(result['outcome'],'complete');self.assertNotEqual(result['exit'],0)
+            envelope=json.loads(result['stdout'])
+            output,projection=shared.bounded_payload(result['stdout'].decode(),result['exit'],'silo_client')
+            self.assertIsNone(output)
+            block=projection['refusal_observations']
+            self.assertEqual(block['version'],1)
+            self.assertEqual(block['stdout']['state'],'overflow')
+            self.assertGreater(block['stdout']['read_bytes']['bytes'],65536)
+            self.assertNotIn('SHOULD_NOT_EXECUTE',json.dumps(projection))
+
+    def test_exact_qualified_public_renderer_shape(self):
+        import hashlib
+        sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+        from qualification_runtime import SUPPORTED_EFFIGY_SOURCE
+        source=Path(os.environ['UNDERLAY_PROFILE_EFFIGY_SOURCE'])
+        text=(source/'src/runner/container_command/bounded_exec.rs').read_text()
+        self.assertEqual(SUPPORTED_EFFIGY_SOURCE,launcher.SUPPORTED_SOURCE)
+        for name,digest in launcher.SUPPORTED_API.items():
+            self.assertEqual(hashlib.sha256((source/name).read_bytes()).hexdigest(),digest)
+        self.assertIn('"refusal_observations": refusal_observations_json',text)
+        self.assertIn('"leader_exit_observed": observations.leader_exit.label()',text)
+
 if __name__=='__main__':unittest.main()

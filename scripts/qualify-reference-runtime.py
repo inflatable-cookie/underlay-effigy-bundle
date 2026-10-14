@@ -37,20 +37,14 @@ SPEC.loader.exec_module(REFERENCE)
 
 def run(args: list[str], *, cwd: Path | None = None, env: dict[str, str], timeout: int = 600,
         expected: int | None = 0, print_output: bool = True) -> subprocess.CompletedProcess[str]:
-    print(f"COMMAND: {' '.join(args)}", flush=True)
-    result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
-    print(f"EXIT: {result.returncode}", flush=True)
-    if print_output:
-        if result.stdout.strip():
-            print(result.stdout.rstrip(), flush=True)
-        if result.stderr.strip():
-            print(result.stderr.rstrip(), flush=True)
-    else:
-        print(f"OUTPUT: captured stdout={len(result.stdout)} bytes stderr={len(result.stderr)} bytes", flush=True)
+    # Private native argv, error text and command output never enter public logs.
+    print(f"COMMAND: argc={len(args)}", flush=True)
+    import qualification_batch
+    result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True,
+                            timeout=qualification_batch.cap(timeout))
+    print(f"EXIT: {result.returncode}; stdout_bytes={len(result.stdout.encode())}; stderr_bytes={len(result.stderr.encode())}", flush=True)
     if expected is not None and result.returncode != expected:
-        detail = safe_effigy_error(result.stdout) or safe_effigy_error(result.stderr)
-        suffix = f"; {detail}" if detail else ""
-        raise RuntimeError(f"expected exit {expected}, got {result.returncode}: {' '.join(args)}{suffix}")
+        raise RuntimeError("qualification_native_command_refused")
     return result
 
 
@@ -1826,7 +1820,7 @@ def prove_silo_gateway_route(checkout: Path, gateway_root: Path, domains: dict[s
         return {"status": "unavailable", "phase": "verified_ca_sni_handshake",
                 "domain": domain, "route_tls": route.get("tls"),
                 "cert_ready": route.get("cert_ready"), "dns_sans": sorted(dns_sans),
-                "error_type": type(error).__name__, "error": str(error)[:400]}
+                "error_type": type(error).__name__, "error": "operation_unavailable"}
     if code != 200:
         return {"status": "unavailable", "phase": "private_https_route_response",
                 "domain": domain, "http_status": code, "route_tls": route.get("tls"),

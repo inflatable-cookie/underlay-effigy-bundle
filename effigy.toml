@@ -101,3 +101,27 @@ run_in = "host"
 [tasks."proof:dev-profiles:fresh-backend-admission-affected-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/fresh_backend_admission_test.py AdmissionTests.test_original_intent_roots_before_effect_and_fixed_isolation_recipe AdmissionTests.test_observer_and_scoped_down_cannot_use_owner_boolean_or_late_inventory AdmissionTests.test_actual_both_qualifier_entrypoints_refuse_unqualified_sources_before_effects"
 run_in = "host"
+
+[tasks."proof:dev-profiles:service-handoff-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/service_baseline_handoff_test.py HandoffControls.test_actual_wrapper_captures_live_services_before_test_and_parent_postabsence HandoffControls.test_missing_handoff_and_wrong_root_source_manifest_refuse_before_inventory HandoffControls.test_changed_private_input_full_id_foreign_and_replacement_refuse HandoffControls.test_private_permissions_truncation_duplicate_and_live_baseline_required"
+run_in = "host"
+
+[tasks."proof:dev-profiles:bounded-refusal-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/dev/silo_bootstrap_test.py RefusalObservationTests"
+run_in = "host"
+
+[tasks."proof:dev-profiles:foreign-fixture-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/foreign_container_fixture_test.py ForeignControls.test_original_independent_intent_and_genuine_recipe_before_any_effect ForeignControls.test_exact_source_scoped_start_complete_ids_state_and_reuse_refusal ForeignControls.test_changed_unknown_project_catalog_or_creation_intent_refuses ForeignControls.test_actual_qualified_assembly_policy_before_backend_start"
+run_in = "host"
+
+[tasks."proof:dev-profiles:batch-intent-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/qualification_batch_test.py"
+run_in = "host"
+
+[tasks."proof:dev-profiles:lifecycle-assembly-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/reference_lifecycle_test.py FixtureExtensionTests.test_actual_private_export_array_extension_and_restoration"
+run_in = "host"
+
+[tasks."proof:dev-profiles:bootstrap-recipe-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/dev/silo_bootstrap_test.py BootstrapTests.test_both_profiles_real_shell_recipe_cors_and_exclusive_cleanup BootstrapTests.test_guard_and_native_negative_prevent_mutations_and_secret_output BootstrapTests.test_bootstrap_bad_context_and_bucket_emit_before_mc_refusal BootstrapTests.test_default_admission_refuses_before_native_or_mutation BootstrapTests.test_shared_capture_accounting_rejects_forged_success"
+run_in = "host"

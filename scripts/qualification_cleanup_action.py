@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 import qualification_cleanup as cleanup
+import service_baseline_handoff as services
 
 
 def load_qualifier():
@@ -57,6 +58,19 @@ def main():
         raise cleanup.CleanupUnknown('receipt_root')
     q=load_qualifier();q.EFFIGY=q.require_effigy_binary();env=dict(os.environ)
     observer=ListenerObserver(q,checkout,env)
+    association,_=services.read(root/'association.json',root)
+    fixture=Path(association['context']['cwd'])
+    reader,service_baseline=services.capture_ready(root,fixture,env)
+    first_capture=True
+    def capture():
+        nonlocal first_capture
+        if first_capture:
+            first_capture=False
+            return observer.capture()
+        current=reader.snapshot()['containers']
+        if current!={**service_baseline['owned'],**service_baseline['foreign']}:
+            raise cleanup.CleanupUnknown('ready_service_baseline_changed')
+        return observer.capture()
     def save(record):
         name='pending.json' if record['action']=='pending' else 'completed.json'
         cleanup.write_private(root/name,root,record)
@@ -65,7 +79,7 @@ def main():
         # profile environment and the original 900s configured qualification bound.
         return q.RUNTIME.run([q.EFFIGY,'--repo',str(checkout),'acme-api/test'],cwd=checkout,
                              env=env,timeout=900,expected=None,print_output=False).returncode
-    return cleanup.action_once(observer.capture,action,save)
+    return cleanup.action_once(capture,action,save)
 
 
 if __name__=='__main__':

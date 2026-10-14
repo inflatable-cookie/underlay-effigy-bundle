@@ -18,9 +18,9 @@ source adoption require separate explicit work. Storage and profile startup both
 The bundle inputs `profiles.effigy_source` and `profiles.effigy_binary` must
 name the clean qualified source checkout and absolute executable. Before any
 profile state, service, gateway or cleanup operation, the launcher checks
-source commit `77d22adcbdbca20752720d6671310f13894d219f`, version `effigy
+source commit `bd2597693f7c4c9ad786896a9448a7e746ff13a8`, version `effigy
 v0.14.1`, and macOS arm64 binary SHA-256
-`95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938`. Current
+`2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59`. Current
 exact-source admission is macOS arm64 only; new-source runtime acceptance is
 still incomplete. Unknown, changed, wrong-platform or
 unavailable identities fail before runtime effects, with actionable input
@@ -1479,3 +1479,57 @@ accounting remains explicitly unknown; no candidate fields or checksums are
 assumed. Complete product runtime, default-container, lifecycle, configured
 single-action `dev:test` and independent cleanup proofs are required before
 review readiness. Source preparation alone does not supply those proofs.
+
+## Current source gate and independent service handoff
+
+Private Darwin arm64 admission now selects source
+`bd2597693f7c4c9ad786896a9448a7e746ff13a8`, tree
+`16685d6316a5c8e11cdd2fefbde61f3c74b8406a` and artifact SHA256
+`2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59`.
+The four qualified public API file hashes are checked alongside the clean
+checkout and retained absolute executable. Earlier source observations above
+remain historical evidence for their original inputs.
+
+The bounded-exec additive `refusal_observations` version 1 block contains
+operation, preparation and attempt clock observations, remaining budget, host
+spawn disposition, independent stream states, exact/lower-bound/unknown byte
+objects, and the last leader observation. Remote cancellation remains on the
+outer envelope as `unverified`. Missing observations do not mean zero or no
+effect; completed and nontransport failures cannot carry the additive block.
+Unknown fields, versions, duplicate keys, malformed counters and contradictory
+retention counts refuse. Overflow read witnesses may exceed retention limits
+and never provide usable command output. Failed output, arguments, environment
+and raw errors are omitted from diagnostics.
+
+The original new-backend creator supplies the ready action's observer context,
+foreign witnesses, source hashes and physical root/config/intent identities.
+The private, exclusive, no-follow mode-0600 handoff binds that context before
+startup. The wrapper captures full live service IDs and creation/state records
+before its single configured test, and checks the same services before return.
+The parent checks the immutable handoff before independent post-teardown
+absence and foreign preservation. Missing or changed records withhold whole
+product cleanup. Directory identity uses inode/owner/mode, so exact owned nonce
+creation does not invalidate the original directory association.
+
+The default-container proof prepares a separate immutable foreign Silo project
+using the same pinned catalog recipe with only host port publication removed.
+Its own creation intent precedes effects. Its complete ID/creation/state
+witness must survive product down unchanged. Its later cleanup uses its own
+original policy and exact frozen IDs; health is not inferred from state.
+No global inventory, VM stop, empty late inventory or successful down command
+substitutes for these observations. Data volumes, images and disks remain held.
+
+A finite qualification intent binds the clean source head, source/artifact gate
+and ordered runtime/container stages. It admits each stage once and clamps
+existing command bounds to the same four-hour wall. Unexpected refusal or
+unknown effects stop the batch. These source controls do not certify actual
+Reference runtime, default-container parity, dev:test or independent cleanup.
+Read-only root/config/nonce association still leaves guest boot and VM/agent
+identity unknown and grants no VM/process signal or retirement authority.
+
+Compose working-directory and one-off labels are optional observations in the
+reader projection. Their absence is retained as absence; contradictory present
+values refuse. Under the original closed `up` policy with no admitted one-off
+services, the unique complete project/service inventory can be compared without
+inventing those labels. This uses the original fresh-root creation and route
+association, and does not establish arbitrary external checkout ownership.

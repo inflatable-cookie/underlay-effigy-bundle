@@ -79,8 +79,8 @@ def projection(raw, expected_id):
     if not isinstance(value['created'],str) or not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)',value['created']):raise Refusal('creation_identity')
     for key in ('project','service'):
         if type(value[key]) is not str or (value[key] and not SLUG.fullmatch(value[key])):raise Refusal('scope_field')
-    if type(value['checkout']) is not str or len(value['checkout'])>1024 or any(c in value['checkout'] for c in '\r\n\x00'):raise Refusal('checkout_field')
-    if value['oneoff'] not in ('','true','false','True','False') or type(value['running']) is not bool or value['status'] not in ('created','running','paused','restarting','removing','exited','dead'):raise Refusal('state_field')
+    if value['checkout'] is not None and (type(value['checkout']) is not str or len(value['checkout'])>1024 or any(c in value['checkout'] for c in '\r\n\x00')):raise Refusal('checkout_field')
+    if value['oneoff'] not in (None,'','true','false','True','False') or type(value['running']) is not bool or value['status'] not in ('created','running','paused','restarting','removing','exited','dead'):raise Refusal('state_field')
     if value['running'] != (value['status'] in ('running','paused','restarting')):raise Refusal('state_contradiction')
     return value
 
@@ -168,7 +168,7 @@ class Observer:
         identity(self.fixture,True)
         for key in ('colima_home','lima_home','cwd')+ (('private_home',) if 'private_home' in context else ()):
             path=Path(context[key]);path.relative_to(self.fixture)
-            self.bound[key]=identity(path,True)
+            self.bound[key]=identity(path,True)[:4]
         if context['colima_home']==context['lima_home']:raise Refusal('independent_lima_root')
         config=Path(context['config']);config.relative_to(Path(context['lima_home'])/context['instance'])
         self.bound['config']=identity(config)
@@ -301,9 +301,9 @@ class Observer:
             scopes=[s for s in self.context['scopes'] if s['project']==value['project']]
             if scopes:
                 scope=scopes[0]
-                if value['checkout']!=scope['checkout'] or value['service'] not in scope['services']:raise Refusal('owned_scope_mismatch')
+                if value['checkout'] not in (None,'',scope['checkout']) or value['service'] not in scope['services']:raise Refusal('owned_scope_mismatch')
                 oneoff=value['oneoff'] in ('true','True')
-                if value['oneoff']=='' or (oneoff and value['service'] not in scope['oneoffs']):raise Refusal('owned_oneoff_unknown')
+                if (value['oneoff'] in (None,'') and scope['oneoffs']) or (oneoff and value['service'] not in scope['oneoffs']):raise Refusal('owned_oneoff_unknown')
                 if not oneoff:
                     key=(value['project'],value['service'])
                     if key in seen:raise Refusal('duplicate_owned_service')

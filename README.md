@@ -56,8 +56,8 @@ managed-listener and private-gateway contracts.
 ```toml
 [bundle.profiles]
 enabled = true
-effigy_source = "/path/to/effigy-at-77d22adc"
-effigy_binary = "/path/to/qualified/effigy-77d22adc-macos-arm64"
+effigy_source = "/path/to/effigy-at-bd259769"
+effigy_binary = "/path/to/qualified/effigy-bd259769-macos-arm64"
 test_task = "app-api/test" # one bounded Effigy selector for dev:test
 test_timeout_secs = 900
 # silo_bucket = "acme-media" # defaults to <first database>-media
@@ -77,9 +77,9 @@ cleanup. It never invokes full QA. Use `dev:test:down` to reconcile a run
 interrupted before its normal cleanup.
 
 The profile launcher checks the clean Effigy source revision
-`77d22adcbdbca20752720d6671310f13894d219f`, binary version `effigy v0.14.1`,
+`bd2597693f7c4c9ad786896a9448a7e746ff13a8`, binary version `effigy v0.14.1`,
 and qualified macOS arm64 SHA-256
-`95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938` before
+`2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59` before
 starting services, the gateway, or cleanup. The current exact-source admission supports
 macOS arm64; unsupported platforms and changed/unknown binaries
 are refused before storage or profile startup. Child Effigy calls
@@ -113,8 +113,8 @@ and permanent Reference source adoption remain separate work.
 ## Development profile qualification
 
 Admission accepts only the clean qualified Effigy source
-`77d22adcbdbca20752720d6671310f13894d219f` and private Darwin arm64 binary
-SHA256 `95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938`.
+`bd2597693f7c4c9ad786896a9448a7e746ff13a8` and private Darwin arm64 binary
+SHA256 `2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59`.
 Version/semver is not attestation. Every child uses the retained absolute binary;
 old, unknown, changed and unsupported identities refuse before effects.
 
@@ -176,7 +176,7 @@ restart, but front/admin successor generations were not established. Main scoped
 down refused front/admin records whose state was `unavailable`; the files still
 existed. Those resources remain
 held; interruption, dev:test and default-container acceptance are not established.
-The current `77d22adc` gate requires fresh runtime evidence. Snapshot projections
+The historical `77d22adc` gate requires fresh runtime evidence. Snapshot projections
 preserve `unavailable` as an observed state without granting ready/stopped or
 cleanup credit; a missing report remains distinct from an existing state file.
 
@@ -319,3 +319,16 @@ The bundle declares the shared Underlay runtime secret contract, including:
 - `auth_google_client_secret`
 
 App-specific secrets should stay in the consuming repo.
+
+The current private source gate also verifies the qualified tree and four public
+API file hashes. Bounded native failures can include versioned host refusal
+observations: unknown counts stay unknown and overflow read counts can exceed
+retained output. These observations grant no guest execution, cancellation,
+signal or cleanup authority.
+
+Disposable qualification captures service IDs inside the ready action before
+the configured test and transfers them through an immutable private handoff.
+Default-container qualification predeclares a separate genuine Silo witness
+project without host ports. Cleanup requires original full IDs and creation
+records to be absent, with foreign records unchanged. The new source requires
+fresh runtime acceptance; the prepared controls do not provide that acceptance.

@@ -147,7 +147,7 @@ else:sys.exit(22)
         with self.assertRaises(observer.Refusal):self.reader()
         self.assertFalse((self.root/'count').exists())
     def test_undeclared_foreign_scope_and_owned_checkout_service_refuse(self):
-        for key,value in (('project','unclassified'),('checkout',str(self.root/'other')),('service','undeclared'),('oneoff','')):
+        for key,value in (('project','unclassified'),('checkout',str(self.root/'other')),('service','undeclared'),('oneoff','true')):
             with self.subTest(key=key):
                 self.records['a'*64][key]=value;self.write()
                 with self.assertRaises(observer.Refusal) as caught:self.reader().baseline()
@@ -201,6 +201,14 @@ else:sys.exit(22)
         ctx=copy.deepcopy(self.ctx);ctx['arbitrary_callback']='secret'
         with self.assertRaises(observer.Refusal):self.reader(ctx)
         self.assertFalse((self.root/'count').exists())
+    def test_optional_compose_labels_absent_preserved_under_closed_original_up_policy(self):
+        for row in self.records.values():
+            if row['project']=='primary':row['checkout']=None;row['oneoff']=None
+        self.write();reader=self.reader();before=reader.baseline()
+        self.assertTrue(all(row['checkout'] is None and row['oneoff'] is None for row in before['owned'].values()))
+        self.records={k:r for k,r in self.records.items() if k in self.ctx['foreign']};self.write()
+        self.assertTrue(reader.after(before)['container_cleanup_verified'])
+
     def test_actual_primary_worktree_service_and_oneoff_inventory(self):
         second=self.root/'worktree';second.mkdir(mode=0o700)
         scope=dict(project='second',checkout=str(second),services=['api','portless'],primary='api',oneoffs=['api'])

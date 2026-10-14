@@ -84,6 +84,45 @@ def bounded_arguments(service,command,container="hybrid_services"):
             '--stderr-limit-bytes',str(BOUNDS['stderr_limit_bytes']),'--json']
 
 
+def refusal_observations(value, failure):
+    """Exact bd259769 additive host diagnostics; never remote effect authority."""
+    if value is None:
+        return None  # legacy absence is unavailable, never an observed zero
+    fields={'version','operation_elapsed_ms','remaining_budget_ms','preparation_elapsed_ms',
+            'attempt_elapsed_ms','spawn_disposition','stdout','stderr','leader_exit_observed'}
+    if type(value) is not dict or set(value)!=fields or type(value['version']) is not int or value['version']!=1:
+        raise ValueError('bounded_observations_refused')
+    if failure in ('complete','inner_command_failed'):
+        raise ValueError('bounded_observations_phase_refused')
+    for key in ('operation_elapsed_ms','remaining_budget_ms','preparation_elapsed_ms','attempt_elapsed_ms'):
+        count=value[key]
+        if count is None and key in ('preparation_elapsed_ms','attempt_elapsed_ms'):continue
+        if type(count) is not int or not 0<=count<=2**64-1:raise ValueError('bounded_observation_clock_refused')
+    if value['remaining_budget_ms']>BOUNDS['deadline_ms']:
+        raise ValueError('bounded_observation_clock_refused')
+    if value['spawn_disposition'] not in ('not_attempted','attempted_not_confirmed','spawned','unknown') or value['leader_exit_observed'] not in ('alive','unknown'):
+        raise ValueError('bounded_observation_spawn_refused')
+    for stream in ('stdout','stderr'):
+        entry=value[stream]
+        if type(entry) is not dict or set(entry)!={'state','retained_prefix_bytes','read_bytes'} or entry['state'] not in ('pending','eof','overflow','read_error','unknown'):
+            raise ValueError('bounded_observation_stream_refused')
+        counts={}
+        for key in ('retained_prefix_bytes','read_bytes'):
+            item=entry[key]
+            if type(item) is not dict:raise ValueError('bounded_observation_bytes_refused')
+            if item=={'semantics':'unknown'}:continue
+            if set(item)!={'semantics','bytes'} or item['semantics'] not in ('exact','lower_bound') or type(item['bytes']) is not int or not 0<=item['bytes']<=2**64-1:
+                raise ValueError('bounded_observation_bytes_refused')
+            counts[key]=item
+        retained=counts.get('retained_prefix_bytes');read=counts.get('read_bytes')
+        if retained and retained['bytes']>BOUNDS[stream+'_limit_bytes']:
+            raise ValueError('bounded_observation_retention_refused')
+        # A read witness can exceed retention. It is diagnostic, never usable output.
+        if retained and read and read['semantics']=='exact' and retained['bytes']>read['bytes']:
+            raise ValueError('bounded_observation_bytes_refused')
+    return value
+
+
 def bounded_payload(output,outer_exit,service,container="hybrid_services"):
     envelope=strict_json(output)
     if (not isinstance(envelope,dict) or envelope.get('schema')!='effigy.command.v1'
@@ -95,6 +134,8 @@ def bounded_payload(output,outer_exit,service,container="hybrid_services"):
             or value['ok'] != envelope['ok'] or value.get('remote_cancellation')!='unverified'):
         raise ValueError('bounded_schema_refused')
     failure=value.get('failure');success=failure=='complete'
+    observed=refusal_observations(value.get('refusal_observations'),failure)
+    if 'refusal_observations' in value and observed is None:raise ValueError('bounded_observations_refused')
     if (failure not in BOUND_FAILURES and not success) or success!=value['ok'] or (outer_exit==0)!=success:
         raise ValueError('bounded_status_refused')
     if value.get('container')!=container or value.get('service')!=service:
@@ -111,6 +152,7 @@ def bounded_payload(output,outer_exit,service,container="hybrid_services"):
     if type(value.get('workspace_user_fallback')) is not bool or value['workspace_user_fallback']!=(attempts>1):
         raise ValueError('bounded_accounting_refused')
     projection={'failure':failure,'attempts':attempts,'preparation_captures':captures,'remote_cancellation':'unverified','bounds':dict(BOUNDS)}
+    if observed is not None:projection['refusal_observations']=observed
     for stream in ('stdout','stderr'):
         count=retained.get(stream+'_bytes');prep=preparation['retained'].get(stream+'_bytes');limit=BOUNDS[stream+'_limit_bytes']
         if type(count) is not int or type(prep) is not int or not 0<=prep<=count<=limit:

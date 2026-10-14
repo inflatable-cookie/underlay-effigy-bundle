@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import qualification_cleanup as q
+import service_baseline_handoff as services
 
 BOOT='12345678-1234-1234-1234-123456789ABC'
 
@@ -155,12 +156,12 @@ class CallerControls(unittest.TestCase):
                 world.clear()  # fake launcher cleanup occurs after the wrapper's return.
                 return SimpleNamespace(returncode=0)
             witnesses=[]
-            with patch.object(module,'EFFIGY','/qualified/effigy'),patch.object(module,'ListenerObserver',Observer),patch.object(module,'_verify_live',lambda *args:witnesses.append('foreign')),patch.object(module.RUNTIME,'run',dispatch):
-                result=module.verify_disposable_action(checkout,{},foreign)
+            with patch.object(services,'prepare',return_value=('sealed-source','digest')),patch.object(services,'accept',return_value={'container_cleanup_verified':True}),patch.object(module,'EFFIGY','/qualified/effigy'),patch.object(module,'ListenerObserver',Observer),patch.object(module,'_verify_live',lambda *args:witnesses.append('foreign')),patch.object(module.RUNTIME,'run',dispatch):
+                result=module.verify_disposable_action(checkout,{},foreign,object())
             self.assertEqual(manifest.read_text(),original)
             self.assertEqual(len(events),2);self.assertEqual(events[1],('acme-api/test',))
             self.assertEqual(len(baselines),1);self.assertEqual(len(witnesses),4)
-            self.assertTrue(result['host_listener_cleanup_verified']);self.assertFalse(result['container_cleanup_verified'])
+            self.assertTrue(result['host_listener_cleanup_verified']);self.assertTrue(result['container_cleanup_verified'])
     def test_parent_action_error_retains_independent_absence_and_restores(self):
         spec=importlib.util.spec_from_file_location('cleanup_error_caller',Path(__file__).with_name('qualify-reference-optin.py'))
         module=importlib.util.module_from_spec(spec);sys.modules[spec.name]=module;spec.loader.exec_module(module)
@@ -175,8 +176,8 @@ class CallerControls(unittest.TestCase):
                 root=next(checkout.glob('qualification-cleanup-*'))
                 q.write_private(root/'pending.json',root,dict(schema='underlay.qualification-cleanup.v1',baseline=self.capture(),action='pending'))
                 world.clear();raise RuntimeError('SECRET_BODY_ENV_ARGV')
-            with patch.object(module,'ListenerObserver',Observer),patch.object(module,'_verify_live',lambda *args:None),patch.object(module.RUNTIME,'run',dispatch):
-                with self.assertRaises(q.CleanupUnknown) as caught:module.verify_disposable_action(checkout,{}, {checkout/'one':{},checkout/'two':{}})
+            with patch.object(services,'prepare',return_value=('sealed-source','digest')),patch.object(services,'accept',return_value={'container_cleanup_verified':True}),patch.object(module,'ListenerObserver',Observer),patch.object(module,'_verify_live',lambda *args:None),patch.object(module.RUNTIME,'run',dispatch):
+                with self.assertRaises(q.CleanupUnknown) as caught:module.verify_disposable_action(checkout,{}, {checkout/'one':{},checkout/'two':{}},object())
             self.assertEqual(str(caught.exception),'configured_action_unknown');self.assertEqual(manifest.read_text(),original)
             root=next(checkout.glob('qualification-cleanup-*'));proof=json.loads((root/'absence.json').read_text())
             self.assertIsNone(proof['action_exit']);self.assertTrue(proof['host_listener_cleanup_verified'])
@@ -194,7 +195,7 @@ class CallerControls(unittest.TestCase):
                 calls.append(argv);self.assertEqual(argv[-1],'acme-api/test');self.assertEqual(kwargs['timeout'],900)
                 return SimpleNamespace(returncode=0)
             fake=SimpleNamespace(require_effigy_binary=lambda:'/qualified/effigy',RUNTIME=SimpleNamespace(run=run))
-            with patch.object(action_wrapper,'load_qualifier',lambda:fake),patch.object(action_wrapper,'ListenerObserver',Observer),patch.object(sys,'argv',['wrapper',str(checkout),str(root)]):
+            with patch.object(services,'read',return_value=({'context':{'cwd':str(checkout)}},None)),patch.object(services,'capture_ready',return_value=(SimpleNamespace(snapshot=lambda:{'containers':{}}),{'owned':{},'foreign':{}})),patch.object(action_wrapper,'load_qualifier',lambda:fake),patch.object(action_wrapper,'ListenerObserver',Observer),patch.object(sys,'argv',['wrapper',str(checkout),str(root)]):
                 self.assertEqual(action_wrapper.main(),0)
             self.assertEqual(len(calls),1);self.assertEqual(q.read_private(root/'completed.json',root)['action'],'passed')
 

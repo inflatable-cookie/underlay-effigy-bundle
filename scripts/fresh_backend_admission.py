@@ -45,7 +45,7 @@ class FreshBackend:
                 'source_artifact_correspondence':'unattested'}}
         self.path=self.root/'backend-intent.json'
         self._write_intent()
-        self.original_config_digests=[];self.policies={};self.profile_binding=None;self.start_record=None;self.original_route=None
+        self.manifest_identities={};self.original_config_digests=[];self.policies={};self.profile_binding=None;self.start_record=None;self.original_route=None
 
     def _write_intent(self):
         # Original creation is exclusive. Subsequent state is separate; never rebase intent.
@@ -67,6 +67,8 @@ class FreshBackend:
                 raise Refusal('profile_preexisting')
         elif file_sha(self.start_record[0],1048576)!=self.start_record[1]:raise Refusal('start_intent_changed')
         if set(self.policies)!=set(getattr(self,'policy_records',{})):raise Refusal('original_policy_incomplete')
+        for name,stamp in self.manifest_identities.items():
+            if identity(name)[:4]!=stamp:raise Refusal('original_manifest_inode_changed')
         for key,(path,digest,policy,manifest_sha) in getattr(self,'policy_records',{}).items():
             if file_sha(Path(key[0])/'effigy.toml',1048576)!=manifest_sha:raise Refusal('original_manifest_changed')
             if file_sha(path,1048576)!=digest or self.policies.get(key)!=policy:raise Refusal('original_policy_changed')
@@ -162,7 +164,7 @@ class FreshBackend:
             name=policy.get('default')
             if type(name) is not str or not re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}',name) or type(policy.get(name)) is not dict:raise Refusal('original_default_container_alias')
             policy=policy[name]
-        # Exact77d policy/load.rs unwrap_or Colima; lib.rs profile default effigy.
+        # Exact bd259769 policy/load.rs unwrap_or Colima; lib.rs profile default effigy.
         # These are manifest policy defaults, separate from guest nerdctl defaults.
         if policy.get('driver','colima')!='colima' or policy.get('profile',PROFILE)!=PROFILE or type(policy.get('services')) is not dict or not policy['services'] or len(policy['services'])>64:
             raise Refusal('original_policy_routing')
@@ -176,6 +178,7 @@ class FreshBackend:
         if any(not re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}',name) for name in services) or type(primary) is not str or primary not in services:raise Refusal('original_service_policy')
         key=(str(checkout),container)
         if self.start_record is not None or key in self.policies:raise Refusal('original_policy_late_or_duplicate')
+        self.manifest_identities[str(checkout/'effigy.toml')]=identity(checkout/'effigy.toml')[:4]
         self.policies[key]={'project':chosen['project'],'checkout':str(checkout),'services':services,'primary':primary,'oneoffs':[]}
         record={'intent_sha256':self.intent_sha256,'config_sha256':hashlib.sha256(config_raw).hexdigest(),
                 'scope_sha256':hashlib.sha256(scope_raw).hexdigest(),'manifest_sha256':file_sha(checkout/'effigy.toml',1048576),'policy':self.policies[key]}
@@ -268,12 +271,12 @@ class FreshBackend:
         if self.original_route is None:self.original_route=copy.deepcopy(observed)
         return copy.deepcopy(observed)
 
-    def observer_for(self, checkout, env, container='default', foreign_scopes=()):
-        try:return self._observer_for(checkout,env,container,foreign_scopes)
+    def observer_for(self, checkout, env, container='default', foreign_scopes=(), *, foreign_fixture=None):
+        try:return self._observer_for(checkout,env,container,foreign_scopes,foreign_fixture)
         except Refusal:raise
         except Exception:raise Refusal('original_observer_input_unavailable') from None
 
-    def _observer_for(self, checkout, env, container, foreign_scopes):
+    def _observer_for(self, checkout, env, container, foreign_scopes, foreign_fixture):
         self.guard();self.verify_environment(env)
         key=(str(Path(checkout).resolve(strict=True)),container)
         if key not in self.policies:raise Refusal('original_semantic_policy_missing')
@@ -283,7 +286,10 @@ class FreshBackend:
         for foreign_key in foreign_scopes:
             if foreign_key not in self.policies or foreign_key==key:raise Refusal('foreign_original_policy_missing')
             foreign_policies.append(copy.deepcopy(self.policies[foreign_key]))
-        if not foreign_policies:raise Refusal('independent_foreign_scope_required')
+        if not foreign_policies:
+            from foreign_container_fixture import ForeignFixture
+            if not isinstance(foreign_fixture,ForeignFixture) or not foreign_fixture.owns_scope(self,key):
+                raise Refusal('independent_foreign_scope_required')
         projects=[p['project'] for p in scopes+foreign_policies]
         if len(set(projects))!=len(projects):raise Refusal('foreign_project_conflict')
         self.admit_original_route(env)
@@ -298,7 +304,7 @@ class FreshBackend:
             matches=[p for p in foreign_policies if p['project']==value['project']]
             if matches:
                 policy=matches[0]
-                if value['checkout']!=policy['checkout'] or value['service'] not in policy['services'] or value['oneoff'] not in ('false','False'):raise Refusal('foreign_original_scope_mismatch')
+                if value['checkout'] not in (None,'',policy['checkout']) or value['service'] not in policy['services'] or value['oneoff'] not in (None,'','false','False'):raise Refusal('foreign_original_scope_mismatch')
                 token=(policy['project'],value['service'])
                 if token in seen:raise Refusal('foreign_duplicate_service')
                 seen.add(token);foreign[full_id]=value

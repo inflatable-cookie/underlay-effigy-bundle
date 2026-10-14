@@ -27,8 +27,15 @@ import silo_client
 import port_inventory
 
 
-SUPPORTED_SOURCE = "77d22adcbdbca20752720d6671310f13894d219f"
-SUPPORTED_BINARY_SHA256 = "95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938"
+SUPPORTED_SOURCE = "bd2597693f7c4c9ad786896a9448a7e746ff13a8"
+SUPPORTED_BINARY_SHA256 = "2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59"
+SUPPORTED_TREE = "16685d6316a5c8e11cdd2fefbde61f3c74b8406a"
+SUPPORTED_API = {
+    "src/runner/exec_command/bounded.rs": "367a51a077fbc381062799eea560e8eaca80445794bd2f808ae886b67de97bab",
+    "src/runner/container_command/bounded_exec.rs": "4de7efb0bf4b683d22bd29b502d6d2d34406cf8792bf87b5ebdb0f521c4b4fab",
+    "docs/knowledge/contracts/005-container-runtime-contract.md": "ca3c33ff95e1e3f7c0faf19a29f4c0273c7c79b20f6ee000e8c8a77a52f78919",
+    "docs/guides/063-container-system-guide.md": "e9f92527aebff27dae70233f38545204e9f3c15acb065d5be2afa39c267f7ac3",
+}
 SUPPORTED_VERSION = "effigy v0.14.1"
 SUPPORTED_SYSTEM = "Darwin"
 SUPPORTED_MACHINE = "arm64"
@@ -112,6 +119,11 @@ def verify_binary(
     revision = _git(source, "rev-parse", "HEAD")
     if revision != expected_source:
         raise ProfileError(f"Effigy source must be {expected_source}, got {revision}")
+    if expected_source == SUPPORTED_SOURCE:
+        if _git(source, "rev-parse", "HEAD^{tree}") != SUPPORTED_TREE:
+            raise ProfileError("qualified Effigy source tree differs")
+        if any(_hash_file(source / name) != digest for name, digest in SUPPORTED_API.items()):
+            raise ProfileError("qualified Effigy public API differs")
     if _git(source, "status", "--porcelain"):
         raise ProfileError("qualified Effigy source checkout has changes; restore it before using this profile")
 
