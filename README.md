@@ -191,6 +191,15 @@ outcome. Other-instance runtime, media, restart and remaining acceptance stages
 were not reached. Main scoped down returned zero; independent cleanup remains
 unverified and the new VM/images/volumes remain held.
 
+Read-only examination of the later retained API file found verification `valid`
+at 8,053 ms of worker time, after the request timeout and pre-cleanup tail capture.
+No join or HTTP response is recorded. Both this run and the earlier 4,234 ms
+successful verification used matching auth source, lockfile, instrumentation and
+configured Argon2id costs (128 MiB, four iterations, four lanes). The eight-second
+socket wait is a probe default, not an auth latency contract. Different timing
+origins, build artifacts and unobserved CPU/load prevent a causal performance
+comparison. No cost reduction or timeout adjustment follows from this evidence.
+
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
 compares them with the current composed API declaration through a bounded,

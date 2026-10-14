@@ -945,3 +945,43 @@ zero, but exact child/group/socket/route absence and foreign preservation were
 not independently established. Cleanup remains unverified; the new VM/images/
 volumes and previous held resources remain held. No second attempt or timeout
 increase is justified by these observations.
+
+Read-only assessment of the later retained API file adds a worker `valid`
+observation at 8,053 ms, timestamped after the request timeout and the bounded
+pre-cleanup log capture. The earlier tail correctly lacked that later event;
+it was a capture-window limit. No join or handler response is recorded in the
+later file. Request elapsed time and worker elapsed time use different origins;
+subtracting their durations does not give a completion-to-timeout interval.
+
+The consumed Reference commit and patched auth/handler/config source, Cargo
+manifest/lock and Underlay hashing source match the earlier successful fixture.
+The actual dependency is Underlay `v0.10.3` at `72d6fd91`, Argon2 `0.5.3`,
+password-hash `0.5.0` and Tokio `1.53.1`. Both startup logs report configured
+Argon2id costs of 131,072 KiB, four iterations and four lanes. Registration hashes
+through that configured hasher; verification uses the algorithm/version/costs
+from the stored PHC through password-hash's verifier. No stored PHC was retained,
+so exact stored parameters remain unobserved. Neither PHC nor credential data
+may be reconstructed from a live database for this assessment.
+
+Both fixtures ran debug artifacts with matching dependency feature/profile
+fingerprint classes, but their binary digests differ. Source equality and those
+fingerprints do not attest identical runtime CPU/load or complete compiler
+flags. The previous worker `valid` at 4,234 ms and join at 4,236 ms therefore show
+an earlier successful observation, not an eight-second upper bound. The probe's
+`GatewayHTTPSConnection` supplies an eight-second socket timeout; the audited
+auth/handler path supplies no corresponding verification latency contract.
+
+The diagnostic wrapper preserves the verification call and error mapping and
+records join errors if the awaiting task reaches that branch. Worker panic or
+termination can omit its completion event, and loss of the awaiting handler can
+omit a join; neither occurred by inference here. The later `valid` event rules
+out an indefinitely stuck verification call for this observed request, while
+its missing join/response and exact shutdown interaction remain unknown.
+
+A finite next assessment can isolate the same debug-build Argon2 cost in a
+standalone CPU probe with synthetic secrets kept only in memory, separately
+timed worker scheduling/verification/join and closed panic/error evidence.
+Existing Underlay hashing tests check correctness and stored-PHC parameter use,
+not this cost's latency bound. Such execution or diagnostic changes need a
+separate selected scope; no test, service probe, password-cost weakening or
+timeout increase is implied by these source findings.
