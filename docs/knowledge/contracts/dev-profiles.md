@@ -1533,3 +1533,11 @@ values refuse. Under the original closed `up` policy with no admitted one-off
 services, the unique complete project/service inventory can be compared without
 inventing those labels. This uses the original fresh-root creation and route
 association, and does not establish arbitrary external checkout ownership.
+
+Qualification caller admission also requires an explicitly isolated inherited
+environment. The current entry points forward their process environment into
+the guard, so ambient SSH transport entries refuse before private root creation,
+just as Docker, containerd, nerdctl, Lima, Colima and XDG overrides do. This is a
+caller input boundary, not a demonstrated backend or bounded-exec defect. The
+operator's environment remains untouched. A failed admission supplies no service
+cleanup, VM settlement or runtime acceptance credit.
