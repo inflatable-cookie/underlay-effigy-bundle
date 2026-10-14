@@ -212,8 +212,9 @@ Register and login qualification each use a fixed 20-second absolute client
 operation budget, including preparation, TLS, request, bounded headers/body and
 session decoding. This is a finite functional proof policy, not a production
 latency promise. Other request limits and auth costs stay unchanged. The private
-client refuses incomplete/late responses and captures only bounded closed phases;
-a timed-out mutation stays uncertain and is never resent. See the
+client refuses incomplete/late responses and records closed phases;
+a timed-out mutation stays uncertain and is never resent. Actual application trace
+format and strict three-second post-capture timing remain qualification gaps. See the
 [auth operation contract](docs/knowledge/contracts/dev-profiles.md#absolute-auth-operation-policy).
 
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared

@@ -1090,3 +1090,47 @@ headers, partial bodies, late completion, short absolute deadlines at every
 phase, strict names/CA, malformed/framing/schema/capture refusal, seeded-secret
 privacy, unknown group refusal and bounded file windows. These controls launch
 no Reference application or backend and grant no service acceptance credit.
+
+### Current auth capture boundary
+
+Actual verified registration and login returned complete valid sessions in
+6,907 ms and 8,043 ms respectively under the fixed 20-second operation policy.
+Both private clients exited successfully and were reaped, with 1,046/1,048 IPC
+stdout bytes and no stderr. No group-absence or remote-cancellation inference
+follows from reaping. The application/auth parameters and public source remain
+unchanged. These are individual functional observations, not latency maxima.
+
+The new phase parser currently accepts equals-style fields. The actual Reference
+tracing formatter emits colon-style fields: a bounded retained tail contains
+26 genuine auth lines, none accepted by the new parser, while the existing
+source-backed sanitizer recognizes all 26. This is a bundle capture counterexample,
+not an HTTP/auth/crypto or generic Effigy failure. Login had already completed
+its valid HTTP/session response when post-window capture refused. The fixture
+controls used equals-style lines and did not qualify the genuine formatter.
+A finite read-only reconciliation observed verification `valid` at 7,373 ms,
+join `ok` at 7,374 ms and handler `success` at 7,499 ms; those server origins
+must not be subtracted from the client clock or used to reconstruct historical
+causes. These observations do not replace the refused pre-cleanup capture.
+
+The final success journal emission also follows the parent's last deadline
+check, with no post-emission check before returning. Synchronous journal I/O
+can therefore overrun without subsequent refusal at that boundary. No such
+client overrun is established for these successful requests; the source policy
+still needs a post-emission deadline check and a corresponding controlled
+counterexample before claiming complete absolute-operation qualification.
+
+The registration post window measured 3,005 ms against the configured 3,000 ms
+polling allowance. Its strict whole-window bound is therefore unproven;
+filesystem/scheduling cause is not established. The short-deadline and virtual
+clock controls allowed boundary overrun and did not establish the selected
+strict total. A source correction needs genuine formatter controls, closed
+enum/duplicate refusal, and whole-window deadline/overrun refusal before further
+application acceptance. The current parser and window are preserved as the
+counterexample; no post-effect repair or request replay supplies acceptance.
+
+Only the main profile reached this auth boundary. The other instances, media
+finalisation/read/delete, restart/dependent handoff, interruption/recovery,
+collision/uncertainty, dev:test and default Silo container acceptance remain
+unproven on these inputs. Main scoped down returned zero, but independent exact
+child/group/socket/route absence and foreign preservation were not established.
+The new VM/images/volumes stay held; scoped down supplies no retirement credit.
