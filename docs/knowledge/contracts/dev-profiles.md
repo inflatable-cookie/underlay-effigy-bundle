@@ -1278,290 +1278,49 @@ implemented API, a demonstrated transport defect or execution permission;
 predicate edits, timer increases and remote mutation replay have no evidence
 basis here.
 
-### Client shell selection precedes command-local bindings
+### Product acceptance and optional source diagnostics
 
-The qualified native command builder passes the executable name `sh`, not an
-absolute `/bin/sh`, to Compose exec, followed by `-lc`. Selection therefore
-depends on the image/runtime effective search context before the supplied
-command executes. The native PATH prefix is text inside that login shell's
-command; the client's `HOME=/root` binding occurs still later inside the framed
-command body. Neither binding establishes which shell was selected or what
-login initialization ran first. Image entrypoint identity and successful MC
-interface checks establish neither property.
+Shell/interpreter source forensics and the external artifact-acquisition helper
+are optional diagnostics, not prerequisites for the exported profiles. They are
+not exported product assets or part of the production selector call chain.
+Their failed controls and unsupported source/completion limits remain
+unadmitted; withdrawing this prerequisite does not turn any failure into a pass
+or establish an image-specific historical cause. No change to native `sh -lc`,
+command-local bindings, pinned images or defaults follows from this ruling.
 
-The admitted Linux/arm64 client manifest is
-`sha256:c44abbbd8f1b31ecfcc3aa71c210645a104c4f6f515baf85be37ab7ca4fb520d`,
-with config
-`sha256:37a94867c70839fe649c7ecfff0adad3b8d30fbdba35cdd33bf409cf27d01378`.
-These are artifact identities, not a shell-source admission. Effective image
-PATH/user/environment, candidate symlinks and executable bytes, implementation
-version/source, and implementation-specific conditional login-file precedence
-must be bound to verified descriptors and ordered layer/whiteout semantics
-before naming a selected shell or startup file. Until those inputs are admitted,
-`/bin/sh`, `/etc/profile`, passwd-derived HOME and image-specific timeout causes
-remain hypotheses. Anonymous artifact inspection must enforce its absolute
-HTTP deadline before retaining bytes; inability to establish that bound stops
-acquisition without a tag fallback or engine inspection. Any later source
-admission still provides semantics only, not evidence of the failed execution
-or permission to change the native login-shell behavior.
+The mandatory product boundaries remain exact image provenance, admitted real
+utility/command interfaces, startup/routing guards, bounded native execution,
+privacy, owned listener/generation/endpoint evidence, and independent scoped
+cleanup with foreign and sibling preservation. Shell selection and conditional
+login-file semantics must still be proven before attributing a failure to a
+particular shell or startup file. Those explanations are distinct from product
+functional qualification.
 
-### Artifact acquisition helper qualification boundary
+The maintained product path is the exported launcher and adapters, with
+`proof:dev-profiles:reference-runtime` exercising actual production selectors
+and `proof:dev-profiles:reference-container` exercising the Silo default
+container path. The retired handwritten runtime entry is not an alternative.
+Lifecycle probes extend the incoming host-process list and preserve the three
+production entries. Pending-start interruption requires observed `starting`
+state, exact boot/start/group identity and the generation-bound barrier before
+signaling; completed, failed or unavailable observations grant no interruption
+or cleanup credit.
 
-The artifact-only acquisition prototype isolates each public
-HTTP transport operation in a newly forked, gated session. A parent monotonic
-deadline covers blocking calls and pipe collection; tokens cross inherited
-memory rather than argv, environment or files. The proposed unchanged limits
-are 30 seconds per HTTP operation, 300 seconds per acquisition, 256 MiB total
-download and 1 MiB metadata. Metadata decoding and descriptor verification check
-the original deadline before acceptance. Ordered layer inspection retains files
-in memory and never extracts or executes image bytes; it refuses traversal,
-hardlinks, escaping symlinks, unsupported members and malformed whiteouts.
-Additional inspection limits are 512 MiB uncompressed, 100,000 members and
-128 MiB per regular member. These source limits are not a completed admission
-proof.
+There are remaining qualification evidence boundaries. The `dev:test` qualifier
+currently observes post-action service/gateway inventory without retaining a
+pre-cleanup disposable-listener ownership baseline. The default-container
+qualifier derives its `cleanup_verified` field from successful scoped down and
+inventory observations. These observations do not satisfy independent exact
+child/group/socket/route absence or unchanged foreign/sibling identity. Neither
+field supplies the mandatory cleanup acceptance gate. Future qualification must
+capture the owned baseline before cleanup and independently compare the exact
+resources afterward, holding uncertainty without inferring release from empty
+inventory or a successful down command.
 
-The original hermetic pipe controls exposed a refusal/settlement boundary: both
-direct flood and cumulative-cap overflow returned `group_unknown`, rather than
-the expected primary `capture` classification. The parent replaces the original
-refusal when its unreaped child session/group is unobservable at cancellation.
-It does not signal an unknown group. The returned class does not distinguish
-primary capture failure from subsequent settlement uncertainty, and does not
-establish child/group absence. The combined flood/final-emission control stopped
-at its flood assertion, leaving that final-emission path unqualified. This is
-a helper/control counterexample, not registry, image or native runtime evidence.
-Those initial controls did not pass, and provided no network admission.
-
-The corrected external prototype makes the primary refusal a read-only field
-and attaches settlement and capture accounting separately. It retains a handle
-to its newly forked direct child, observes any group signal authority before
-reap, and uses bounded nonblocking `waitpid` to reap that child independently of
-group visibility. It never signals after reap, signals an ambiguous group, or
-uses leader exit to infer group settlement. Capture accounting distinguishes
-observed and retained bytes, EOF, and exact versus lower-bound counts; an
-overflow witness does not become retained payload or a complete-stream count.
-
-Fourteen affected hermetic controls passed, including separate flood and late
-final-emission cases, cumulative overflow, primary failure with unknown
-settlement, exact owned-group observation before signal, reaped leader with
-unknown group, exited leader with inherited writer, ambiguous gate ownership,
-caller digest refusal, and deadline during metadata decoding. Blocking-phase,
-trickle, truncation, read-error and privacy controls also exercise the changed
-capture path. Unchanged redirect, digest, pinned-input and layer/whiteout source
-retain their earlier scoped control results; they were not replayed.
-
-| Primary observation | Separate settlement/accounting | Acceptance |
-| --- | --- | --- |
-| Capture overflow witness at 129 bytes against a 128-byte fixture cap | Lower-bound observed count; retained bytes stay within cap; direct leader can be reaped while group remains unknown | Refuse `capture`; settlement never replaces it. |
-| Valid capture and reaped leader | Group settlement unknown | Capture observation only; acquisition refuses `settlement_unknown`. |
-| Digest mismatch after capture | Reaped leader and unknown group | Refuse `digest` with the same separate settlement. |
-| Final pending-capture emission exceeds the original deadline | Subsequent deadline check refuses before return | No late success or acceptance prefix. |
-
-The final pending-capture emission and subsequent check share the original
-deadline. A synchronous publication callback is not forcibly interruptible;
-observable overrun refuses, and no stronger wall-time guarantee for a blocked
-callback is established. Ambiguous pre-request ownership closes the gate
-without releasing a request; if its bounded reap observation remains pending,
-that uncertainty stays explicit. No reader join or repeated signal follows.
-
-These controls establish the repaired source result contract, not independently
-settled process groups, network transport qualification or image source
-admission. No artifact operation is authorized by the control result. Image
-shell/login source remains unadmitted; a supported independent group-settlement
-observation is still required before this prototype can accept an acquisition.
-Generic native refusal evidence and separately selected artifact/runtime
-continuations remain distinct prerequisites.
-
-### Earlier closed-source HTTPS worker boundary
-
-The earlier proposed artifact-specific acceptance from direct-child reap and
-pipe EOF required a complete worker call and import inventory. The artifact
-platform contract below supersedes that exhaustive native-source requirement. It does not apply to `isolated(call, …)`, which accepts arbitrary
-callbacks and deliberately exercises descendant-producing fixtures. A proposed
-production recipe must admit only bounded HTTPS URL/header/cap data, reject
-callback/opener/process hooks and proxies, and select verified interpreter,
-resolver and TLS implementations. Reap/EOF must never be renamed whole-group
-absence or transferred to service and native host-client supervision.
-
-The selected Xcode Python 3.9.6 source establishes these boundaries:
-
-| Path | Source-supported behavior | Remaining admission |
-| --- | --- | --- |
-| `response` → `build_opener(ProxyHandler({}), Redirect())` | Explicit empty proxy mapping suppresses environment/system proxy discovery in `ProxyHandler.__init__`; the redirect override restricts HTTPS distribution and removes cross-host authorization | Arbitrary `opener` injection remains available in the prototype and must be excluded from production. |
-| HTTPS handler → `http.client.HTTPSConnection` | No supplied context calls `ssl._create_default_https_context`; connection uses `socket.create_connection` and wraps the connected socket | Context and connection hooks are mutable; a closed recipe cannot assume their identity from names. |
-| `socket.create_connection` → `getaddrinfo` | The Python loop delegates name resolution to `_socket.getaddrinfo`, then uses native socket connect | Exact native extension and platform resolver implementation/source closure are missing. |
-| Default TLS context → native `_ssl` | Default certificate paths, socket wrapping, handshake and reads cross native implementations | Exact extension, TLS library and certificate-loading implementation/source closure are missing. |
-| Interpreter startup → `site.py` | `.pth` import lines execute code; `sitecustomize` and `usercustomize` may run | The prototype forks the existing interpreter; no isolated startup/import provenance has been admitted. |
-
-There is also a concrete input boundary beyond process creation: the selected
-`ssl.create_default_context` reads `SSLKEYLOGFILE` when environment handling is
-enabled and assigns it to the context's keylog destination. Default context
-construction therefore does not establish an artifact-root-only write policy.
-No actual keylog setting, write or timeout attribution was observed. A future
-closed recipe must explicitly eliminate that hook without weakening CA/name
-verification or mutating global environment/settings.
-
-The local `_socket` and `_ssl` binaries have identifiable bytes, but their hashes
-alone do not prove a descendant-free call graph. Matching extension sources,
-platform DNS/TLS dependencies and interpreter startup/import bindings have not
-been admitted. This is missing lifetime provenance, not evidence that those
-implementations create descendants. The existing arbitrary-callback settlement
-refusal remains binding; the closed-production direct-child acceptance contract
-has not been enabled or exercised. No acquisition follows an unsupported source
-closure. Those source gaps remain disclosed; they do not independently block the
-selected artifact platform contract below. A restricted recipe and its
-startup, privacy, capture and completion controls still require admission.
-
-### Artifact platform completion contract
-
-For artifact transport only, the selected contract uses isolated interpreter
-startup, a restricted typed HTTPS request, and actual platform completion
-observations. It does not require exhaustive transitive native DNS/TLS source
-closure. Native dependency source and descendants that escape the recorded
-group remain unverified; this contract grants no service cleanup, remote
-cancellation or retirement credit.
-
-The child entry uses an absolute interpreter with `-I -S` and a minimal explicit
-environment. Python documents isolated import/environment behavior for
-[`-I` and site suppression for `-S`](https://docs.python.org/3.9/using/cmdline.html).
-Production request data contains only admitted HTTPS URL, headers and byte cap;
-callback, opener, proxy and process-hook inputs refuse. The proposed TLS context
-uses `SSLContext(PROTOCOL_TLS_CLIENT)` with CA loading and mandatory CA/name
-verification, avoiding the environment-aware default-context constructor.
-Selected `ssl.py` guards access to `keylog_filename` with `hasattr`; unconditional
-access is not an admitted portable capability check. Clean startup, certificate
-availability and optional-property handling must be demonstrated together.
-
-Before dispatch, the newly owned child must have positive PID/session/group
-binding. After actual direct-child reap and EOF on both owned pipes,
-`killpg(recorded_positive_pgid, 0)` may observe that exact group. Apple's
-[`kill(2)` contract](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kill.2.html)
-specifies checking without delivery for signal zero;
-[`killpg(2)`](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/killpg.2.html)
-identifies ESRCH with absence of a member in the specified group. This is
-absence at that observation, not continuous or historical absence. Existing
-groups, EPERM and other errors refuse. Numeric reuse cannot authorize any
-delivered signal; termination after reap is forbidden.
-
-Hermetic controls demonstrated direct reap plus pipe EOF plus actual fresh-group
-ESRCH, existing-group survivor refusal, inherited-writer deadline refusal,
-primary overflow accounting, late final-emission refusal, malformed/nonzero
-protocol refusal and bounded digest/size/JSON/OCI-path/link/whiteout checks.
-EPERM, other errors and numeric reuse were simulated response controls, not
-observations of foreign groups. The isolated startup/TLS control instead refused
-`capture` before its result was admitted. The captured bytes were not retained,
-so its underlying cause and separate settlement remain unknown. Neither CA
-availability nor complete startup/privacy admission can be credited from that
-refusal. No network acquisition follows the failed mandatory control, and the
-prototype is not an admitted artifact transport.
-
-Request-pipe writes now use nonblocking selector-driven capture preparation;
-output caps apply before retained-buffer growth. The original deadline also
-covers final evidence emission and a subsequent check. Synchronous operations
-remain uninterruptible mid-call, and observable overruns refuse. Primary errors
-remain separate from settlement. Test-only descendant recipes are kept apart
-from the production HTTPS worker, and their escaped or post-exit descendants
-receive no absence or cleanup credit. A complete startup/TLS and caller privacy
-control matrix remains necessary before artifact acceptance.
-
-### Restricted helper interfaces and remaining startup gate
-
-The revised external helper inspects `keylog_filename` conditionally. An
-unavailable optional property is legitimate when mandatory verification and
-name checks hold; a present enabled property refuses. CA availability remains
-mandatory. For the selected Darwin context, bounded regular no-follow reads of
-`/etc/ssl/cert.pem` supply explicit CA bytes to `load_verify_locations`. This
-avoids inherited `SSL_CERT_*` and keylog environment selection; it does not
-install trust or establish isolated worker startup by itself.
-
-In-memory TLS handshake controls accepted a private fixture certificate with
-its matching CA/name and rejected wrong CA/name inputs. No network socket or
-listener participated. Separate optional-property, empty-CA and disabled
-verification controls passed. These results establish the inspected context
-semantics in their fixture; the complete isolated public worker path remains
-unqualified.
-
-The caller no longer accepts a decoder callable or arbitrary acquisition
-callback. It dispatches only fixed `bytes` or bounded duplicate-rejecting JSON
-decoding, followed by fixed descriptor/platform/layer checks. The original
-deadline is checked around decoding, within layer reads and after final pending
-evidence emission. A callable decode input refused before a child launched.
-Whole caller success, digest/size/JSON refusal and final decoded-journal stage
-coverage still require successful startup and explicit stage reachability. A
-passing deadline expectation without a decoded-stage witness is insufficient
-evidence for the final journal path.
-
-Failure evidence now retains a closed phase and primary reason independently
-from child exit/reap, group observation and per-stream observed/retained counts,
-EOF and exact/lower-bound semantics. It excludes raw exception messages,
-response bodies, argv, environment values and tokens. The caller's actual
-startup refusal recorded a reaped nonzero child with observed binding, zero
-stdout bytes and 21 stderr bytes; neither stream reached observed EOF, so both
-counts are lower bounds and group absence remains unknown. Exact retained
-unreaped-child cancellation is recorded separately and establishes no remote
-cancellation or descendant settlement.
-
-The coherent matrix failed its public startup/caller controls. Fourteen
-assertion failures and one classified startup error prevent admission despite
-other individual passes. The startup result never reached its complete
-assertions, and the safe record does not distinguish which startup predicate
-failed. The fixture also uses lexical path equality between main-script and
-imported-module roots; their compared values were not retained, so this remains
-a source boundary to inspect rather than an established failure cause.
-
-The next source proof needs closed per-predicate startup observations, canonical
-owned source-root comparison and witnessed reachability of the actual
-read/privacy/decoder/final-journal controls. Until those controls pass, no
-artifact transport acceptance follows. Prior success at different helper inputs
-retains its original scope; it cannot certify this changed worker. Native source,
-escaped descendants, synchronous mid-call interruption and service/runtime
-qualification remain separate limits.
-
-### Startup predicate and canonical source evidence
-
-The artifact worker now publishes a bounded fixed startup predicate schema
-before aggregate refusal, separate from response bytes. Unknown fields,
-duplicate fields and non-boolean values refuse; unavailable CA/name/keylog
-predicates remain explicitly unknown until the context is inspected. Successful
-context inspection updates the same schema. Isolated flags, site suppression,
-environment contract and source agreement must hold before request release;
-CA/name verification, keylog exclusion and CA availability must hold before
-acceptance.
-
-The selected fresh interpreter entry added only the predefined CoreFoundation
-field category to the explicit minimal parent environment. Closed observations
-identified this environment predicate while flags, site suppression and source
-agreement passed. Command-local sanitization removes only that exact field.
-The selected `os.py` implementation deletes through `unsetenv` and its local
-mapping; before-entry and post-sanitization observations stay distinct. Unknown
-extras still refuse. Native CoreFoundation creation semantics were not
-reconstructed, and no inherited hook execution or historical cause is inferred.
-Separate controls reached startup and verified exclusion of inherited Python
-home/path, proxy, keylog and CA override inputs.
-
-Canonical source agreement requires resolved physical identity plus no-follow
-owned regular single-link files, stable device/inode/full source SHA and the
-owned mode-0700 root. Lexical `/var` versus `/private/var` equality is insufficient.
-The maintained source inventory excludes deliberate changed-file and symlink
-fixtures; changed or linked source refuses. Both interpreter entry and shared
-parent guard inputs require admission.
-
-The corrected public path reached actual startup/context assertions, owned
-child reap, pipe EOF and exact positive-group signal-zero ESRCH. Read errors,
-trickle deadlines, status/length/truncation refusals, seeded-secret privacy,
-caller duplicate JSON/digest/size refusals and unknown predicate framing were
-exercised through the closed helper interfaces. Final completion and decoded
-journal controls now require witnessed callbacks before advancing the control
-clock past the original deadline. These virtual clock cases establish the
-post-emission checks; earlier real short-window cases that expired before that
-stage retain their failure scope.
-
-The final coherent matrix still refused one startup case at its unchanged
-0.8-second fixture deadline, despite the other 54 controls passing. The refused
-case retained all mandatory startup and TLS predicates as true, but observed
-EOF on neither pipe before the deadline. Its primary refusal was `deadline`
-during capture, with group absence unknown. This is not evidence of
-a failed startup predicate, native dependency, host load or production HTTP failure,
-and the fixture window is distinct from the unchanged 30-second HTTP policy.
-No timer increase or unchanged retry follows. Complete mandatory startup
-qualification therefore remains outstanding; individual successful controls
-do not authorize artifact acquisition, service runtime or cleanup.
+Generic refusal-accounting candidate interfaces require their owning reviewed
+source/API/artifact handover before integration and admission. The current
+qualified source/binary gate stays unchanged. Older incomplete native failure
+accounting remains explicitly unknown; no candidate fields or checksums are
+assumed. Complete product runtime, default-container, lifecycle, configured
+single-action `dev:test` and independent cleanup proofs are required before
+review readiness. Source preparation alone does not supply those proofs.

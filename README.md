@@ -138,6 +138,17 @@ config-mount and volume boundaries. Mutations of those genuine generated inputs
 must refuse. MinIO image availability is not a precondition.
 Current owner/generation, production bootstrap/CORS and whole-profile acceptance
 require fresh runtime proof; historical storage receipts cannot supply those gates.
+Shell/interpreter source forensics and external artifact-acquisition helper
+controls are optional diagnostics, outside the exported product and its hard
+acceptance gates. Their failures remain unadmitted. Exact image provenance,
+real command interfaces, native bounds, privacy and independent cleanup remain
+mandatory; this does not change the native login-shell command.
+
+Post-down inventory and gateway observations alone do not prove cleanup.
+The disposable-test and default-container qualification paths still need
+pre-cleanup resource baselines and independent exact absence/foreign-survivor
+verification before their cleanup observations can receive acceptance credit.
+
 
 Earlier `0412cc7b` disposable Reference evidence covers production bootstrap, three
 instances with HTTPS origins/HMR and browser CORS, and registration/login/media
