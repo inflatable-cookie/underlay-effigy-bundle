@@ -48,6 +48,7 @@ from reference_storage_probe import StorageDiagnosticJournal  # noqa: E402
 import listener_snapshot  # noqa: E402
 import transition_snapshot
 import qualification_cleanup
+from fresh_backend_admission import FreshBackend, selected_tools
 from qualification_cleanup_action import ListenerObserver
 import pending_start_identity  # noqa: E402
 from listener_snapshot import observed, read_document  # noqa: E402
@@ -1518,7 +1519,7 @@ def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_state
     return recovered
 
 
-def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storage_only: bool,
+def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backend_admission: FreshBackend, storage_only: bool,
                             diagnostics: StorageDiagnosticJournal | None = None,
                             auth_patch_receipt: dict | None = None,
                             remaining_lifecycle: bool = False,
@@ -1849,6 +1850,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                     "foreign_survivors": [str(path) for path in foreign_before],
                     "exact_identity_and_https_checks": True,
                 }
+                backend_admission.observer_for(main, env)
                 receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before)
                 for index, checkout in enumerate(checkouts[1:], start=1):
                     before_states = app_records[checkout]
@@ -1868,6 +1870,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, storag
                 for checkout, before_states in foreign_before.items():
                     _verify_live(checkout, before_states, env)
                 receipts["foreign_survivors_after_main_down"] = [str(path) for path in foreign_before]
+                backend_admission.observer_for(main, env)
                 receipts["dev_test_cleanup"] = verify_disposable_action(main, env, foreign_before)
                 for checkout in checkouts[1:]:
                     selector(checkout, "dev:hybrid:down", env)
@@ -2073,7 +2076,7 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py")},
                            effigy_source="77d22adcbdbca20752720d6671310f13894d219f",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="95b16dbf56f507f0593ca205694fc5e667d311eee7e67b4e1d3afc81ba724938",
@@ -2083,16 +2086,17 @@ def main() -> int:
                                          else "storage_only" if storage_only else "full_runtime"))
         if retained_inputs is not None:
             diagnostics.append("retained_acceptance_input_match", result=retained_inputs)
-    private_home = fixture_root / "home"
-    private_home.mkdir(mode=0o700)
-    colima_home = fixture_root / "colima-home"
-    colima_home.mkdir(mode=0o700)
+    backend_admission=FreshBackend(fixture_root,os.environ)
+    backend_admission.bind_tools(*selected_tools())
+    backend_admission.require_boot_read_contract()
+    private_home=backend_admission.paths['HOME']
+    colima_home=backend_admission.paths['COLIMA_HOME']
     private_cargo_home = private_home / ".cargo"
     private_cargo_home.mkdir(mode=0o700)
     private_cargo_target = private_home / ".cargo-target"
     private_cargo_target.mkdir(mode=0o700)
-    runtime_env = os.environ.copy()
-    real_home = runtime_env.get("HOME", str(Path.home()))
+    runtime_env = backend_admission.env.copy()
+    real_home = os.environ.get("HOME", str(Path.home()))
     runtime_env.update({
         "HOME": str(private_home),
         "COLIMA_HOME": str(colima_home),
@@ -2168,9 +2172,11 @@ def main() -> int:
         for key in ('DOCKER_HOST','DOCKER_CONTEXT','COLIMA_PROFILE'):
             if key in runtime_env:raise RuntimeError('foreign runtime override refused')
         colima_start_attempted = True
-        RUNTIME.run([bound_colima(runtime_env), "start", "--profile", "effigy", "--runtime", "containerd",
-                     "--cpu", "6", "--memory", "8", "--disk", "64"],
-                    env=runtime_env, timeout=1200)
+        for checkout in checkouts:
+            original_config=RUNTIME.run([EFFIGY,'--repo',str(checkout),'config','--inspect'],cwd=checkout,env=runtime_env,timeout=120,print_output=False)
+            backend_admission.original_scope(checkout,original_config.stdout.encode(),hashlib.sha256((ROOT/'export.toml').read_bytes()).hexdigest())
+
+        RUNTIME.run(backend_admission.start_command(runtime_env),env=runtime_env,timeout=1200)
         started_colima = True
         if diagnostics is None:raise RuntimeError('full-profile finite diagnostics required')
         observe(runtime_env,fixture_root,diagnostics)
@@ -2183,7 +2189,7 @@ def main() -> int:
         if diagnostics is not None:
             diagnostics.append("pinned_images_prepared", silo_image=IMAGE,
                                silo_release=RELEASE, silo_client_image=CLIENT_IMAGE)
-        receipts = verify_profile_runtime(checkouts, runtime_env, storage_only=storage_only,
+        receipts = verify_profile_runtime(checkouts, runtime_env, backend_admission=backend_admission, storage_only=storage_only,
                                           diagnostics=diagnostics,
                                           auth_patch_receipt=auth_patch_receipt,
                                           remaining_lifecycle=remaining_lifecycle,

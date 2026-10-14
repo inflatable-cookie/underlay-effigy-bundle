@@ -15,6 +15,7 @@ from pathlib import Path
 
 from qualification_runtime import require_effigy_binary
 import container_identity_observer
+from fresh_backend_admission import FreshBackend, selected_tools
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -106,13 +107,14 @@ def main() -> int:
     reference_source = REFERENCE.reference_source()
     fixture_root = RUNTIME.mktemp_root()
     print(f"PRIVATE REFERENCE DEFAULT-CONTAINER ROOT: {fixture_root}", flush=True)
-    private_home = fixture_root / "home"
-    private_home.mkdir(mode=0o700)
-    colima_home = fixture_root / "colima-home"
-    colima_home.mkdir(mode=0o700)
+    backend_admission=FreshBackend(fixture_root,os.environ)
+    backend_admission.bind_tools(*selected_tools())
+    backend_admission.require_boot_read_contract()
+    private_home=backend_admission.paths['HOME']
+    colima_home=backend_admission.paths['COLIMA_HOME']
     gateway_root = fixture_root / "gateway"
     gateway_root.mkdir(mode=0o700)
-    runtime_env = os.environ.copy()
+    runtime_env = backend_admission.env.copy()
     runtime_env.update({
         "HOME": str(private_home),
         "COLIMA_HOME": str(colima_home),
@@ -133,14 +135,14 @@ def main() -> int:
         "container_up": None,
         "cleanup": [],
         "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
-                                  for name in ("container_identity_observer.py","qualify-reference-container.py")},
+                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","qualify-reference-container.py")},
     }
     checkout: Path | None = None
     gateway_attempted = False
     profile_started = False
     stack_attempted = False
     cleanup_verified = False
-    cleanup_observer = None  # Qualified original root/boot/mount/routing receipt is mandatory.
+    # The strict original admission object owns construction; no late context injection.
     failure: str | None = None
     try:
         occupied = RUNTIME.fixed_default_ports_available()
@@ -182,6 +184,9 @@ def main() -> int:
         if not plan_receipt["sources_siblings_false"] or not all(plan_receipt["default_ports"].values()):
             raise RuntimeError("private Reference default inputs or siblings=false task resolution changed")
         receipts["default_dev_plan"] = plan_receipt
+        backend_admission.original_scope(checkout,config.stdout.encode(),hashlib.sha256((REPO/'export.toml').read_bytes()).hexdigest())
+
+        receipts['backend_admission']=backend_admission.observation_requirements()
 
         run([effigy,'--repo',str(checkout),'silo:prepare'],cwd=checkout,env=runtime_env,timeout=60)
         run([effigy,'--repo',str(checkout),'silo:admit'],cwd=checkout,env=runtime_env,timeout=60)
@@ -208,8 +213,7 @@ def main() -> int:
             "ca_installed": (gateway_status.get("tls") or {}).get("ca_installed"),
         }
 
-        run([bound_colima(runtime_env), "start", "--profile", "effigy", "--runtime", "containerd",
-             "--cpu", "6", "--memory", "8", "--disk", "64"], env=runtime_env, timeout=1200, output=True)
+        run(backend_admission.start_command(runtime_env),env=runtime_env,timeout=1200,output=False)
         profile_started = True
 
         receipts['formatter']=observe(runtime_env,fixture_root,journal)
@@ -282,7 +286,7 @@ def main() -> int:
         if checkout is not None and stack_attempted:
             try:
                 cleanup_verified=independently_observe_container_down(
-                    effigy,checkout,runtime_env,receipts['cleanup'],cleanup_observer)
+                    effigy,checkout,runtime_env,receipts['cleanup'],backend_admission.observer_for(checkout,runtime_env))
             except container_identity_observer.Refusal as error:
                 receipts['cleanup'].append({"container_cleanup_verified":False,
                     "reason":str(error),"capture":getattr(error,'evidence',None)})

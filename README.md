@@ -151,8 +151,11 @@ child/group/socket/route absence and unchanged sibling identities. This is sourc
 and hermetic-control preparation; fresh runtime proof remains required.
 A qualification-only direct-Lima reader now implements bounded full-ID/creation
 and Compose-label observation with independent post-down foreign preservation.
-Default-container cleanup stays unverified until original private backend
-routing/boot/mount inputs are admitted and fresh runtime observation qualifies. Partial host absence cannot pass the
+Both qualifiers now prepare explicit fresh private HOME/Colima/Lima startup
+intent and refuse inherited overrides and preexisting profiles. They stop before
+runtime queries because the selected instance projection cannot supply the
+required fresh boot, agent/root and actual mount proof. Original routing/service
+policy admission and fresh runtime cleanup qualification remain required. Partial host absence cannot pass the
 whole-product cleanup gate, and no VM/image/volume retirement is inferred.
 
 

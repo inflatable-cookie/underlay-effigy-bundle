@@ -1339,6 +1339,41 @@ fallback is prohibited. The current default-container qualifier has no admitted
 original routing context and therefore holds scoped down and cleanup credit.
 The reader does not discover a context from late inventory or adopt held VMs.
 
+Both actual qualifier entrypoints now create the original fresh-backend admission
+object before other fixture/tool operations. It requires an empty canonical
+owned 0700 fixture and exclusively creates separate private HOME, COLIMA_HOME
+and LIMA_HOME roots. Inherited Docker/containerd/nerdctl/Lima/SSH/Colima/XDG
+configuration overrides refuse before root creation. Immutable original intent,
+selected absolute tool hashes and source-provenance declarations precede any
+backend effect; a preexisting instance/profile, changed inode/permissions,
+changed tool or altered intent refuses. Original captured configuration hashes
+are separately tied to that intent and source input. They are association
+receipts, not a decoded service/namespace policy or ownership authority.
+
+The prepared Colima 0.10.3 startup recipe explicitly selects containerd and the
+fixture mount, disables activation, SSH-config generation, SSH-agent forwarding
+and template use, and preserves the existing CPU/memory/disk parameters.
+Installed CLI help documents these flags; it does not establish actual mount
+replacement semantics or source-to-binary attestation. No profile is started
+until the actual required observation contract is admitted.
+
+The precise current refusal is
+`guest_boot_agent_root_and_actual_mount_observation_unqualified`. The retained
+Colima `InstanceInfo` projection has name/status/dir/runtime fields but no guest
+boot UUID, exact agent kernel start/opened-root-file binding or actual mounted
+cwd proof. Both entrypoints stop at this source admission boundary before any
+runtime query or startup. The default cleanup caller and whole-profile
+service/disposable path obtain their reader through the same original admission
+object, replacing the unwired reader placeholder. That path refuses missing
+original checkout configuration and never constructs an Observer from a late
+inventory, arbitrary boot value, owner boolean, clock or “Running” name.
+No additional boot/provider fields are guessed. A supported scoped fresh-boot,
+agent/root and mount observation recipe plus a verified original renderer
+service/routing policy is still required; the selected projection alone cannot
+supply it. This is an explicit qualification source boundary, not evidence that
+such a capability is globally absent or a new generic core prerequisite.
+
+
 Each reader observation has a fixed 30-second absolute deadline, 8-second call
 bound, 64-ID limit, 65,536-byte stdout and 16,384-byte stderr limits before
 retained host collection. Both pipe EOFs and zero exit are required; stderr is

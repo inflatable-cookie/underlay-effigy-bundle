@@ -89,3 +89,7 @@ run_in = "host"
 [tasks."proof:dev-profiles:container-observer-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/container_identity_observer_test.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:fresh-backend-admission-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/fresh_backend_admission_test.py"
+run_in = "host"
