@@ -1462,3 +1462,56 @@ remain separate from settlement. Test-only descendant recipes are kept apart
 from the production HTTPS worker, and their escaped or post-exit descendants
 receive no absence or cleanup credit. A complete startup/TLS and caller privacy
 control matrix remains necessary before artifact acceptance.
+
+### Restricted helper interfaces and remaining startup gate
+
+The revised external helper inspects `keylog_filename` conditionally. An
+unavailable optional property is legitimate when mandatory verification and
+name checks hold; a present enabled property refuses. CA availability remains
+mandatory. For the selected Darwin context, bounded regular no-follow reads of
+`/etc/ssl/cert.pem` supply explicit CA bytes to `load_verify_locations`. This
+avoids inherited `SSL_CERT_*` and keylog environment selection; it does not
+install trust or establish isolated worker startup by itself.
+
+In-memory TLS handshake controls accepted a private fixture certificate with
+its matching CA/name and rejected wrong CA/name inputs. No network socket or
+listener participated. Separate optional-property, empty-CA and disabled
+verification controls passed. These results establish the inspected context
+semantics in their fixture; the complete isolated public worker path remains
+unqualified.
+
+The caller no longer accepts a decoder callable or arbitrary acquisition
+callback. It dispatches only fixed `bytes` or bounded duplicate-rejecting JSON
+decoding, followed by fixed descriptor/platform/layer checks. The original
+deadline is checked around decoding, within layer reads and after final pending
+evidence emission. A callable decode input refused before a child launched.
+Whole caller success, digest/size/JSON refusal and final decoded-journal stage
+coverage still require successful startup and explicit stage reachability. A
+passing deadline expectation without a decoded-stage witness is insufficient
+evidence for the final journal path.
+
+Failure evidence now retains a closed phase and primary reason independently
+from child exit/reap, group observation and per-stream observed/retained counts,
+EOF and exact/lower-bound semantics. It excludes raw exception messages,
+response bodies, argv, environment values and tokens. The caller's actual
+startup refusal recorded a reaped nonzero child with observed binding, zero
+stdout bytes and 21 stderr bytes; neither stream reached observed EOF, so both
+counts are lower bounds and group absence remains unknown. Exact retained
+unreaped-child cancellation is recorded separately and establishes no remote
+cancellation or descendant settlement.
+
+The coherent matrix failed its public startup/caller controls. Fourteen
+assertion failures and one classified startup error prevent admission despite
+other individual passes. The startup result never reached its complete
+assertions, and the safe record does not distinguish which startup predicate
+failed. The fixture also uses lexical path equality between main-script and
+imported-module roots; their compared values were not retained, so this remains
+a source boundary to inspect rather than an established failure cause.
+
+The next source proof needs closed per-predicate startup observations, canonical
+owned source-root comparison and witnessed reachability of the actual
+read/privacy/decoder/final-journal controls. Until those controls pass, no
+artifact transport acceptance follows. Prior success at different helper inputs
+retains its original scope; it cannot certify this changed worker. Native source,
+escaped descendants, synchronous mid-call interruption and service/runtime
+qualification remain separate limits.
