@@ -209,6 +209,14 @@ corrected, but compilation, dependency/profile admission and measured CPU phases
 remain unverified; the diagnostic was not replayed. It supplies no service or
 full-profile acceptance credit.
 
+The corrected operation also stopped before building: its cache gate expected
+`.cargo-checksum.json` in registry source directories, but the retained cache
+does not contain that metadata. The cached Argon2, password-hash and Tokio
+archives each match their retained lock checksum. This demonstrates an
+unsupported helper metadata assumption, not unavailable dependencies. Archive
+checksum admission is a concrete next correction; no build or probe was
+replayed, and no CPU timing or performance conclusion was obtained.
+
 Both opt-in launcher tasks explicitly bind the bucket and all seven declared
 route names. Before service startup, the launcher validates their shapes and
 compares them with the current composed API declaration through a bounded,

@@ -115,14 +115,31 @@ def main():
     if head != SOURCE: raise ValueError('source_identity')
     rust = Path(__file__).parent / 'fixtures/auth-cpu.rs'
     lock = RETAINED / 'reference/main/apps/acme-api/Cargo.lock'
-    save(root,'intent.json',{'run':'da782a4a-3c37-4398-b1c6-49408efd930e','brief':39,
-        'initial_head':'3d81a78ab0b6da2a8bd92f0a284b63445589bdeb',
-        'brief_sha256':'44453c03869507a68823bb8dbf3a3c36d4f1bdf0f2c7ddf402bea8068cbb4905',
+    # Keep the actual consumer declaration's source ID, so the copied lock pins
+    # the Git object without turning a tag source into a new resolver source.
+    reference_manifest = RETAINED / 'reference/main/apps/acme-api/Cargo.toml'
+    declaration = re.search(r'^underlay-auth = (.+)$',reference_manifest.read_text(),re.M)
+    expected_declaration = '{ git = "ssh://git@github.com/inflatable-cookie/underlay.git", tag = "v0.10.3" }'
+    if declaration is None or declaration[1] != expected_declaration:
+        raise ValueError('consumer_manifest_changed')
+    for relative in ('Cargo.toml','rust/crates/underlay-auth/Cargo.toml','rust/crates/underlay-auth/src/lib.rs','rust/crates/underlay-auth/src/hashing.rs','rust/crates/underlay-core/Cargo.toml'):
+        if not (source / relative).is_file(): raise ValueError('source_layout')
+    admitted = packages(lock)
+    auth = admitted.get(('underlay-auth','0.10.3'))
+    if auth is None or not auth[0].endswith('#'+SOURCE): raise ValueError('lock_source_identity')
+    for name,version in [('argon2','0.5.3'),('password-hash','0.5.0'),('tokio','1.53.1')]:
+        cached = list((RETAINED/'.cargo/registry/src').glob('*/'+name+'-'+version+'/.cargo-checksum.json'))
+        if len(cached)!=1 or json.loads(cached[0].read_text())['package']!=admitted[(name,version)][1]:
+            raise ValueError('cache_checksum_identity')
+    save(root,'intent.json',{'run':'3eec6c36-3c79-4040-8e71-34761b9d71fe','brief':40,
+        'initial_head':'8fdd8f8cdcfdd71aeb271ce6a750bfb9c96b7d80',
+        'brief_sha256':'35fdcc13bec805e676b67e0e4ff2c93178acbd7bb8adba9563c6a245b45359f5',
         'task':'b3ae8bae-190d-42f4-8132-430253bb02fe','source':SOURCE,'once':True,
         'cost':{'algorithm':'argon2id','version':19,'memory_kib':131072,'iterations':4,'parallelism':4},
         'build_seconds':600,'execution_seconds':60,'build_jobs':2,'stream_cap':CAP,
         'source_fixture_sha256':digest(rust),'harness_sha256':digest(Path(__file__)),
-        'retained_lock_sha256':digest(lock),'no_services':True})
+        'retained_lock_sha256':digest(lock),'reference_manifest_sha256':digest(reference_manifest),
+        'preflight_layout_and_cache_identity':True,'original_preparation_unrun_build_and_cpu':True,'no_services':True})
     home = root / 'home'; home.mkdir(mode=0o700)
     cargo_home = home / '.cargo'
     shutil.copytree(RETAINED / '.cargo',cargo_home,ignore=shutil.ignore_patterns('credentials*','.global-cache','.package-cache*'))
@@ -132,7 +149,7 @@ def main():
             raise ValueError('copied_source_changed')
     probe = root / 'probe'; (probe / 'src').mkdir(parents=True)
     shutil.copyfile(rust,probe / 'src/main.rs'); shutil.copyfile(lock,probe / 'Cargo.lock')
-    (probe / 'Cargo.toml').write_text('[package]\nname="underlay-auth-cpu-probe"\nversion="0.0.0"\nedition="2021"\n[dependencies]\nunderlay-auth={git="ssh://git@github.com/inflatable-cookie/underlay.git",rev="'+SOURCE+'",features=["hashing"]}\ntokio={version="=1.53.1",features=["rt"]}\n[profile.dev]\nopt-level=0\n')
+    (probe / 'Cargo.toml').write_text('[package]\nname="underlay-auth-cpu-probe"\nversion="0.0.0"\nedition="2021"\n[dependencies]\nunderlay-auth={git="ssh://git@github.com/inflatable-cookie/underlay.git",tag="v0.10.3",features=["hashing"]}\ntokio={version="=1.53.1",features=["rt"]}\n[profile.dev]\nopt-level=0\n')
     cargo = shutil.which('cargo')
     if not cargo: raise ValueError('cargo_unavailable')
     env = {k:os.environ[k] for k in ('PATH','RUSTUP_HOME','DEVELOPER_DIR','SDKROOT') if k in os.environ}

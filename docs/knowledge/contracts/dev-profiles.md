@@ -1003,3 +1003,21 @@ and measured phase behavior remain unqualified. Syntax validation alone does
 not qualify those execution paths. A later selected operation must retain the
 original failure evidence and establish these inputs before CPU observations;
 the diagnostic does not start services or grant runtime acceptance authority.
+
+Corrected-layout preparation preserved the consumer's tag-based dependency
+source ID and copied lock's exact Git pin rather than introducing a different
+revision-based resolver source. Its new cache-admission gate then refused
+before copying/building: the retained registry source directories contain no
+`.cargo-checksum.json`. Read-only reconciliation found one cached archive each
+for Argon2 `0.5.3`, password-hash `0.5.0` and Tokio `1.53.1`, all with SHA256
+equal to their retained lock checksums. The refusal therefore demonstrates a
+helper's unsupported metadata-shape expectation, not a missing archive or a
+proven Cargo resolution failure. No build/probe group was created, no measured
+phase exists, and the operation was not replayed.
+
+The next concrete source correction is archive-checksum admission against the
+retained lock, with corresponding copied-source provenance. No admission rule
+should be relaxed into unknown dependency credit. The remaining offline build,
+complete resolved-lock/profile admission and one synthetic CPU observation
+still require a separately selected operation. Preflight source checks alone
+do not supply execution or service acceptance evidence.
