@@ -1551,3 +1551,11 @@ Shared Reference helper calls receive the same private environment even when a
 call omits its explicit env argument; they do not fall back to operator ambient
 state. This invocation isolation does not grant guest boot, VM signal, remote
 cancellation or cleanup authority.
+
+The Reference qualifier runs its instrumented `acme-api/check` once before
+private backend startup. A task-command failure halts acceptance; successful
+assembly, private vault initialization and scope/host-map plans do not replace
+that compile. The retained compile observation includes exit status and source,
+patch and lockfile hashes, with compiler output omitted. If the completed task
+record supplies only the command-failure family, the compiler cause remains
+unknown and must not be attributed to environment, dependencies or Effigy.

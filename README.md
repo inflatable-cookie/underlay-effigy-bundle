@@ -339,3 +339,7 @@ only declared host tool/platform and invocation inputs, then assigns new owned
 roots. The ambient operator environment is unchanged. Explicit overrides added
 after construction still refuse, and the ready wrapper checks the original root
 context instead of rebuilding or stripping it.
+
+Reference acceptance also requires its instrumented API compile to pass before
+backend startup. A failed compile stops the attempt; assembly and private vault
+checks alone provide no runtime or cleanup acceptance.
