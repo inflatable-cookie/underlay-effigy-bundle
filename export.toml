@@ -214,7 +214,10 @@ run = [
   { task = "{{ sel_docs }}/qa:northstar" },
 {% endif %}]
 
-[tasks.dev]
+{% set hybrid_default = inputs.profiles.enabled and inputs.profiles.dev == "hybrid" %}
+# The whole-stack container session. It is `dev` unless the consumer makes
+# the hybrid profile its default, in which case it stays as `dev:container`.
+{% if hybrid_default %}[tasks."dev:container"]{% else %}[tasks.dev]{% endif %}
 mode = "tui"
 container_lifecycle = true
 secrets = "required"
@@ -295,6 +298,15 @@ timeout_secs = 600
 [containers.{{ container }}.host_processes.listener.route]
 domain = "{{ api_domain }}"
 tls = true
+# Background jobs: a supervised host process with no listener or route.
+[[containers.{{ container }}.host_processes]]
+name = "jobs"
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec {{ container }} -- effigy profile:jobs'
+cwd = "."
+restart = "on-failure"
+depends_on = ["api"]
+env = { {{ profile_env }} }
+
 {% for app in [("front", inputs.dirs.front or "app-front", front_domain), ("admin", inputs.dirs.admin or "app-admin", admin_domain)] %}
 
 [[containers.{{ container }}.host_processes]]
@@ -329,6 +341,11 @@ run = "effigy {{ sel_api }}/api"
 run_in = "host"
 secrets = "required"
 
+[tasks."profile:jobs"]
+run = "effigy {{ sel_api }}/jobs"
+run_in = "host"
+secrets = "required"
+
 [tasks."dev:hybrid"]
 run = [
   { task = "container hybrid up --detach" },
@@ -349,6 +366,24 @@ run_in = "host"
 [tasks."dev:hybrid:down"]
 run = [{ task = "container hybrid down" }]
 run_in = "host"
+
+# Run a host command against the running hybrid profile's services, e.g.
+# `effigy hybrid:exec -- cargo run --bin migrate`.
+[tasks."hybrid:exec"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec hybrid -- {args}'
+run_in = "host"
+secrets = "required"
+env = { {{ hybrid_env }} }
+
+{% if hybrid_default %}
+[tasks.dev]
+run = [{ task = "dev:hybrid" }]
+run_in = "host"
+
+[tasks."dev:down"]
+run = [{ task = "dev:hybrid:down" }]
+run_in = "host"
+{% endif %}
 
 # Fresh data, one configured selector, then teardown. Never implies qa.
 [tasks."dev:test"]

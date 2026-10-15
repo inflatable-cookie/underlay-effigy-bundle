@@ -123,13 +123,18 @@ false renders the existing container stack unchanged.
 
 - `hybrid`: Postgres, Mailpit, DbGate and Silo in containers; the API, front
   and admin run on the host as Effigy managed listeners behind the gateway, on
-  the declared app hostnames. `dev:hybrid` starts it and bootstraps the media
+  the declared app hostnames, and the `jobs` worker runs as a supervised host
+  process with no route. `dev:hybrid` starts it and bootstraps the media
   bucket; `dev:hybrid:status`, `dev:hybrid:logs` and `dev:hybrid:down` operate
   it.
 - `test`: the same shape under `test.<host>`, so it can run beside
   `dev:hybrid`. `dev:test` resets its data, starts it, bootstraps the bucket,
   runs the one `profiles.test_task` selector under `profiles.test_timeout_secs`,
   and always stops the stack afterwards. It never implies `qa`.
+
+`profiles.dev = "hybrid"` makes `effigy dev` start the hybrid profile (and
+`dev:down` stop it); the container session stays available as
+`dev:container`. The default, `container`, leaves `dev` unchanged.
 
 ### Admission
 
@@ -157,7 +162,8 @@ effective host map; service connections use the published loopback ports, so
 host processes need no gateway DNS. The cookie domain is derived from the app
 hosts, because Effigy's reported cookie domain follows the first service route.
 
-The API runs through the `profile:api` task, which requests vault secrets:
+The API and jobs worker run through the `profile:api` and `profile:jobs`
+tasks, which request vault secrets:
 host processes carry none of their own, and task secrets do not reach composed
 child tasks.
 
