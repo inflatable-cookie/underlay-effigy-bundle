@@ -64,21 +64,22 @@ let bucket = blob_bucket_name();
 let system_name = required_config_string("systems.default");
 let container_name = required_config_string(`systems.${system_name}.container`);
 
-let cors_json = "[{\"AllowedOrigins\":[\"https://"
+// Silo's mc accepts S3 XML CORS configuration only.
+let cors_xml = "<CORSConfiguration><CORSRule><AllowedOrigin>https://"
     + front_domain
-    + "\",\"https://"
+    + "</AllowedOrigin><AllowedOrigin>https://"
     + admin_domain
-    + "\"],\"AllowedMethods\":[\"GET\",\"HEAD\",\"PUT\"],\"AllowedHeaders\":[\"*\"],\"ExposeHeaders\":[\"ETag\",\"x-amz-request-id\",\"x-amz-id-2\"],\"MaxAgeSeconds\":3000}]";
+    + "</AllowedOrigin><AllowedMethod>GET</AllowedMethod><AllowedMethod>HEAD</AllowedMethod><AllowedMethod>PUT</AllowedMethod><AllowedHeader>*</AllowedHeader><ExposeHeader>ETag</ExposeHeader><ExposeHeader>x-amz-request-id</ExposeHeader><ExposeHeader>x-amz-id-2</ExposeHeader><MaxAgeSeconds>3000</MaxAgeSeconds></CORSRule></CORSConfiguration>";
 
 let shell_script = "set -eu\n"
     + "mc alias set local http://127.0.0.1:9000 minioadmin minioadmin >/dev/null 2>&1\n"
     + "until mc ready local >/dev/null 2>&1; do sleep 1; done\n"
     + "mc mb local/" + bucket + " --ignore-existing >/dev/null\n"
     + "mc anonymous set download local/" + bucket + " >/dev/null\n"
-    + "cat > /tmp/effigy-minio-cors.json <<'EOF'\n"
-    + cors_json
+    + "cat > /tmp/effigy-silo-cors.xml <<'EOF'\n"
+    + cors_xml
     + "\nEOF\n"
-    + "mc cors set local/" + bucket + " /tmp/effigy-minio-cors.json >/dev/null\n";
+    + "mc cors set local/" + bucket + " /tmp/effigy-silo-cors.xml >/dev/null\n";
 
 let result = exec::run(
     ["sh", "-lc", shell_script],

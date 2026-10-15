@@ -160,11 +160,7 @@ configuration and effective version requirements. A released minimum can be
 added only after its actual immutable release is qualified, and remains
 supplemental to the local-build admission guard.
 
-Opt-in qualification may select the pinned published Silo images through a
-documented local service override. An additive shared Silo catalog entry,
-catalog artifact publication, generated Effigy baseline adoption and consumer
-migration are separately owned changes. They must not rename Silo as MinIO or
-replace existing MinIO defaults, volumes or data implicitly.
+Silo is the default object store; see [Silo default](#silo-default).
 
 Underlay Reference is the designated disposable pilot. Its operator checkout
 and live stack remain untouched. Acowtancy testing or adoption is excluded
@@ -222,10 +218,17 @@ fixture data. Check the bundled client and health command explicitly; matching
 S3 APIs do not establish identical executable or administration behavior.
 Published-image qualification does not certify the unavailable upstream image.
 
-Keep the existing bundle and catalog defaults until qualification supports a
-separately explicit migration. Existing data and volumes are outside the pilot.
-Any later change to the shared Effigy catalog belongs to its owner; a private
-fixture override must not silently become a fleet default.
+### Silo default
+
+Operator ruling, 2026-10-13: Silo replaces MinIO as the bundle's default
+object store. Ruling, 2026-10-15: local development object data is disposable.
+
+The shared catalog owns the `silo` service (catalog pack 1.2.0). The bundle
+selects it with `catalog = "silo"` under the existing Compose service name
+`minio`. The name is compatibility, not identity: it keeps in-container
+endpoints, routes, the loopback alias and the data volume stable for every
+consumer. Report the store as Silo. Bucket and CORS bootstrap run `mc` inside
+the server container; no client sidecar is needed.
 
 ### Published artifact and runtime evidence
 

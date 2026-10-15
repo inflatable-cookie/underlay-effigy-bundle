@@ -1,6 +1,6 @@
 [bundle]
 name = "underlay"
-description = "Underlay-style Rust + Bun workspace stack with one long-running workspace container, bundled postgres/dbgate/mailpit/minio services, gateway-published HTTPS app/S3/helper routes, and loopback alias discovery for db/smtp/s3."
+description = "Underlay-style Rust + Bun workspace stack with one long-running workspace container, bundled postgres/dbgate/mailpit/Silo (S3, service `minio`) services, gateway-published HTTPS app/S3/helper routes, and loopback alias discovery for db/smtp/s3."
 defaults = "export.toml"
 
 [[inputs]]
