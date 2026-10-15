@@ -164,6 +164,15 @@ class StorageControls(unittest.TestCase):
   self.assertEqual(value['storage_observation']['effect_state'],'unknown')
   self.assertNotIn('PRIVATE_SECRET',json.dumps(value))
 
+ def test_complete_CORS_403_retains_received_response_and_unknown_error(self):
+  def reject(n,c,h,b):return (403,{},b'') if n==2 else (c,h,b)
+  with self.assertRaises(storage.StorageRefusal) as caught:self.call(reject)
+  record=caught.exception.storage_observation
+  self.assertEqual(record['reason'],'cors_origin');self.assertEqual(record['facts']['http_status'],403)
+  self.assertTrue(record['facts']['headers_complete']);self.assertTrue(record['facts']['body_complete'])
+  self.assertTrue(record['facts']['response_received']);self.assertEqual(record['s3_error'],'unknown')
+  self.assertTrue(routes.outer_refusals(json.dumps(project(caught.exception,'runtime_profile')))['typed_failure_available'])
+
  def test_unknown_error_enum_and_late_publication_primary(self):
   server=Producer(lambda n,c,h,b:(403,h,b'<Error><Code>PRIVATE_SECRET</Code></Error>'))
   try:

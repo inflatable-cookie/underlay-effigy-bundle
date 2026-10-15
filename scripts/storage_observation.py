@@ -77,6 +77,7 @@ class Operation(routes.Observation):
   if validate(record) is None:raise ValueError('storage_observation_refused')
   return record
  def publish(self,reason='unknown',primary=None):
+  if self.facts.get('status_observed'):self.facts['response_received']=True
   if self.phase in ('validation','completed'):pass
   elif self.facts.get('body_complete'):self.phase='response_body'
   elif self.facts.get('status_observed'):self.phase='response_headers';self.facts['response_received']=True
@@ -108,6 +109,11 @@ def request(owner,operation,host,port,path,*,method='GET',headers=None,body=b'',
  o=observation or Operation(owner,operation,emit)
  result=routes.exchange(host,port,context,path,headers,method=method,request_body=body or b'',plain=context is None,
                         observation=o,body_cap=body_cap)
+ if result[0]>=400 and owner in ('_s3_request','prove_silo'):
+  from storage_correlation import s3_error
+  code=s3_error(result[2])['error_code']
+  o.s3_error=code if code in S3_CODES else 'unknown'
+  o.publish('status')
  o.remaining()
  return result,o
 
