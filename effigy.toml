@@ -33,3 +33,7 @@ run_in = "host"
 [tasks."proof:dev-profiles:silo-contract-tests"]
 run = "python3 scripts/silo_fixture_test.py"
 run_in = "host"
+
+[tasks."test:profiles"]
+run = "python3 scripts/dev/profile_env_test.py"
+run_in = "host"
