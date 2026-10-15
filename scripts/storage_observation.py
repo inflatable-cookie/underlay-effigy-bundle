@@ -18,7 +18,7 @@ OWNERS=frozenset(('observe_silo_storage','_s3_request','prove_silo','prove_silo_
 OPERATIONS=frozenset(('stage','register','login','fixture_admin_role_grant','hybrid_start','hybrid_status','hybrid_down','disposable_test','invalid_credentials_get','cors_allowed','cors_foreign','signed_put','signed_get',
  'signed_delete','media_create','upload_initiate','upload_finalise','presigned_put','gateway_silo','gateway_dbgate','gateway_mailpit','anonymous_get','gateway_health','service_health','signed_s3_get','signed_s3_delete'))
 REASONS=routes.REASONS|frozenset(('intent','dispatch','completed','publication','external','credentials_status',
- 'cors_origin','cors_method','cors_headers','put_status','get_status','object_equal','anonymous_status',
+ 'cors_origin','cors_status','cors_method','cors_headers','put_status','get_status','object_equal','anonymous_status',
  'delete_status','foreign_origin','s3_error_schema','response_json','response_schema','media_state'))
 PHASES=frozenset(('intent','dispatch','request_sent','response_headers','response_body','validation','completed','external'))
 ERRORS=frozenset(('none','timeout','os','tls','value','external'))
@@ -26,6 +26,7 @@ S3_CODES=frozenset(('AccessDenied','SignatureDoesNotMatch','InvalidAccessKeyId',
  'InvalidRequest','SlowDown','AuthorizationHeaderMalformed','RequestTimeTooSkewed','InternalError','unknown','none'))
 EXTRA=frozenset(('dispatch_started','response_received','origin_matches','method_allowed','headers_allowed',
  'bytes_equal','foreign_origin_absent','expected_negative','predicate_matches'))
+CORS_ORIGIN_STATES=frozenset(('absent','present_equal','present_unequal'))
 
 def configure(emit):
  global EMIT
@@ -44,9 +45,10 @@ def validate(value):
  if 'http_status' in facts and (type(facts['http_status']) is not int or not 100<=facts['http_status']<=599):return None
  for key,item in facts.items():
   if key.endswith(('_bytes','_count')) and item is not None and (type(item) is not int or item<0):return None
- base={k:v for k,v in facts.items() if k not in EXTRA}
+ if 'cors_origin_state' in facts and (type(facts['cors_origin_state']) is not str or facts['cors_origin_state'] not in CORS_ORIGIN_STATES):return None
+ base={k:v for k,v in facts.items() if k not in EXTRA and k!='cors_origin_state'}
  if not routes.safe_record(dict(role=None,operation='https',reason='unknown',facts=base)):return None
- if any(k not in routes.FACT_KEYS|EXTRA or k in EXTRA and type(v) is not bool for k,v in facts.items()):return None
+ if any(k not in routes.FACT_KEYS|EXTRA|{'cors_origin_state'} or k in EXTRA and type(v) is not bool for k,v in facts.items()):return None
  return dict(value,facts=dict(facts))
 
 class StorageRefusal(routes.RouteObservationRefusal):
@@ -186,3 +188,20 @@ def decode_api(body,o):
 def stage_record(error):
  if type(error) not in PRESERVED:return None
  return validate(getattr(error,'storage_stage_observation',None))
+
+
+def cors_facts(headers, origin):
+ """Fixed browser preflight requirements; values remain in memory only."""
+ observed=headers.get('access-control-allow-origin')
+ state='absent' if observed is None else 'present_equal' if observed==origin else 'present_unequal'
+ def tokens(value,lower=True):
+  if not isinstance(value,str):return None
+  parts=[part.strip() for part in value.split(',')]
+  if not parts or any(not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+",part) for part in parts):return None
+  lowered=[part.lower() for part in parts] if lower else parts
+  return set(lowered) if len(lowered)==len(set(lowered)) else None
+ methods=tokens(headers.get('access-control-allow-methods'),lower=False)
+ allowed=tokens(headers.get('access-control-allow-headers'))
+ return dict(cors_origin_state=state,origin_matches=state=='present_equal',
+             method_allowed=methods is not None and 'PUT' in methods,
+             headers_allowed=allowed is not None and {'authorization','x-amz-content-sha256','x-amz-date'}<=allowed)

@@ -1803,3 +1803,11 @@ survive cause wrappers and secondary journal failures; unrelated exceptions keep
 the last closed operation with an unknown outcome. Runtime/default, media,
 readiness, restart, interruption, collision, test and cleanup caller boundaries
 record their stage before entering it. This evidence grants no cleanup authority.
+
+The storage preflight proof requires HTTP 200, an exact intended origin and
+complete comma-delimited method/header tokens. Substring matches do not satisfy
+the browser contract. Closed diagnostics distinguish an absent allow-origin
+header from a present equal or unequal header, without retaining its value.
+Silo's pinned bucket CORS handler evaluates origin, method and requested headers
+before returning a preflight response; its global CORS policy is a separate
+fallback. Successful `mc cors set` alone does not prove browser permission.

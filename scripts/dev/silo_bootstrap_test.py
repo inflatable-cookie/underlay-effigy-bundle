@@ -17,10 +17,10 @@ spec.loader.exec_module(launcher)
 
 
 class BootstrapTests(unittest.TestCase):
-    def exercise(self,root,container='hybrid_services',override=None,negative=False,default_caller=False):
+    def exercise(self,root,container='hybrid_services',override=None,negative=False,default_caller=False,port=443,suffix=''):
         seen=[]
         identity=launcher.BinaryIdentity('source','/owned/effigy','digest',1,2,3,4)
-        context={'routes':{'front':'front.example.test','admin':'admin.example.test'},'https_port':443}
+        context={'routes':{'front':'front'+suffix+'.example.test','admin':'admin'+suffix+'.example.test'},'https_port':port}
         env={'EFFIGY_PROFILE_SILO_BUCKET':'owned-bucket'}
         def transport(args,**kwargs):
             self.assertEqual(args[0],identity.binary)
@@ -38,7 +38,17 @@ class BootstrapTests(unittest.TestCase):
             prefix+='case "$*" in "--json alias set local http://silo:9000 minioadmin minioadmin --api S3v4 --path auto") printf %s '+__import__('shlex').quote(json.dumps(alias,indent=1))+';; '
             prefix+='"--json alias list local") printf %s '+__import__('shlex').quote(json.dumps({**alias,'src':'/root/.mc/config.json'},indent=1))+';; '
             prefix+='"ready local"|"mb local/owned-bucket --ignore-existing"|"anonymous set download local/owned-bucket") printf stage_pass;; '
-            prefix+='"cors set local/owned-bucket "*) test -f "$4" && '+ '/usr/bin/python3 -c '+__import__('shlex').quote('import sys; from pathlib import Path; s=Path(sys.argv[1]).read_text(); assert s.count("<AllowedOrigin>")==2 and "https://front.example.test" in s and "https://admin.example.test" in s and "<AllowedMethod>PUT</AllowedMethod>" in s')+' "$4";; *) return 92;; esac; }; '
+            # Independent browser requirements, parsed from the actual shell-produced XML.
+            expected=['https://'+role+suffix+'.example.test'+('' if port==443 else ':'+str(port)) for role in ('front','admin')]
+            evaluator=('import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); '
+                'assert r.tag=="CORSConfiguration" and len(r)==1; q=r[0]; '
+                'assert q.tag=="CORSRule"; '
+                'assert [x.text for x in q.findall("AllowedOrigin")]=='+repr(expected)+'; '
+                'assert {x.text for x in q.findall("AllowedMethod")}=={"GET","HEAD","PUT"}; '
+                'assert [x.text for x in q.findall("AllowedHeader")]==["*"]; '
+                'assert "https://foreign.invalid" not in [x.text for x in q.findall("AllowedOrigin")]')
+            prefix+='"cors set local/owned-bucket "*) test -f "$4" && /usr/bin/python3 -c '+__import__('shlex').quote(evaluator)+' "$4";; *) return 92;; esac; }; '
+
             # Rehome only the test's in-container temporary path into this fresh
             # owned fixture, while executing the maintained file/trap behavior.
             command=command.replace('/tmp/underlay-profile-cors-',str(root/'cors-'))
@@ -74,6 +84,11 @@ class BootstrapTests(unittest.TestCase):
                 path=root/'.effigy/runtime/dev-profiles'/container/'silo-bootstrap.jsonl'
                 self.assertEqual(path.stat().st_mode&0o777,0o600)
                 self.assertNotIn('minioadmin',path.read_text())
+
+    def test_actual_bootstrap_xml_effective_browser_origins_main_and_worktrees(self):
+        for container,port,suffix in (('hybrid_services',443,''),('hybrid_services',54321,'-first'),('disposable_test',54322,'-second')):
+            with tempfile.TemporaryDirectory(prefix='underlay-cors-policy-') as directory:
+                self.exercise(Path(directory).resolve(),container,port=port,suffix=suffix)
 
     def test_guard_and_native_negative_prevent_mutations_and_secret_output(self):
         for override in ({'MC_HOST_local':''},{'MC_CONFIG_DIR':'seeded-secret'},{'HTTP_PROXY':''}):

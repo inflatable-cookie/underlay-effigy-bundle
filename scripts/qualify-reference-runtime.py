@@ -1626,10 +1626,12 @@ def prove_silo(checkout: Path, env: dict[str, str], silo_port: int, allowed_orig
     (cors_status,cors_headers,_),o=unsigned('cors_allowed','OPTIONS',f'/{bucket}/cors-probe',{
         'Origin':allowed_origin,'Access-Control-Request-Method':'PUT',
         'Access-Control-Request-Headers':'authorization,x-amz-content-sha256,x-amz-date'})
-    o.check(cors_headers.get('access-control-allow-origin')==allowed_origin,'cors_origin',origin_matches=cors_headers.get('access-control-allow-origin')==allowed_origin)
-    o.check('PUT' in cors_headers.get('access-control-allow-methods','').upper(),'cors_method',method_allowed='PUT' in cors_headers.get('access-control-allow-methods','').upper())
-    headers_allowed=all(h in cors_headers.get('access-control-allow-headers','').lower() for h in ('authorization','x-amz-content-sha256','x-amz-date'))
-    o.check(headers_allowed,'cors_headers',headers_allowed=headers_allowed);o.finish()
+    facts=storage.cors_facts(cors_headers,allowed_origin)
+    o.facts.update(facts)
+    o.check(facts['origin_matches'],'cors_origin')
+    o.check(cors_status==200,'cors_status')
+    o.check(facts['method_allowed'],'cors_method')
+    o.check(facts['headers_allowed'],'cors_headers');o.finish()
     payload=b'host-signed-reference-silo-loopback-proof'
     object_path=f'/{bucket}/proof-'+__import__('secrets').token_hex(16)
     put_status,_,_=_s3_request(silo_port,'PUT',object_path,payload,diagnostics=diagnostics)
@@ -1642,6 +1644,7 @@ def prove_silo(checkout: Path, env: dict[str, str], silo_port: int, allowed_orig
     storage.CURRENT.get().check(delete_status in (200,204),'delete_status')
     (foreign_status,foreign_headers,_),o=unsigned('cors_foreign','OPTIONS',f'/{bucket}/foreign-probe',{
         'Origin':'https://foreign.invalid','Access-Control-Request-Method':'PUT'})
+    o.facts.update(storage.cors_facts(foreign_headers,'https://foreign.invalid'))
     o.check(not foreign_headers.get('access-control-allow-origin'),'foreign_origin',foreign_origin_absent=not bool(foreign_headers.get('access-control-allow-origin')),expected_negative=True);o.finish()
     return {'product':'PGSTY Silo','release':RELEASE,'bootstrap':'exported production bounded recipe',
             'signed_put':put_status,'signed_get':get_status,'signed_delete':delete_status,

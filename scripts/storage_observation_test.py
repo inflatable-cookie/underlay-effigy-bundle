@@ -84,6 +84,35 @@ class StorageControls(unittest.TestCase):
   rows=decode_journal_rows((self.packet/'storage-diagnostics.jsonl').read_text())
   self.assertTrue(any(r.get('observation',{}).get('operation')=='invalid_credentials_get' for r in rows))
   text=json.dumps(rows);self.assertNotIn('PRIVATE_SECRET',text);self.assertNotIn('minioadmin',text);self.assertNotIn('browser.test',text)
+ def test_cors_exact_tokens_status_and_closed_origin_states_actual_caller(self):
+  cases=[('cors_origin',{'Access-Control-Allow-Origin':None},200,'absent'),
+         ('cors_origin',{'Access-Control-Allow-Origin':'PRIVATE_SECRET'},200,'present_unequal'),
+         ('cors_status',{},403,'present_equal'),
+         ('cors_method',{'Access-Control-Allow-Methods':'INPUT'},200,'present_equal'),
+         ('cors_method',{'Access-Control-Allow-Methods':'put'},200,'present_equal'),
+         ('cors_headers',{'Access-Control-Allow-Headers':'x-authorization,x-amz-content-sha256,x-amz-date'},200,'present_equal'),
+         ('cors_headers',{'Access-Control-Allow-Headers':'authorization,x-amz-content-sha256,x-amz-date,'},200,'present_equal')]
+  for reason,changes,status,state in cases:
+   def mutate(n,c,h,b):
+    if n==2:
+     h.update(changes);h={k:v for k,v in h.items() if v is not None};return status,h,b
+    return c,h,b
+   with self.subTest(reason=reason,state=state):
+    with self.assertRaises(storage.StorageRefusal) as caught:self.call(mutate)
+    record=caught.exception.storage_observation
+    self.assertEqual(record['reason'],reason);self.assertEqual(record['facts']['cors_origin_state'],state)
+    self.assertEqual(record['facts']['http_status'],status)
+    self.assertTrue(record['facts']['response_received'])
+    projected=project(caught.exception,'runtime_profile')
+    outer=routes.outer_refusals(json.dumps(projected))
+    self.assertTrue(outer['typed_failure_available'])
+    self.assertIn(state,json.dumps(outer))
+    self.assertNotIn('PRIVATE_SECRET',json.dumps(outer))
+    rows=decode_journal_rows((self.packet/'storage-diagnostics.jsonl').read_text())
+    self.assertTrue(any(r.get('observation',{}).get('facts',{}).get('cors_origin_state')==state for r in rows))
+    forged=dict(record,facts=dict(record['facts'],cors_origin_state='PRIVATE_SECRET'))
+    self.assertIsNone(storage.validate(forged))
+
  def test_every_security_and_content_gate_actual_caller(self):
   cases=[(1,'credentials_status',lambda code,h,b:(401,h,b)),
    (2,'cors_origin',lambda c,h,b:(c,dict(h,**{'Access-Control-Allow-Origin':'PRIVATE_SECRET'}),b)),
