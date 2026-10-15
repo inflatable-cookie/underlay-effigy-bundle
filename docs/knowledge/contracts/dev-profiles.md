@@ -137,6 +137,12 @@ false renders the existing container stack unchanged.
   runs the one `profiles.test_task` selector under `profiles.test_timeout_secs`,
   and always stops the stack afterwards. It never implies `qa`.
 
+The API listener is ready when `profiles.api_health_path` (default
+`/v1/health`) returns 200, and front/admin when `profiles.front_health_path`
+and `profiles.admin_health_path` (default `/`) do. Each must return 200 without
+a session or rate limiting; use a public page such as `/login` when `/`
+redirects.
+
 `profiles.dev = "hybrid"` makes `effigy dev` start the hybrid profile (and
 `dev:down` stop it); the container session stays available as
 `dev:container`. The default, `container`, leaves `dev` unchanged.

@@ -291,7 +291,7 @@ env = { {{ profile_env }} }
 bind = "127.0.0.1:0"
 
 [containers.{{ container }}.host_processes.listener.readiness]
-path = "/v1/health"
+path = "{{ inputs.profiles.api_health_path }}"
 status = 200
 timeout_secs = 600
 
@@ -307,7 +307,7 @@ restart = "on-failure"
 depends_on = ["api"]
 env = { {{ profile_env }} }
 
-{% for app in [("front", inputs.dirs.front or "app-front", front_domain), ("admin", inputs.dirs.admin or "app-admin", admin_domain)] %}
+{% for app in [("front", inputs.dirs.front or "app-front", front_domain, inputs.profiles.front_health_path), ("admin", inputs.dirs.admin or "app-admin", admin_domain, inputs.profiles.admin_health_path)] %}
 
 [[containers.{{ container }}.host_processes]]
 name = "{{ app[0] }}"
@@ -321,7 +321,7 @@ env = { {{ profile_env }} }
 bind = "127.0.0.1:0"
 
 [containers.{{ container }}.host_processes.listener.readiness]
-path = "/"
+path = "{{ app[3] }}"
 status = 200
 timeout_secs = 300
 
