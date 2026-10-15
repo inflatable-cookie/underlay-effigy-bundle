@@ -399,3 +399,11 @@ late journal failure and the outer privacy filter; unknown external failures
 remain unknown. Context checks retain the original private root, CA, gateway
 port and listener generation association. These observations supply no signal
 or cleanup authority and never certify a missing product stage.
+
+When an original private qualification intent is explicitly enabled, exported
+profile launchers emit closed startup-stage and native-failure evidence. The
+qualification parent uses finite host capture and preserves that evidence
+through its outer privacy filter, including a primary failure followed by
+publication or cleanup uncertainty. Raw command output stays in bounded memory;
+unknown external errors stay unknown. These source controls do not qualify a
+product runtime or establish resource cleanup.

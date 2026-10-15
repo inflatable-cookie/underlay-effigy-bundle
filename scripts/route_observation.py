@@ -353,6 +353,12 @@ def outer_refusals(stderr):
         except (ValueError,TypeError):omitted+=1;continue
         if type(value) is not dict or value.get('schema')!='underlay.qualification.refusal.v1':
             omitted+=1;continue
+        from dev.startup_evidence import validate as native_record
+        native=native_record(value.get('native_failure'))
+        if native and value.get('reason_id')=='native_'+native['reason']:
+            records.append({'schema':'underlay.qualification.refusal.v1','reason_id':value['reason_id'],
+                            'native_failure':native})
+            continue
         route=safe_record(value.get('route_observation'))
         if not route or value.get('reason_id')!='route_observation_'+route['reason']:
             omitted+=1;continue

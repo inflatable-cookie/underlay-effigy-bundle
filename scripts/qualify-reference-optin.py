@@ -1930,6 +1930,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
 
         return receipts
     finally:
+        original_failure=sys.exc_info()[1]
         if diagnostics is not None:
             try:
                 diagnostics.enter_cleanup()
@@ -1980,7 +1981,17 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                 append_diagnostic_best_effort(
                     diagnostics, "cleanup_failed", checkout=str(checkout),
                     selector="dev:hybrid:down", exception_type=type(error).__name__)
-                raise RuntimeError(f"production profile cleanup is held for {checkout}: {error}") from error
+                from dev.startup_evidence import NativeFailure, failure as native_failure
+                if original_failure is not None:
+                    from qualification_refusal import project
+                    retained=project(original_failure,'runtime_profile').get('native_failure')
+                    if retained:
+                        primary=NativeFailure(retained)
+                        primary.record['cleanup_unavailable']=True
+                        raise primary from None
+                    raise original_failure
+                if type(error) is NativeFailure:raise
+                raise native_failure(error) from None
 
 
 
@@ -2029,7 +2040,7 @@ def verify_disposable_action(checkout, env, foreign, service_observer):
     qualification_cleanup.require_product_cleanup(proof)
     proof['action_exit']=None if action_unknown else result.returncode
     proof['qualification_sources']={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','reference_compile_capture.py','reference_api_preparation.py','route_observation.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
+                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','reference_compile_capture.py','reference_api_preparation.py','route_observation.py','dev/startup_evidence.py','dev/owned_capture.py','dev/host_identity.py','dev/profile_launcher.py','dev/silo_client.py','dev/storage_launcher.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
     qualification_cleanup.write_private(root/'absence.json',root,proof)
     if action_unknown:raise qualification_cleanup.CleanupUnknown('configured_action_unknown')
     if result.returncode!=0:raise qualification_cleanup.CleanupUnknown('configured_action_failed')
@@ -2132,7 +2143,7 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","reference_api_preparation.py","route_observation.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","reference_api_preparation.py","route_observation.py","dev/startup_evidence.py","dev/owned_capture.py","dev/host_identity.py","dev/profile_launcher.py","dev/silo_client.py","dev/storage_launcher.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
                            effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",

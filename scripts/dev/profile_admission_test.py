@@ -684,7 +684,7 @@ raise AssertionError("negative accepted")
                     journal.close()
                     retained = (receipts / "storage-diagnostics.jsonl").read_text()
                     self.assertNotIn("SEEDED", retained)
-                    records = [json.loads(line) for line in retained.splitlines()]
+                    records = __import__("reference_storage_probe").decode_journal_rows(retained)
                     self.assertEqual(len(records), 1)
                     diagnostic = records[0]["diagnostic"]
                     self.assertEqual(diagnostic["phase"], "host-inventory")

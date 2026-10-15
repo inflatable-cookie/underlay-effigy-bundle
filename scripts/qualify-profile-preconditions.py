@@ -69,6 +69,11 @@ def rendered_launcher_controls(checkout, base_env, tasks, launcher, emit):
         asset=Path(words[1]).parent/'port_inventory.py'
         current=Path(__file__).parent/'dev/port_inventory.py'
         if not asset.is_file() or hashlib.sha256(asset.read_bytes()).digest()!=hashlib.sha256(current.read_bytes()).digest():raise ValueError('port_inventory_asset_mismatch')
+        for name in ('startup_evidence.py','owned_capture.py','host_identity.py'):
+            copied=Path(words[1]).parent/name
+            source=Path(__file__).parent/'dev'/name
+            if not copied.is_file() or copied.read_bytes()!=source.read_bytes():raise ValueError('startup_asset_mismatch')
+        emit({'task':task,'exported_startup_assets':True})
         emit({'task':task,'exported_port_inventory_asset':True,'port_inventory_sha256':hashlib.sha256(asset.read_bytes()).hexdigest()})
         env={**base_env,**declaration['env']}
         container=launcher.PROFILE_CONTAINERS[profile][0]

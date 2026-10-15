@@ -25,6 +25,9 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import silo_client
 import port_inventory
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from dev import startup_evidence
+startup_evidence.register_local_errors(silo_client)
 
 
 SUPPORTED_SOURCE = "bd2597693f7c4c9ad786896a9448a7e746ff13a8"
@@ -50,6 +53,8 @@ PROFILE_CONTAINERS = {
 class ProfileError(RuntimeError):
     pass
 
+startup_evidence.ERROR_CLASSES[ProfileError]='ProfileError'
+
 
 @dataclass(frozen=True)
 class BinaryIdentity:
@@ -71,6 +76,13 @@ def _hash_file(path: Path) -> str:
 
 
 def _git(source: Path, *args: str) -> str:
+    if startup_evidence.ACTIVE.get() is not None:
+        labels={('rev-parse','--show-toplevel'):'source_git_root',('rev-parse','HEAD'):'source_git_head',
+                ('rev-parse','HEAD^{tree}'):'source_git_tree',('status','--porcelain'):'source_git_status'}
+        try:return startup_evidence.capture_command(['git','-C',str(source),*args],env=dict(os.environ),timeout=10).stdout.strip()
+        except startup_evidence.NativeFailure as error:
+            error.record['source_reason']=labels.get(args)
+            raise
     try:
         result = subprocess.run(
             ["git", "-C", str(source), *args],
@@ -84,6 +96,15 @@ def _git(source: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def _source_refusal(code,error=None):
+    if startup_evidence.ACTIVE.get() is not None:
+        record=startup_evidence.base('source_refused')
+        record['source_reason']=code
+        record['error_class']=startup_evidence.ERROR_CLASSES.get(type(error),'other') if error is not None else 'ProfileError'
+        raise startup_evidence.NativeFailure(record)
+
+
+@startup_evidence.stage('source_gate')
 def verify_binary(
     source_value: str | None,
     binary_value: str | None,
@@ -110,6 +131,7 @@ def verify_binary(
         source = Path(source_value).expanduser().resolve(strict=True)
         binary = Path(binary_value).expanduser().resolve(strict=True)
     except OSError as error:
+        _source_refusal('source_path',error)
         raise ProfileError(f"qualified Effigy source or binary path is unavailable: {error}") from error
 
     if not source.is_dir():
@@ -118,13 +140,17 @@ def verify_binary(
         raise ProfileError("qualified Effigy source path must name the checkout root")
     revision = _git(source, "rev-parse", "HEAD")
     if revision != expected_source:
+        _source_refusal('source_revision')
         raise ProfileError(f"Effigy source must be {expected_source}, got {revision}")
     if expected_source == SUPPORTED_SOURCE:
         if _git(source, "rev-parse", "HEAD^{tree}") != SUPPORTED_TREE:
+            _source_refusal('source_tree')
             raise ProfileError("qualified Effigy source tree differs")
         if any(_hash_file(source / name) != digest for name, digest in SUPPORTED_API.items()):
+            _source_refusal('source_api')
             raise ProfileError("qualified Effigy public API differs")
     if _git(source, "status", "--porcelain"):
+        _source_refusal('source_dirty')
         raise ProfileError("qualified Effigy source checkout has changes; restore it before using this profile")
 
     try:
@@ -132,19 +158,26 @@ def verify_binary(
         if not stat.S_ISREG(before.st_mode) or not os.access(binary, os.X_OK):
             raise ProfileError("qualified Effigy binary must be an executable regular file")
         digest = _hash_file(binary)
-        version_result = subprocess.run(
-            [str(binary), "--version"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        if startup_evidence.ACTIVE.get() is not None:
+            try:version_result=startup_evidence.capture_command([str(binary),'--version'],env=dict(os.environ),timeout=10)
+            except startup_evidence.NativeFailure as error:
+                error.record['source_reason']='source_version'
+                raise
+        else:
+            version_result = subprocess.run(
+                [str(binary), "--version"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
         version = version_result.stdout.strip()
         after = binary.stat()
         final_digest = _hash_file(binary)
     except ProfileError:
         raise
     except (OSError, subprocess.SubprocessError) as error:
+        _source_refusal('binary_identity',error)
         raise ProfileError(f"cannot verify or invoke the absolute Effigy binary: {error}") from error
 
     if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
@@ -155,8 +188,10 @@ def verify_binary(
     ) or digest != final_digest:
         raise ProfileError("Effigy binary changed while its identity was being validated")
     if version != SUPPORTED_VERSION:
+        _source_refusal('binary_version')
         raise ProfileError(f"Effigy binary must report {SUPPORTED_VERSION!r}, got {version!r}")
     if digest != expected_hash:
+        _source_refusal('binary_digest')
         raise ProfileError(
             "Effigy binary SHA-256 is not the qualified macOS arm64 build; "
             f"expected {expected_hash}, got {digest}"
@@ -296,6 +331,9 @@ def validated_context_record(value: object) -> dict | None:
 
 
 def _cli_failure(error: Exception) -> None:
+    if startup_evidence.ACTIVE.get() is not None or type(error) is startup_evidence.NativeFailure:
+        startup_evidence.cli_failure(error)
+        return
     if _CONTEXT_ACTION:
         print("UNDERLAY_CONTEXT_ERROR " + json.dumps(context_error_record(error), separators=(",", ":")), file=sys.stderr, flush=True)
     else:
@@ -303,9 +341,11 @@ def _cli_failure(error: Exception) -> None:
 # END context-only diagnostic helpers
 
 
+@startup_evidence.stage('source_gate')
 def verify_unchanged(identity: BinaryIdentity) -> None:
     current = verify_binary(identity.source, identity.binary)
     if current != identity:
+        _source_refusal('source_identity_changed')
         raise ProfileError("qualified Effigy source or binary identity changed after admission; no further action taken")
 
 
@@ -321,6 +361,7 @@ def _safe_repo_path(repo: Path, path: Path) -> Path:
     return resolved
 
 
+@startup_evidence.stage('private_root')
 def _ensure_private_root(repo: Path, profile: str) -> Path:
     root = _safe_repo_path(repo, repo / ".effigy" / "runtime" / "dev-profiles" / profile / "gateway")
     for path in (repo / ".effigy", repo / ".effigy" / "runtime", root.parent, root):
@@ -337,6 +378,7 @@ def _ensure_private_root(repo: Path, profile: str) -> Path:
     return root
 
 
+@startup_evidence.stage('original_context')
 def _prepare_silo_override(repo: Path) -> None:
     planned: list[tuple[Path, dict[str, bytes]]] = []
     for alias in ("silo", "silo-mc"):
@@ -395,6 +437,11 @@ def _run_process(
     verify_unchanged(identity)
     if not argv or argv[0] != identity.binary or not Path(argv[0]).is_absolute():
         raise ProfileError("nested Effigy invocation is not bound to the verified absolute binary")
+    if startup_evidence.ACTIVE.get() is not None:
+        return startup_evidence.capture_command(argv,cwd=cwd,env=env,timeout=timeout,
+            emit=lambda event,**fields: startup_evidence.ACTIVE.get().emit(
+                startup_evidence.CURRENT.get(),'completed' if fields['completed'] else 'refused',
+                fields['observation'],original_host_identity=fields['original_host_identity'],elapsed_ms=fields['elapsed_ms']))
     try:
         process = subprocess.Popen(
             argv,
@@ -481,6 +528,10 @@ def _json_command(
 ) -> dict:
     command_env = dict(env)
     command_env.pop("EFFIGY_INTERNAL_SUPPRESS_HEADER", None)
+    if startup_evidence.ACTIVE.get() is not None:
+        result=_run_process(identity,[identity.binary,'--repo',str(repo),'--json',*args],
+            cwd=repo,env=command_env,timeout=timeout,emit_stdout=False,emit_stderr=False)
+        return startup_evidence.json_result(result.stdout,getattr(result,"native_observation",None))
     if _PORT_EVIDENCE.get() is not None:
         try:
             verify_unchanged(identity)
@@ -556,6 +607,10 @@ def _gateway_json(
         emit_stdout=False,
         emit_stderr=not _CONTEXT_ACTION,
     )
+    if startup_evidence.ACTIVE.get() is not None:
+        value=startup_evidence.json_result(result.stdout,getattr(result,"native_observation",None))
+        while 'https_addr' not in value and type(value.get('result')) is dict:value=value['result']
+        return value
     try:
         envelope = json.loads(result.stdout)
     except (TypeError, ValueError) as error:
@@ -587,6 +642,7 @@ def _port_emit(event, **fields):
 def _port_refuse(reason):
     reason = reason if reason in port_inventory.REFUSAL_REASONS or reason in {"status_identity_or_routing_unavailable", "status_capture_unavailable", "status_envelope_unavailable", "inventory_identity_unavailable", "unknown_service_or_target"} else "inventory_unclassified_refusal"
     _port_emit("service_port_refusal", reason=reason)
+    if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('port_inventory_refused')
     raise ProfileError("service port source/loopback agreement refused: " + reason) from None
 
 
@@ -619,6 +675,7 @@ def _status_source(repo, status, container):
     return result
 
 
+@startup_evidence.stage('port_inventory')
 def _compose_loopback_port_bindings(repo, status, *, targets=port_inventory.PROFILE_TARGETS):
     try:
         return port_inventory.read_compose(repo, status, targets, _port_emit)
@@ -670,6 +727,7 @@ def profile_for_containers(service_container: str, host_container: str) -> str:
         f"unsupported managed profile containers {service_container!r}/{host_container!r}"
     )
 
+@startup_evidence.stage('service_context')
 def profile_context(identity: BinaryIdentity, repo: Path, env: dict[str, str], container: str) -> dict:
     journal = _silo_journal(repo, container, "service-port-context.jsonl")
     token = _PORT_EVIDENCE.set(journal)
@@ -824,6 +882,7 @@ def profile_environment(context: dict, env: dict[str, str]) -> dict[str, str]:
     return values
 
 
+@startup_evidence.stage('gateway_status')
 def _private_gateway_status(identity: BinaryIdentity, repo: Path, env: dict[str, str], root: Path) -> dict:
     if not root.exists():
         return {"running": False, "routes": []}
@@ -837,6 +896,7 @@ def _private_gateway_status(identity: BinaryIdentity, repo: Path, env: dict[str,
     )
 
 
+@startup_evidence.stage('readiness')
 def _assert_stopped(identity: BinaryIdentity, repo: Path, env: dict[str, str], container: str) -> None:
     status = _json_command(identity, repo, env, "container", container, "status")
     active = [
@@ -867,8 +927,9 @@ def _assert_gateway_idle(status: dict) -> None:
         raise ProfileError("the private gateway root is already active; inspect its exact routes before starting")
 
 
+@startup_evidence.stage('gateway_start')
 def _gateway_start(identity: BinaryIdentity, repo: Path, env: dict[str, str], root: Path) -> None:
-    _gateway_json(
+    startup_evidence.stage('gateway_setup')(_gateway_json)(
         identity,
         repo,
         env,
@@ -904,6 +965,7 @@ def _gateway_start(identity: BinaryIdentity, repo: Path, env: dict[str, str], ro
             gateway_status = _private_gateway_status(identity, repo, env, root)
 
 
+@startup_evidence.stage('cleanup')
 def _gateway_down(identity: BinaryIdentity, repo: Path, env: dict[str, str], root: Path) -> None:
     if not root.exists():
         return
@@ -925,6 +987,7 @@ def _gateway_down(identity: BinaryIdentity, repo: Path, env: dict[str, str], roo
         raise ProfileError("private gateway did not report stopped with an empty route set")
 
 
+@startup_evidence.stage('services_up')
 def _container_up(identity: BinaryIdentity, repo: Path, env: dict[str, str], container: str) -> dict:
     return _json_command(
         identity,
@@ -938,6 +1001,7 @@ def _container_up(identity: BinaryIdentity, repo: Path, env: dict[str, str], con
     )
 
 
+@startup_evidence.stage('cleanup')
 def _container_down(identity: BinaryIdentity, repo: Path, env: dict[str, str], container: str) -> None:
     _json_command(identity, repo, env, "container", container, "down", timeout=900)
     status = _json_command(identity, repo, env, "container", container, "status")
@@ -1017,9 +1081,11 @@ def _launcher_source_refused(journal,reason):
         journal.append('launcher_input_agreement',field=name,source_state='unavailable',
                        source_present=None,source_string_type=None,source_shape_agreement=None,agreement=False)
     journal.append('launcher_source_refusal',reason=reason)
+    if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('source_refused')
     raise ProfileError('Profile launcher input source refused') from None
 
 
+@startup_evidence.stage('original_context')
 def _validate_launcher_inputs(identity, repo, env, profile):
     container=PROFILE_CONTAINERS[profile][0]
     journal=_silo_journal(repo,container)
@@ -1029,14 +1095,22 @@ def _validate_launcher_inputs(identity, repo, env, profile):
         journal.append('launcher_input',field=name,present=name in env,
                        string_type=isinstance(value,str),shape_agreement=shape)
         valid=valid and shape
-    if not valid:raise ProfileError('Profile launcher input contract refused')
+    if not valid:
+        if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('source_refused')
+        raise ProfileError('Profile launcher input contract refused')
     # Independently compare the launcher with the current composed application
     # declarations. Config inspection has no backend/service/gateway effects.
     path='containers.'+container+'.host_processes'
     verify_unchanged(identity)
     try:
-        capture=silo_client.bounded_run([identity.binary,'--repo',str(repo),'--json',
-                                       'config','--inspect','--path',path],cwd=repo,env=env,timeout=120)
+        if startup_evidence.ACTIVE.get() is not None:
+            result=_run_process(identity,[identity.binary,'--repo',str(repo),'--json',
+                'config','--inspect','--path',path],cwd=repo,env=env,timeout=120,emit_stdout=False,emit_stderr=False)
+            capture={'outcome':'complete','exit':result.returncode,'stdout':result.stdout.encode(),
+                'stdout_bytes':len(result.stdout.encode()),'stderr_bytes':len(result.stderr.encode())}
+        else:
+            capture=silo_client.bounded_run([identity.binary,'--repo',str(repo),'--json',
+                                           'config','--inspect','--path',path],cwd=repo,env=env,timeout=120)
     except (OSError,subprocess.SubprocessError):
         _launcher_source_refused(journal,'capture_unavailable')
     journal.append('launcher_source_capture',outcome=capture['outcome'],exit=capture['exit'],
@@ -1065,9 +1139,12 @@ def _validate_launcher_inputs(identity, repo, env, profile):
                        source_string_type=all(isinstance(v,str) for v in values),
                        source_shape_agreement=source_valid,agreement=agreement)
         valid=valid and agreement
-    if not valid:raise ProfileError('Profile launcher input agreement refused')
+    if not valid:
+        if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('source_refused')
+        raise ProfileError('Profile launcher input agreement refused')
 
 
+@startup_evidence.stage('bootstrap')
 def _bootstrap_silo(
     identity: BinaryIdentity,
     repo: Path,
@@ -1111,6 +1188,10 @@ def _bootstrap_silo(
         command_env=dict(env);command_env.pop('EFFIGY_INTERNAL_SUPPRESS_HEADER',None)
         # Never use _run_process's argument-bearing failure text or unbounded
         # communicate buffer for credential-bearing finite commands.
+        if startup_evidence.ACTIVE.get() is not None:
+            result=_run_process(identity,[identity.binary,'--repo',str(repo),*args],
+                cwd=repo,env=command_env,timeout=timeout,emit_stdout=False,emit_stderr=False)
+            return result.stdout,result.returncode
         capture=silo_client.bounded_run([identity.binary,'--repo',str(repo),*args],
                                       cwd=repo,env=command_env,timeout=timeout)
         journal.append('host_capture',operation=label,outcome=capture['outcome'],
@@ -1118,15 +1199,24 @@ def _bootstrap_silo(
         if capture['outcome']!='complete':raise ValueError('command_capture_'+capture['outcome'])
         return capture['stdout'].decode(),capture['exit']
     def shell(label,command,service='silo_client'):
-        try:return silo_client.finite_shell(call,journal,label,command,service,container)
+        token=startup_evidence.SERVICE.set(service)
+        try:
+            stage='bootstrap_readguard' if label=='routing_environment_guard' else ('bootstrap_alias' if label in ('alias_set','alias_list') else ('bootstrap_bucket' if label=='bucket' else 'bootstrap_native'))
+            return startup_evidence.stage(stage)(silo_client.finite_shell)(call,journal,label,command,service,container)
+        except startup_evidence.NativeFailure:raise
         except Exception:
             raise ProfileError('Silo bootstrap finite stage refused: '+label) from None
+        finally:startup_evidence.SERVICE.reset(token)
     # Readonly guards precede every possible mutation; diagnostic completion
     # never grants semantic acceptance of a false predicate.
     try:
         for service in ('silo','silo_client'):
-            silo_client.evaluate_guard(shell,journal,service)
+            token=startup_evidence.SERVICE.set(service)
+            try:startup_evidence.stage('bootstrap_readguard')(silo_client.evaluate_guard)(shell,journal,service)
+            finally:startup_evidence.SERVICE.reset(token)
+    except startup_evidence.NativeFailure:raise
     except Exception:
+        if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('bootstrap_readguard_refused')
         raise ProfileError('Silo bootstrap readonly guard refused') from None
     mc=silo_client.mc_command
     shell('client_tools','set -eu; command -v mc >/dev/null; command -v rm >/dev/null')
@@ -1134,7 +1224,9 @@ def _bootstrap_silo(
         silo_client.alias_projection(shell('alias_set',mc(['alias','set','local','http://silo:9000',SILO_USER,SILO_PASSWORD,
                       '--api','S3v4','--path','auto'],json_output=True)),journal,'alias_set')
         silo_client.alias_projection(shell('alias_list',mc(['alias','list','local'],json_output=True)),journal)
+    except startup_evidence.NativeFailure:raise
     except Exception:
+        if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('bootstrap_alias_refused')
         raise ProfileError('Silo bootstrap alias configuration refused') from None
     # One native absolute deadline bounds the client's own readonly readiness
     # operation. No infinite shell loop and no repeated remote mutation.
@@ -1194,6 +1286,7 @@ def _container_active(status: dict) -> bool:
     )
 
 
+@startup_evidence.stage('readiness')
 def _assert_profile_services_ready(status: dict, container: str) -> None:
     services = {
         str(item.get("name")): str(item.get("status", "")).lower()
@@ -1202,9 +1295,11 @@ def _assert_profile_services_ready(status: dict, container: str) -> None:
     required = {"postgres", "dbgate", "mailpit", "silo", "silo_client"}
     missing = sorted(name for name in required if services.get(name) not in {"up", "running"})
     if missing:
+        if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('readiness_refused')
         raise ProfileError(f"{container} has active but incomplete/uncertain services: {missing}")
 
 
+@startup_evidence.stage('readiness')
 def _assert_profile_listeners_ready(status: dict, container: str) -> None:
     listeners = {
         str(item.get("name")): str(item.get("status", "")).lower()
@@ -1212,9 +1307,11 @@ def _assert_profile_listeners_ready(status: dict, container: str) -> None:
     }
     missing = sorted(name for name in ("api", "front", "admin") if listeners.get(name) != "ready")
     if missing:
+        if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('readiness_refused')
         raise ProfileError(f"{container} has active but incomplete/uncertain host listeners: {missing}")
 
 
+@startup_evidence.stage('readiness')
 def _assert_profile_ready(status: dict, container: str) -> None:
     _assert_profile_services_ready(status, container)
     _assert_profile_listeners_ready(status, container)
@@ -1240,6 +1337,7 @@ def _scope_owner_key(identity: BinaryIdentity, repo: Path, env: dict[str, str]) 
     raise ProfileError("Effigy checkout scope identity has an invalid kind or generation token")
 
 
+@startup_evidence.stage('managed_state')
 def _managed_listener_states(
     identity: BinaryIdentity,
     repo: Path,
@@ -1254,21 +1352,28 @@ def _managed_listener_states(
     states = []
     for name in ("api", "front", "admin"):
         state_path = _safe_repo_path(repo, root / f"{name}.listener.json")
+        startup_evidence.ROLE.set(name)
+        if startup_evidence.ACTIVE.get() is not None:startup_evidence.ACTIVE.get().emit('managed_state','entered',role=name)
         if not state_path.is_file():
+            if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('managed_state_refused')
             raise ProfileError(f"{container} managed listener state is missing: {name}")
         try:
             state = json.loads(state_path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
+            if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('managed_state_refused')
             raise ProfileError(f"{container} managed listener state is unreadable: {name}") from error
         expected_owner = f"{owner_key}|{container}|effigy|{name}"
         if state.get("owner") != expected_owner or state.get("status") != "ready":
+            if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('managed_state_refused')
             raise ProfileError(
                 f"{container} managed listener state is not ready for its checkout owner: {name}"
             )
         states.append({"name": name, "status": state["status"], **state})
+        if startup_evidence.ACTIVE.get() is not None:startup_evidence.ACTIVE.get().emit('managed_state','completed',role=name)
     return states
 
 
+@startup_evidence.stage('managed_report')
 def _verified_managed_listeners(
     identity: BinaryIdentity,
     repo: Path,
@@ -1288,19 +1393,22 @@ def _verified_managed_listeners(
     if set(reported_by_name) != set(state_by_name):
         raise ProfileError(f"{container} startup report does not name the three owned listeners")
     for name, state in state_by_name.items():
+        startup_evidence.ROLE.set(name)
         report = reported_by_name[name]
         for field in ("runtime_generation", "generation", "address", "internal_url", "public_url", "route_domain"):
             if report.get(field) != state.get(field):
+                if startup_evidence.ACTIVE.get() is not None:startup_evidence.refuse('managed_report_refused')
                 raise ProfileError(f"{container} startup report and owned listener state disagree: {name}.{field}")
     return states
 
 
+@startup_evidence.stage('managed_hosts')
 def _start_services(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: str) -> dict:
     service_container, _ = PROFILE_CONTAINERS[profile]
     root = _profile_root(repo, profile)
     runtime_env = _profile_env(repo, root, env, profile)
     _prepare_silo_override(repo)
-    service_status = _json_command(identity, repo, runtime_env, "container", service_container, "status")
+    service_status = startup_evidence.stage('service_status')(_json_command)(identity, repo, runtime_env, "container", service_container, "status")
     gateway_status = _private_gateway_status(identity, repo, runtime_env, root)
     if _container_active(service_status):
         if not gateway_status.get("running"):
@@ -1320,7 +1428,7 @@ def _start_services(identity: BinaryIdentity, repo: Path, env: dict[str, str], p
     try:
         _gateway_start(identity, repo, runtime_env, root)
         up = _container_up(identity, repo, runtime_env, service_container)
-        status = _json_command(identity, repo, runtime_env, "container", service_container, "status")
+        status = startup_evidence.stage('service_status')(_json_command)(identity, repo, runtime_env, "container", service_container, "status")
         status["managed_host_listeners"] = _verified_managed_listeners(
             identity, repo, runtime_env, service_container, up
         )
@@ -1332,6 +1440,10 @@ def _start_services(identity: BinaryIdentity, repo: Path, env: dict[str, str], p
             _container_down(identity, repo, runtime_env, service_container)
             _gateway_down(identity, repo, runtime_env, root)
         except BaseException as cleanup_error:
+            if startup_evidence.ACTIVE.get() is not None:
+                primary=startup_evidence.failure(original)
+                primary.record['cleanup_unavailable']=True
+                raise primary from None
             raise ProfileError(
                 f"profile service startup failed and owned cleanup could not be verified; resources are held: "
                 f"{cleanup_error}"
@@ -1339,6 +1451,7 @@ def _start_services(identity: BinaryIdentity, repo: Path, env: dict[str, str], p
         raise
 
 
+@startup_evidence.stage('start')
 def _start_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: str) -> dict:
     _validate_launcher_inputs(identity,repo,env,profile)
     result = _start_services(identity, repo, env, profile)
@@ -1346,14 +1459,18 @@ def _start_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], pr
     if not result.get("already_running"):
         _bootstrap_silo(identity,repo,_profile_env(repo,_profile_root(repo,profile),env,profile),
                         PROFILE_CONTAINERS[profile][0],context)
+    session=startup_evidence.ACTIVE.get()
+    if session is not None:session.emit('return','entered')
     print(
         f"PROFILE READY: {profile}; private HTTPS port={context['https_port']}; "
         f"routes={json.dumps(context['routes'], sort_keys=True)}",
         flush=True,
     )
+    if session is not None:session.emit('return','completed')
     return context
 
 
+@startup_evidence.stage('down')
 def _stop_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: str) -> None:
     service_container, host_container = PROFILE_CONTAINERS[profile]
     root = _profile_root(repo, profile)
@@ -1364,9 +1481,10 @@ def _stop_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], pro
     print(f"PROFILE STOPPED: {profile}; host listeners, services and private routes are down", flush=True)
 
 
+@startup_evidence.stage('test')
 def _test_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: str) -> int:
     selector, timeout = _check_test_task(env)
-    _run_process(
+    startup_evidence.stage('test_plan')(_run_process)(
         identity,
         [identity.binary, "--repo", str(repo), selector, "--plan"],
         cwd=repo,
@@ -1380,7 +1498,7 @@ def _test_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], pro
     action_error: BaseException | None = None
     try:
         print(f"RUN ONE DEV TEST SELECTOR: {selector} (timeout {timeout}s)", flush=True)
-        _run_process(
+        startup_evidence.stage('test_action')(_run_process)(
             identity,
             [identity.binary, "--repo", str(repo), selector],
             cwd=repo,
@@ -1394,6 +1512,10 @@ def _test_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], pro
         _stop_profile(identity, repo, env, profile)
     except BaseException as cleanup_error:
         if action_error:
+            if startup_evidence.ACTIVE.get() is not None:
+                primary=startup_evidence.failure(action_error)
+                primary.record['cleanup_unavailable']=True
+                raise primary from None
             raise ProfileError(f"test selector failed ({action_error}); owned cleanup is held ({cleanup_error})") from action_error
         raise
     if action_error:
@@ -1402,6 +1524,7 @@ def _test_profile(identity: BinaryIdentity, repo: Path, env: dict[str, str], pro
     return 0
 
 
+@startup_evidence.stage('service_context')
 def _context(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: str) -> dict:
     _context_mark("configuration", "private-root")
     service_container, _ = PROFILE_CONTAINERS[profile]
@@ -1409,11 +1532,12 @@ def _context(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile:
     return profile_context(identity, repo, _profile_env(repo, root, env, profile), service_container)
 
 
+@startup_evidence.stage('status')
 def _status(identity: BinaryIdentity, repo: Path, env: dict[str, str], profile: str) -> dict:
     service_container, host_container = PROFILE_CONTAINERS[profile]
     root = _profile_root(repo, profile)
     runtime_env = _profile_env(repo, root, env, profile)
-    services = _json_command(identity, repo, runtime_env, "container", service_container, "status")
+    services = startup_evidence.stage('service_status')(_json_command)(identity, repo, runtime_env, "container", service_container, "status")
     applications = services if host_container == service_container else _json_command(
         identity, repo, runtime_env, "container", host_container, "status"
     )
@@ -1432,6 +1556,8 @@ def main(argv: list[str] | None = None) -> int:
     _CONTEXT_ACTION = args.action == "context"
 
     env = os.environ.copy()
+    try:startup_evidence.configure(env,Path(args.repo),args.action,args.container)
+    except Exception:startup_evidence.refuse('source_refused')
     identity = verify_binary(
         env.get("UNDERLAY_PROFILE_EFFIGY_SOURCE"),
         env.get("UNDERLAY_PROFILE_EFFIGY_BIN"),
@@ -1464,7 +1590,7 @@ if __name__ == "__main__":
         _cli_failure(error)
         raise SystemExit(1)
     except Exception as error:
-        if not _CONTEXT_ACTION:
+        if not _CONTEXT_ACTION and startup_evidence.ACTIVE.get() is None and type(error) is not startup_evidence.NativeFailure:
             raise
         _cli_failure(error)
         raise SystemExit(1)

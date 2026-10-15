@@ -92,6 +92,11 @@ def main():
 
 if __name__=='__main__':
     try:sys.exit(main())
-    except BaseException:
+    except BaseException as error:
+        from dev.startup_evidence import NativeFailure
+        if type(error) is NativeFailure:
+            import json
+            from qualification_refusal import project
+            sys.stderr.write(json.dumps(project(error,'runtime_profile'))+'\n');sys.exit(1)
         # Never publish exception, child output, arguments or environment.
         sys.stderr.write('qualification_cleanup_action_refused\n');sys.exit(1)

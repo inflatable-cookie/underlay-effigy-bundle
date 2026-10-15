@@ -17,7 +17,7 @@ def strict_json(text):
         return result
     try:
         return json.loads(text, object_pairs_hook=pairs)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         raise ValueError('malformed_json') from None
 
 
@@ -260,6 +260,8 @@ def finite_shell(call,journal,label,command,service='silo_client',container='hyb
     try:
         output,outer=call(label,None,bounded_arguments(service,shell_command(command,marker),container),timeout=10)
     except Exception as error:
+        from dev.startup_evidence import NativeFailure
+        if type(error) is NativeFailure:raise
         classification=('timeout' if isinstance(error,TimeoutError) else 'spawn_refused' if isinstance(error,OSError)
                         else {'command_spawn_refused':'spawn_refused','command_capture_timeout':'timeout','command_capture_truncated':'truncated'}.get(str(error),'dispatch_refused'))
         journal.append('shell_dispatch',operation=label,service=service,classification=classification,

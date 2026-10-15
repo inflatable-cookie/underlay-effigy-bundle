@@ -40,87 +40,43 @@ COMMAND_SEQUENCE = 0
 
 def run(args: list[str], *, cwd: Path | None = None, env: dict[str, str], timeout: int = 600,
         expected: int | None = 0, print_output: bool = True) -> subprocess.CompletedProcess[str]:
-    # Private native argv, error text and command output never enter public logs.
-    print(f"COMMAND: argc={len(args)}", flush=True)
+    from dev import startup_evidence as native
     import qualification_batch
+    import secrets
     global COMMAND_SEQUENCE
     COMMAND_SEQUENCE += 1
     sequence = COMMAND_SEQUENCE
-    try:
-        result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True,
-                                timeout=qualification_batch.cap(timeout))
-    except subprocess.TimeoutExpired as error:
+    command_env=dict(env)
+    # One fresh nonce per original invocation, propagated through the actual
+    # configured task. It is correlation, never ownership or signal authority.
+    command_env['UNDERLAY_PROFILE_COMMAND_NONCE']=secrets.token_hex(16)
+    def emit(event, **fields):
         if COMMAND_DIAGNOSTICS is not None:
-            try:
-                COMMAND_DIAGNOSTICS.append('qualification_command_observation', command_id=sequence,
-                    completion='deadline_unknown', exit=None, leader_reaped='unknown',
-                    stdout_observed_bytes=None if error.stdout is None else len(error.stdout),
-                    stderr_observed_bytes=None if error.stderr is None else len(error.stderr),
-                    remote_cancellation_verified=False, group_absence='unverified')
-            except Exception:
-                pass  # Primary timeout remains primary; no mutation replay authority.
-        raise
-    if COMMAND_DIAGNOSTICS is not None:
-        try:
-            COMMAND_DIAGNOSTICS.append('qualification_command_observation', command_id=sequence,
-                completion='completed', exit=result.returncode, leader_reaped=True,
-                stdout_observed_bytes=len(result.stdout.encode()), stderr_observed_bytes=len(result.stderr.encode()),
-                remote_cancellation_verified=False, group_absence='unverified')
-        except Exception:
-            if expected is not None and result.returncode != expected:
-                raise RuntimeError('qualification_native_command_refused_publication_unavailable') from None
-            raise
-    print(f"EXIT: {result.returncode}; stdout_bytes={len(result.stdout.encode())}; stderr_bytes={len(result.stderr.encode())}", flush=True)
-    if expected is not None and result.returncode != expected:
-        raise RuntimeError("qualification_native_command_refused")
-    return result
+            COMMAND_DIAGNOSTICS.append(event,command_id=sequence,**fields)
+    return native.capture_command(args,cwd=cwd,env=command_env,
+        timeout=qualification_batch.cap(timeout),expected=expected,emit=emit)
 
 
 def safe_effigy_error(stdout: str) -> str:
-    """Retain a bounded Effigy error message without fixture credentials."""
-    try:
-        envelope = json.loads(stdout)
-    except (TypeError, ValueError):
-        envelope = None
-    error = envelope.get("error") if isinstance(envelope, dict) else None
-    message = error.get("message") if isinstance(error, dict) else None
-    is_json_error = isinstance(message, str)
-    if not is_json_error:
-        message = stdout
-    message = message.replace("qualification-local-only", "[REDACTED]")
-    message = message.replace("minioadmin", "[REDACTED]")
-    message = re.sub(r"(?i)(://[^:/\s]+:)[^@/\s]+(@)", r"\1[REDACTED]\2", message)
-    message = re.sub(
-        r"(?i)(password|secret|token|authorization)(\s*[:=]\s*)[^,;\s]+",
-        r"\1\2[REDACTED]",
-        message,
-    )
-    if is_json_error:
-        return message[:1200]
-    useful = [line.strip() for line in message.splitlines()
-              if re.search(r"(?i)error|failed|invalid|missing|required|secret|task .*not defined", line)]
-    return " | ".join(useful)[-1000:]
+    # Compatibility for private callers: no native message survives projection.
+    from dev.startup_evidence import observe_native
+    observed=observe_native(stdout,1)
+    return 'native_envelope_refused' if observed['schema_valid'] else 'unknown'
 
 
 def effigy_json(binary: str, checkout: Path, env: dict[str, str], *args: str,
                 timeout: int = 180) -> dict:
-    result = run([binary, "--repo", str(checkout), *args], cwd=checkout, env=env,
-                 timeout=timeout, print_output=False)
-    envelope = json.loads(result.stdout)
-    if not envelope.get("ok"):
-        detail = safe_effigy_error(result.stdout)
-        suffix = f": {detail}" if detail else ""
-        raise RuntimeError(f"Effigy returned a non-ok envelope for {' '.join(args)}{suffix}")
-    return envelope.get("result") or {}
+    from dev.startup_evidence import json_result
+    result=run([binary,'--repo',str(checkout),*args],cwd=checkout,env=env,
+               timeout=timeout,print_output=False)
+    return json_result(result.stdout,getattr(result,"native_observation",None))
 
 
 def gateway_json(binary: str, env: dict[str, str], gateway_root: Path, *args: str) -> dict:
-    result = run([binary, "--json", "gateway", *args, "--private-state-root", str(gateway_root)],
-                 env=env, timeout=180, print_output=False)
-    envelope = json.loads(result.stdout)
-    if not envelope.get("ok"):
-        raise RuntimeError(f"Effigy private gateway command failed: {' '.join(args)}")
-    return envelope.get("result") or {}
+    from dev.startup_evidence import json_result
+    result=run([binary,'--json','gateway',*args,'--private-state-root',str(gateway_root)],
+               env=env,timeout=180,print_output=False)
+    return json_result(result.stdout,getattr(result,"native_observation",None))
 
 
 def wait_loopback_service(port: int, service: str, timeout_secs: int = 120) -> dict:

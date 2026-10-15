@@ -189,3 +189,23 @@ run_in = "host"
 [tasks."proof:dev-profiles:route-observation-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/route_observation_test.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:native-startup-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/native_startup_test.py NativeControls"
+run_in = "host"
+
+[tasks."proof:dev-profiles:native-startup-extended-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/native_startup_test.py ExtendedControls"
+run_in = "host"
+
+[tasks."proof:dev-profiles:native-startup-genuine-control"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/native_startup_test.py GenuineNativeControls"
+run_in = "host"
+
+[tasks."proof:dev-profiles:native-startup-marker-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/native_startup_test.py MarkerControls"
+run_in = "host"
+
+[tasks."proof:dev-profiles:pending-identity-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/native_startup_test.py PendingIdentityTests PendingBarrierTests"
+run_in = "host"

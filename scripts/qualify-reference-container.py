@@ -2,6 +2,7 @@
 """Qualify the private Reference default container stack without host apps."""
 
 from __future__ import annotations
+from dev.startup_evidence import NativeFailure
 
 import hashlib
 import importlib.util
@@ -10,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import traceback
 from pathlib import Path
 
@@ -45,22 +47,14 @@ def effigy_json(binary: str, checkout: Path, env: dict[str, str], *args: str,
                 timeout: int = 180, private: bool = False) -> dict:
     result = run([binary, "--repo", str(checkout), *args], cwd=checkout,
                  env=env, timeout=timeout, private=private)
-    envelope = json.loads(result.stdout)
-    if envelope.get("ok") is not True:
-        if private:raise RuntimeError("native_envelope_refused")
-        detail = REFERENCE.safe_effigy_error(result.stdout)
-        raise RuntimeError(f"Effigy command returned a negative result for {' '.join(args)}"
-                           + (f": {detail}" if detail else ""))
-    return envelope.get("result") or {}
+    from dev.startup_evidence import json_result
+    return json_result(result.stdout,getattr(result,'native_observation',None))
 
 
 def gateway_json(binary: str, env: dict[str, str], gateway_root: Path, *args: str) -> dict:
-    result = run([binary, "--json", "gateway", *args,
-                  "--private-state-root", str(gateway_root)], env=env, timeout=180)
-    envelope = json.loads(result.stdout)
-    if envelope.get("ok") is not True:
-        raise RuntimeError(f"private gateway command returned a negative result: {' '.join(args)}")
-    return envelope.get("result") or {}
+    result=run([binary,'--json','gateway',*args,'--private-state-root',str(gateway_root)],env=env,timeout=180)
+    from dev.startup_evidence import json_result
+    return json_result(result.stdout,getattr(result,'native_observation',None))
 
 
 def services_up(status: dict) -> dict[str, str]:
@@ -88,6 +82,7 @@ def independently_observe_container_down(effigy, checkout, runtime_env, receipts
     admission=getattr(observer,'original_admission',None)
     if admission is not None:admission.admit_original_route(runtime_env)
     try:effigy_json(effigy, checkout, runtime_env, "container", "down", "--json", timeout=600,private=True)
+    except NativeFailure:raise
     except Exception:raise container_identity_observer.Refusal("scoped_down_unavailable") from None
     if admission is not None:admission.admit_original_route(runtime_env)
     proof=observer.after(before)
@@ -135,7 +130,7 @@ def main() -> int:
         "container_up": None,
         "cleanup": [],
         "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
-                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","generated_profile.py","qualification_refusal.py","auth_operation.py","private_cargo_cache.py","reference_api_preparation.py","route_observation.py")},
+                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","generated_profile.py","qualification_refusal.py","auth_operation.py","private_cargo_cache.py","reference_api_preparation.py","route_observation.py","dev/startup_evidence.py","dev/owned_capture.py","dev/host_identity.py","dev/profile_launcher.py","dev/silo_client.py","dev/storage_launcher.py")},
     }
     from reference_storage_probe import StorageDiagnosticJournal
     packet=Path(subprocess.run(['mktemp','-d',str(Path.home()/'ur.005-container.XXXXXX')],check=True,capture_output=True,text=True).stdout.strip())
@@ -218,7 +213,6 @@ def main() -> int:
         run([effigy,'--repo',str(checkout),'silo:prepare'],cwd=checkout,env=runtime_env,timeout=60)
         run([effigy,'--repo',str(checkout),'silo:admit'],cwd=checkout,env=runtime_env,timeout=60)
         from formatter_provenance import bind_host, bound_colima, observe, version_arguments
-        import sys
         interface_spec=importlib.util.spec_from_file_location('container_image_interfaces',REPO/'scripts/qualify-storage-correlation.py')
         interfaces=importlib.util.module_from_spec(interface_spec);sys.modules[interface_spec.name]=interfaces;interface_spec.loader.exec_module(interfaces)
         bind_host(runtime_env)
@@ -310,6 +304,7 @@ def main() -> int:
     except Exception as error:
         failure = type(error).__name__
         safe=publish_refusal(error,'default_profile',backend_admission.refusal_emit)
+        print(json.dumps(safe,sort_keys=True),file=sys.stderr,flush=True)
         if isinstance(error,container_identity_observer.Refusal):receipts['refusal_class']=safe['reason_id']
         print(f"REFERENCE DEFAULT-CONTAINER QUALIFICATION BLOCKED: {failure}", flush=True)
     finally:

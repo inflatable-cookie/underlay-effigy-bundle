@@ -1428,6 +1428,10 @@ def prove_bundle_adapter_sources() -> None:
     rust_adapter = REPO / "scripts/dev/managed-rust-listener.py"
     fixture_scripts = (
         REPO / "scripts/dev/profile_launcher.py",
+        REPO / "scripts/dev/startup_evidence.py",
+        REPO / "scripts/dev/owned_capture.py",
+        REPO / "scripts/dev/host_identity.py",
+
         REPO / "scripts/dev/port_inventory.py",
         REPO / "scripts/silo_fixture.py",
         REPO / "scripts/reference_storage_probe.py",

@@ -1717,3 +1717,37 @@ late journal failure and the outer privacy filter; unknown external failures
 remain unknown. Context checks retain the original private root, CA, gateway
 port and listener generation association. These observations supply no signal
 or cleanup authority and never certify a missing product stage.
+
+Qualification startup evidence uses the exported `startup_evidence.py` and
+`owned_capture.py` assets. An explicitly supplied original batch intent, its
+checksum, private input files and a fresh parent command nonce enable a private
+startup journal. A separate call identity lets nested context helpers share the
+original command correlation without sharing a journal file. Ordinary profile
+invocations do not enable this protocol.
+Entered, completed and refused events identify source admission, original
+context, gateway setup/status/start, service startup/context, listener
+state/report/readiness, bootstrap guards/alias/bucket, test action and cleanup.
+API/front/admin roles and Silo service roles are closed values. An entered stage
+has unknown effects; these records never establish ownership or cleanup.
+
+The shared host reader drains both streams fairly, retains at most 262144 bytes
+per stream and applies the original caller deadline. Compile preparation retains
+its separate 900-second limit. Only the original unreaped direct child with a
+matching kernel identity may be stopped on capture refusal; neither descendants
+nor remote execution are claimed cancelled. Captures retain EOF, observed byte
+counts, exit/reaping outcomes and original host identity in private accounting.
+Raw output remains in bounded memory. JSON consumers retain their completed
+process interface, and parse/schema gates follow capture accounting.
+
+A closed native failure survives the exported launcher, configured task,
+qualification parent and outer privacy projection. The protocol retains the
+primary stage/reason, source-qualified native envelope and bounded-exec refusal
+observations, caller captures and separate publication/cleanup uncertainty.
+Duplicate, conflicting, foreign, truncated or unknown marker fields refuse
+credit. Source-local literal errors require an admitted owning code object;
+external messages remain unknown. No exception text, native payload, arguments,
+environment, URLs, credentials or payload digests are recorded. Synthetic
+configured-task and private fake-backend controls qualify this evidence path;
+they provide no application startup, runtime acceptance or independent cleanup
+credit. Existing production readiness deadlines and acceptance predicates are
+unchanged.

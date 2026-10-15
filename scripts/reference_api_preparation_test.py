@@ -114,13 +114,15 @@ class PreparationTests(unittest.TestCase):
         class Journal:
             def append(inner,event,**fields):self.events.append((event,fields))
         module.COMMAND_DIAGNOSTICS=Journal()
-        with patch.object(module.subprocess,'run',return_value=subprocess.CompletedProcess([],3,'SECRET','SECRET')):
-            with self.assertRaisesRegex(RuntimeError,'native_command_refused'):
-                module.run(['/fake'],env=self.env)
-        observation=self.events[-1][1]
+        # The setup's rustc stub must not intercept the maintained identity reader.
+        self.tool.stop()
+        import sys
+        with self.assertRaisesRegex(RuntimeError,'native_nonzero'):
+            module.run([sys.executable,'-c','import sys;sys.stdout.write("SECRET");sys.stderr.write("SECRET");sys.exit(3)'],env=dict(os.environ))
+        observation=self.events[-1][1]['observation']
         self.assertEqual(observation['exit'],3)
-        self.assertEqual(observation['stdout_observed_bytes'],6)
-        self.assertFalse(observation['remote_cancellation_verified'])
+        self.assertEqual(observation['capture']['stdout']['read_bytes'],6)
+        self.assertEqual(observation['effect_state'],'unknown')
         self.assertNotIn('SECRET',json.dumps(self.events))
 
 
