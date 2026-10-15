@@ -225,6 +225,27 @@ default = "container"
 example = "hybrid"
 
 [[inputs]]
+name = "profiles.api_health_path"
+type = "string"
+description = "HTTP path the host profiles poll on the API listener before publishing its route; it must return 200 without authentication or rate limiting."
+default = "/v1/health"
+example = "/health"
+
+[[inputs]]
+name = "profiles.front_health_path"
+type = "string"
+description = "HTTP path the host profiles poll on the front listener before publishing its route; it must return 200 without a session (use a public page such as /login when / redirects)."
+default = "/"
+example = "/login"
+
+[[inputs]]
+name = "profiles.admin_health_path"
+type = "string"
+description = "HTTP path the host profiles poll on the admin listener before publishing its route; it must return 200 without a session (use a public page such as /login when / redirects)."
+default = "/"
+example = "/login"
+
+[[inputs]]
 name = "profiles.test_task"
 type = "string"
 description = "Effigy selector `dev:test` runs once its isolated environment is ready. Empty makes `dev:test` refuse before starting anything; full `qa` is never implied."
