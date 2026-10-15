@@ -27,6 +27,7 @@ DATABASE_USER = "postgres"
 DATABASE_PASSWORD = "secret"  # catalog postgres default; local loopback only
 POSTGRES_PORT = 5432
 SMTP_PORT = 1025
+S3_PORT = 9000
 
 
 class ProfileError(RuntimeError):
@@ -45,6 +46,19 @@ def repo_root() -> Path:
     return Path(top.stdout.strip()).resolve()
 
 
+def nested_environment() -> dict[str, str]:
+    """Caller environment minus Effigy's internal and per-listener variables.
+
+    A managed child inherits them from its supervisor; passed on, they change
+    a nested `effigy` call's output shape and listener identity.
+    """
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("EFFIGY_INTERNAL_", "EFFIGY_MANAGED_HOST_"))
+    }
+
+
 def effigy(repo: Path, *args: str, timeout: float | None = 120) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["effigy", *args, "--repo", str(repo)],
@@ -52,6 +66,7 @@ def effigy(repo: Path, *args: str, timeout: float | None = 120) -> subprocess.Co
         text=True,
         timeout=timeout,
         check=False,
+        env=nested_environment(),
     )
 
 
@@ -66,8 +81,47 @@ def hosts_report(repo: Path, container: str) -> dict:
         ) from None
     report = envelope.get("result") if isinstance(envelope, dict) else None
     if not envelope.get("ok") or not isinstance(report, dict):
-        raise ProfileError(f"`effigy container {container} hosts` refused: {envelope.get('error')}")
+        error = envelope.get("error") or {}
+        detail = error.get("message") if isinstance(error, dict) else error
+        raise ProfileError(
+            f"`effigy container {container} hosts` refused: {detail or result.stderr.strip()}"
+        )
     return report
+
+
+def status_report(repo: Path, container: str) -> dict:
+    result = effigy(repo, "container", container, "status", "--json")
+    try:
+        envelope = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        raise ProfileError(f"`effigy container {container} status` failed:\n{result.stderr.strip()}") from None
+    report = envelope.get("result") if isinstance(envelope, dict) else None
+    if not envelope.get("ok") or not isinstance(report, dict):
+        raise ProfileError(f"`effigy container {container} status` refused: {envelope.get('error')}")
+    return report
+
+
+def published_port(status: dict, service: str, container_port: int) -> int:
+    """Host loopback port Effigy published for `service`'s `container_port`.
+
+    Accepts the runtime's `[ADDR:]HOST->CONTAINER[/proto]` forms, including
+    ranges such as `11940-11941->9000-9001/tcp`.
+    """
+    for entry in status.get("services", []):
+        if entry.get("name") != service:
+            continue
+        for mapping in entry.get("ports", []):
+            host, _, inner = mapping.partition("->")
+            inner = inner.split("/", 1)[0]
+            host = host.rsplit(":", 1)[-1]
+            host_lo, _, host_hi = host.partition("-")
+            inner_lo, _, inner_hi = inner.partition("-")
+            if not (host_lo.isdigit() and inner_lo.isdigit()):
+                continue
+            offset = container_port - int(inner_lo)
+            if 0 <= offset <= int(inner_hi or inner_lo) - int(inner_lo):
+                return int(host_lo) + offset
+    raise ProfileError(f"the profile publishes no host port for {service}:{container_port}")
 
 
 def declared_domains(env: dict[str, str]) -> dict[str, str]:
@@ -93,20 +147,19 @@ def shared_apex(hosts: list[str]) -> str:
     return ".".join(shared)
 
 
-def app_environment(report: dict, declared: dict[str, str], database: str) -> dict[str, str]:
-    """Map Effigy's effective host report onto the Underlay app variables."""
-    http = {route["declared"]: route for route in report.get("routes", []) if route.get("kind") == "http"}
-    tcp = {route.get("service"): route for route in report.get("routes", []) if route.get("kind") == "tcp"}
+def app_environment(report: dict, status: dict, declared: dict[str, str], database: str) -> dict[str, str]:
+    """Map Effigy's host and status reports onto the Underlay app variables.
 
+    Public names come from the effective host map; service connections use
+    the published loopback ports, so they need no gateway DNS.
+    """
+    http = {route["declared"]: route for route in report.get("routes", []) if route.get("kind") == "http"}
     origins = {}
     for role, domain in declared.items():
         route = http.get(domain)
         if route is None:
             raise ProfileError(f"the profile declares no `{domain}` route for {role}")
         origins[role] = route["origin"]
-    for service in ("postgres", "mailpit"):
-        if service not in tcp:
-            raise ProfileError(f"the profile has no loopback alias for {service}")
 
     api = urlsplit(origins["api"])
     https_port = api.port or 443
@@ -122,10 +175,11 @@ def app_environment(report: dict, declared: dict[str, str], database: str) -> di
         ),
         "DATABASE_URL": (
             f"postgres://{DATABASE_USER}:{DATABASE_PASSWORD}"
-            f"@{tcp['postgres']['effective']}:{POSTGRES_PORT}/{database}"
+            f"@127.0.0.1:{published_port(status, 'postgres', POSTGRES_PORT)}/{database}"
         ),
-        "SMTP_HOST": tcp["mailpit"]["effective"],
-        "SMTP_PORT": str(SMTP_PORT),
+        "SMTP_HOST": "127.0.0.1",
+        "SMTP_PORT": str(published_port(status, "mailpit", SMTP_PORT)),
+        "EFFIGY_PROFILE_S3_ENDPOINT": f"http://127.0.0.1:{published_port(status, 'minio', S3_PORT)}",
         "EFFIGY_PROFILE_API_PUBLIC_URL": origins["api"],
         "EFFIGY_PROFILE_FRONT_PUBLIC_URL": origins["front"],
         "EFFIGY_PROFILE_ADMIN_PUBLIC_URL": origins["admin"],
@@ -138,7 +192,9 @@ def resolved_environment(repo: Path, container: str, env: dict[str, str]) -> dic
     database = env.get("EFFIGY_PROFILE_DATABASE")
     if not database:
         raise ProfileError("EFFIGY_PROFILE_DATABASE is not set by the bundle")
-    return app_environment(hosts_report(repo, container), declared_domains(env), database)
+    return app_environment(
+        hosts_report(repo, container), status_report(repo, container), declared_domains(env), database
+    )
 
 
 def cors_document(origins: list[str]) -> str:
@@ -197,7 +253,7 @@ def run_test(repo: Path, container: str, task: str, timeout: int, env: dict[str,
             if result.returncode != 0:
                 raise ProfileError(f"dev:test {name} failed:\n{result.stderr.strip() or result.stdout.strip()}")
         bootstrap(repo, container, env)
-        child_env = {**env, **resolved_environment(repo, container, env)}
+        child_env = {**nested_environment(), **resolved_environment(repo, container, env)}
         try:
             return subprocess.run(
                 ["effigy", task, "--repo", str(repo)], env=child_env, timeout=timeout, check=False

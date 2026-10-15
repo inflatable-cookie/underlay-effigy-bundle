@@ -26,6 +26,16 @@ def route(kind: str, declared: str, effective: str, service: str | None = None) 
     return entry
 
 
+STATUS = {
+    "services": [
+        {"name": "dbgate", "ports": ["127.0.0.1:11930->3000/tcp"]},
+        {"name": "postgres", "ports": ["127.0.0.1:11932->5432/tcp"]},
+        {"name": "minio", "ports": ["127.0.0.1:11940-11941->9000-9001/tcp"]},
+        {"name": "mailpit", "ports": ["127.0.0.1:11925->8025", "11926->1025/tcp"]},
+    ]
+}
+
+
 def report(scope: str = "") -> dict:
     """Shape of `effigy container hybrid hosts --json` for a scoped checkout."""
     apex = f"acme{scope}.test"
@@ -45,20 +55,20 @@ def report(scope: str = "") -> dict:
 
 class AppEnvironmentTest(unittest.TestCase):
     def test_primary_checkout_uses_declared_names(self) -> None:
-        env = profile_env.app_environment(report(), DECLARED, "acme")
+        env = profile_env.app_environment(report(), STATUS, DECLARED, "acme")
         self.assertEqual(env["PUBLIC_HOST"], "api.acme.test")
         self.assertEqual(env["PUBLIC_PORT"], "443")
         self.assertEqual(env["CORS_ORIGINS"], "https://acme.test,https://admin.acme.test")
         self.assertEqual(env["COOKIE_DOMAIN"], ".acme.test")
-        self.assertEqual(env["DATABASE_URL"], "postgres://postgres:secret@postgres.s3.acme.test:5432/acme")
-        self.assertEqual(env["SMTP_HOST"], "smtp.s3.acme.test")
+        self.assertEqual(env["DATABASE_URL"], "postgres://postgres:secret@127.0.0.1:11932/acme")
+        self.assertEqual((env["SMTP_HOST"], env["SMTP_PORT"]), ("127.0.0.1", "11926"))
+        self.assertEqual(env["EFFIGY_PROFILE_S3_ENDPOINT"], "http://127.0.0.1:11940")
         self.assertEqual(env["EFFIGY_PROFILE_S3_PUBLIC_URL"], "https://s3.acme.test")
 
     def test_worktree_uses_effective_names_everywhere(self) -> None:
-        env = profile_env.app_environment(report("-w1234abcd"), DECLARED, "acme")
+        env = profile_env.app_environment(report("-w1234abcd"), STATUS, DECLARED, "acme")
         self.assertEqual(env["PUBLIC_HOST"], "api.acme-w1234abcd.test")
         self.assertEqual(env["COOKIE_DOMAIN"], ".acme-w1234abcd.test")
-        self.assertIn("@postgres.s3.acme-w1234abcd.test:5432/", env["DATABASE_URL"])
         for value in env.values():
             self.assertNotIn("//acme.test", value)
 
@@ -67,7 +77,7 @@ class AppEnvironmentTest(unittest.TestCase):
         for entry in moved["routes"]:
             if entry["kind"] == "http":
                 entry["origin"] += ":8443"
-        env = profile_env.app_environment(moved, DECLARED, "acme")
+        env = profile_env.app_environment(moved, STATUS, DECLARED, "acme")
         self.assertEqual(env["PUBLIC_PORT"], "8443")
         self.assertEqual(env["EFFIGY_PROFILE_GATEWAY_HTTPS_PORT"], "8443")
 
@@ -75,11 +85,16 @@ class AppEnvironmentTest(unittest.TestCase):
         without_admin = report()
         without_admin["routes"] = [r for r in without_admin["routes"] if r["declared"] != "admin.acme.test"]
         with self.assertRaisesRegex(profile_env.ProfileError, "admin"):
-            profile_env.app_environment(without_admin, DECLARED, "acme")
-        without_postgres = report()
-        without_postgres["routes"] = [r for r in without_postgres["routes"] if r["service"] != "postgres"]
+            profile_env.app_environment(without_admin, STATUS, DECLARED, "acme")
+        without_postgres = {"services": [e for e in STATUS["services"] if e["name"] != "postgres"]}
         with self.assertRaisesRegex(profile_env.ProfileError, "postgres"):
-            profile_env.app_environment(without_postgres, DECLARED, "acme")
+            profile_env.app_environment(report(), without_postgres, DECLARED, "acme")
+
+    def test_published_port_handles_ranges_and_bare_mappings(self) -> None:
+        self.assertEqual(profile_env.published_port(STATUS, "minio", 9001), 11941)
+        self.assertEqual(profile_env.published_port(STATUS, "mailpit", 8025), 11925)
+        with self.assertRaises(profile_env.ProfileError):
+            profile_env.published_port(STATUS, "minio", 9002)
 
     def test_custom_front_label_still_finds_apex(self) -> None:
         self.assertEqual(profile_env.shared_apex(["api.acme.test", "www.acme.test", "admin.acme.test"]), "acme.test")

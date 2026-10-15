@@ -135,10 +135,11 @@ false renders the existing container stack unchanged.
 
 Operator ruling, 2026-10-15: profiles run on the operator's installed Effigy,
 built from Effigy `main` with `effigy bootstrap:local`. There is no pinned
-source or binary-checksum gate and no private gateway; profiles use the normal
-gateway. An Effigy build without managed host listeners refuses the profile
-manifest. Add a released `minimum_effigy_version` when Effigy next releases.
-This replaces the earlier exact-source admission.
+source or binary-checksum gate. Profiles need an Effigy build that publishes
+managed listener routes to the shared gateway and accepts nerdctl compose
+bindings (Effigy PRs from 2026-10-15); older builds refuse the profile
+manifest or the listener routes. Add a released `minimum_effigy_version` when
+Effigy next releases. This replaces the earlier exact-source admission.
 
 ### What the bundle does and does not own
 
@@ -147,19 +148,28 @@ the listeners, proves readiness before publishing routes, and tears down. The
 bundle adds no supervisor, allocator or cleanup of its own.
 
 `scripts/dev/profile_env.py` reads `effigy container <name> hosts --json` and
-sets the variables Underlay apps already read: `PUBLIC_HOST`, `PUBLIC_SCHEME`,
-`PUBLIC_PORT`, `CORS_ORIGINS`, `COOKIE_DOMAIN`, `DATABASE_URL`, `SMTP_HOST`
-and `SMTP_PORT`, plus the public URLs the Vite adapter needs. Effigy currently
-takes a container's alias base from its first DNS route, so profile aliases
-read `postgres.s3.<host>`; the helper uses the reported names and derives the
-cookie domain from the app hosts.
+`status --json` and sets the variables Underlay apps already read:
+`PUBLIC_HOST`, `PUBLIC_SCHEME`, `PUBLIC_PORT`, `CORS_ORIGINS`, `COOKIE_DOMAIN`,
+`DATABASE_URL`, `SMTP_HOST` and `SMTP_PORT`, plus `EFFIGY_PROFILE_S3_ENDPOINT`
+and the public URLs the Vite adapter needs. Public names come from the
+effective host map; service connections use the published loopback ports, so
+host processes need no gateway DNS. The cookie domain is derived from the app
+hosts, because Effigy's reported cookie domain follows the first service route.
+
+The API runs through the `profile:api` task, which requests vault secrets:
+host processes carry none of their own, and task secrets do not reach composed
+child tasks.
 
 ### Consumer adoption limits
 
 - Object-store settings are app-prefixed (Reference: `ACME_S3_*`), so the
-  bundle does not set them. On the primary checkout the app's config overlay
-  already names `s3.<host>`. Worktrees and `dev:test` need the app to take its
-  S3 endpoint and public URL from the environment.
+  bundle only exports `EFFIGY_PROFILE_S3_ENDPOINT` and
+  `EFFIGY_PROFILE_S3_PUBLIC_URL`. Until an app maps those onto its own
+  settings, its S3 client cannot reach the profile store from the host
+  (Reference logs a non-fatal bucket reconcile warning).
+- Reference's config discovery looks only in `./config` and `../config`, so
+  its monorepo API falls back to code defaults in both container and hybrid
+  mode; the supplied environment covers the runtime-critical values.
 - WebAuthn relying-party settings are not set.
 - Run `dev` or `dev:hybrid` in a checkout, not both: they claim the same app
   hostnames, and the gateway refuses the second.
@@ -167,6 +177,20 @@ cookie domain from the app hosts.
   The public-origin hook stays a consumer opt-in.
 
 ## Reference pilot assurance and limits
+
+### Reference proof, 2026-10-15
+
+A disposable, ephemeral-scoped Reference clone assembled this branch with
+`profiles.enabled = true` on Effigy `c773090` (both Effigy fixes), against a
+private gateway because the operator's root-owned shared gateway refuses
+headless identity checks. `dev:hybrid` brought API, front and admin to ready
+on `*.acme-w<key>.test`; CA-verified HTTPS returned 200 on all three, the API
+granted CORS to the front origin and refused a foreign one, the front's HMR
+WebSocket upgraded with 101, the S3 route answered, and `dev:hybrid:down`
+withdrew every route and stopped every process and container. `dev:test`
+reset, started `test.*`, bootstrapped its bucket, ran `acme-api/check`,
+exited 0 and left no containers. Shared-gateway publication is covered by
+Effigy unit tests, not yet by a live run.
 
 ### Published Silo qualification ruling
 

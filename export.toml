@@ -250,7 +250,7 @@ concurrent = [
 startup = "detached"
 project_name = "{{ resolved_project_name }}-{{ profile[2] }}"
 primary_service = "postgres"
-working_dir = "/srv/{{ container }}"
+working_dir = "/tmp"
 
 [containers.{{ container }}.services.postgres]
 catalog = "postgres"
@@ -279,7 +279,7 @@ routes = [
 
 [[containers.{{ container }}.host_processes]]
 name = "api"
-run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec {{ container }} -- python3 "{{ bundle.root }}/scripts/dev/managed-rust-listener.py" -- effigy {{ sel_api }}/api'
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec {{ container }} -- python3 "{{ bundle.root }}/scripts/dev/managed-rust-listener.py" -- effigy profile:api'
 cwd = "."
 restart = "on-failure"
 env = { {{ profile_env }} }
@@ -299,7 +299,7 @@ tls = true
 
 [[containers.{{ container }}.host_processes]]
 name = "{{ app[0] }}"
-run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec {{ container }} --self {{ app[0] }} -- bun "{{ bundle.root }}/scripts/dev/managed-vite-listener.mjs"'
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec --self {{ app[0] }} {{ container }} -- bun "{{ bundle.root }}/scripts/dev/managed-vite-listener.mjs"'
 cwd = "{{ app[1] }}"
 restart = "on-failure"
 depends_on = ["api"]
@@ -321,6 +321,13 @@ tls = true
 {% set hybrid_env %}EFFIGY_PROFILE_DATABASE = "{{ inputs.databases|first }}", EFFIGY_PROFILE_BUCKET = "{{ media_bucket }}", EFFIGY_PROFILE_API_DECLARED = "{{ route_domain(inputs.host, inputs.routes.api, 'api') }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ route_domain(inputs.host, inputs.routes.front, '') }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}", EFFIGY_PROFILE_S3_DECLARED = "{{ route_domain(inputs.host, inputs.routes.s3, 's3') }}"{% endset %}
 {% set test_host = "test." ~ inputs.host %}
 {% set test_env %}EFFIGY_PROFILE_DATABASE = "{{ inputs.databases|first }}", EFFIGY_PROFILE_BUCKET = "{{ media_bucket }}", EFFIGY_PROFILE_API_DECLARED = "{{ route_domain(test_host, inputs.routes.api, 'api') }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ route_domain(test_host, inputs.routes.front, '') }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ route_domain(test_host, inputs.routes.admin, 'admin') }}", EFFIGY_PROFILE_S3_DECLARED = "{{ route_domain(test_host, inputs.routes.s3, 's3') }}"{% endset %}
+
+# Host processes carry no vault secrets of their own, and task secrets do
+# not reach composed child tasks; run the API as a nested command instead.
+[tasks."profile:api"]
+run = "effigy {{ sel_api }}/api"
+run_in = "host"
+secrets = "required"
 
 [tasks."dev:hybrid"]
 run = [
