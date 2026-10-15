@@ -209,3 +209,11 @@ run_in = "host"
 [tasks."proof:dev-profiles:pending-identity-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/native_startup_test.py PendingIdentityTests PendingBarrierTests"
 run_in = "host"
+
+[tasks."proof:dev-profiles:startup-carrier-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/original_container_route_test.py CarrierControls CarrierDeadlineControls RouteControls.test_source_receipt_pins_before_effect_and_semantic_original_intent RouteControls.test_real_constructor_original_route_after_start_before_compose_no_boot_claim RouteControls.test_toml_route_does_not_get_normalized_to_source_defaults"
+run_in = "host"
+
+[tasks."proof:dev-profiles:startup-carrier-deadline-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/original_container_route_test.py CarrierDeadlineControls"
+run_in = "host"

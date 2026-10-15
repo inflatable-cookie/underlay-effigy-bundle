@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,41 @@ def help_output(namespace='default',address='/run/containerd/containerd.sock',co
         +'      --namespace string   containerd namespace, such as "moby" for Docker, "k8s.io" for Kubernetes [$CONTAINERD_NAMESPACE] (default "'+namespace+'")\n'
         +"\nRun 'nerdctl COMMAND --help' for more information on a command.\n\n").encode()
 
+
+def startup_carrier(root, *, over_budget=False):
+    """Finite synthetic config producer; no engine, guest, or application effects.
+
+    Values are shell words, never executable interpolation. The real parent first
+    seals start_command's intent and tool hash; this process checks that intent
+    exists and refuses mismatched arguments before creating either profile.
+    """
+    root=Path(root)
+    expected=['start','--profile','effigy','--runtime','containerd','--activate=false',
+              '--ssh-config=false','--ssh-agent=false','--template=false','--mount',
+              str(root)+':w','--cpu','6','--memory','8','--disk','64']
+    q=shlex.quote
+    lines=['#!/bin/sh','set -eu','umask 077',
+           'root='+q(str(root)),
+           '[ "$0" = '+q(str(root/'colima'))+' ] || exit 81',
+           '[ "$#" -eq '+str(len(expected))+' ] || exit 81',
+           'for expected in '+' '.join(map(q,expected))+'; do',
+           '  [ "$1" = "$expected" ] || exit 81', '  shift', 'done',
+           '[ "${LIMA_HOME-}" = "$root/lima-home" ] || exit 82',
+           '[ "${COLIMA_HOME-}" = "$root/colima-home" ] || exit 82',
+           '[ -f "$root/backend-start-intent.json" ] && [ ! -L "$root/backend-start-intent.json" ] || exit 83']
+    for name in ('lima-home','colima-home'):
+        lines += ['[ -d "$root/'+name+'" ] && [ ! -L "$root/'+name+'" ] || exit 83']
+    for name in ('lima-home/colima-effigy','colima-home/effigy'):
+        lines += ['[ ! -e "$root/'+name+'" ] && [ ! -L "$root/'+name+'" ] || exit 84']
+    if over_budget:
+        # Builtins only: one original direct child, no descendants to signal.
+        lines += ['while :; do :; done']
+    lines += ['/bin/mkdir -m 700 "$root/lima-home/colima-effigy" "$root/colima-home/effigy"',
+              'set -C',
+              "printf '%s\\n' "+q('mounts:')+' '+q('    - location: '+str(root))+' '+q('      writable: true')+' > "$root/lima-home/colima-effigy/lima.yaml"',
+              "printf '%s\\n' "+q('runtime: containerd')+' '+q('mounts:')+' '+q('  - location: '+str(root)+'/')+' '+q('    writable: true')+' > "$root/colima-home/effigy/colima.yaml"']
+    return '\n'.join(lines)+'\n'
+
 class RouteControls(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name).resolve();self.root.chmod(0o700)
@@ -35,17 +71,7 @@ class RouteControls(unittest.TestCase):
         self.backend.original_scope(self.checkout,b'[containers.default]\n','a'*64)
         self.backend.original_policy(self.checkout,'default',json.dumps(self.config).encode(),json.dumps({'ok':True,'result':self.scope}).encode())
         self.colima=self.root/'colima';self.lima=self.root/'limactl';self.ssh=self.root/'ssh'
-        start='''#!INTERPRETER
-import sys
-from pathlib import Path
-r=Path(__file__).parent
-expected=['start','--profile','effigy','--runtime','containerd','--activate=false','--ssh-config=false','--ssh-agent=false','--template=false','--mount',str(r)+':w','--cpu','6','--memory','8','--disk','64']
-if sys.argv[1:]!=expected:sys.exit(81)
-for name in ['lima-home/colima-effigy','colima-home/effigy']:(r/name).mkdir(mode=0o700)
-p=r/'lima-home/colima-effigy/lima.yaml';p.write_text('mounts:\\n    - location: '+str(r)+'\\n      writable: true\\n');p.chmod(0o600)
-p=r/'colima-home/effigy/colima.yaml';p.write_text('runtime: containerd\\nmounts:\\n  - location: '+str(r)+'/\\n    writable: true\\n');p.chmod(0o600)
-'''.replace('INTERPRETER',sys.executable)
-        self.colima.write_text(start);self.colima.chmod(0o700)
+        self.colima.write_text(startup_carrier(self.root,over_budget=getattr(self,'over_budget',False)));self.colima.chmod(0o700)
         source='''#!INTERPRETER
 import sys,json,hashlib,os,time
 from pathlib import Path
@@ -223,6 +249,81 @@ sys.exit(85)
         self.start()
         with self.assertRaises(Refusal):self.backend.original_policy(self.checkout,'hybrid_services',json.dumps(self.config).encode(),json.dumps({'ok':True,'result':self.scope}).encode())
         self.assertIsNone(self.backend.original_route)
+
+
+class CarrierControls(unittest.TestCase):
+    setUp=RouteControls.setUp
+    tearDown=RouteControls.tearDown
+    write=RouteControls.write
+
+    def capture(self,args,env=None):
+        from dev.owned_capture import capture
+        result=capture(args,env=self.env if env is None else env,timeout=2)
+        print('CARRIER '+json.dumps(result,sort_keys=True),flush=True)
+        self.assertTrue(result['leader_reaped'])
+        self.assertEqual(result['stdout']['read_bytes'],0)
+        self.assertEqual(result['stderr']['read_bytes'],0)
+        return result
+
+    def absent(self):
+        for relative in ('lima-home/colima-effigy','colima-home/effigy'):
+            self.assertFalse((self.root/relative).exists())
+
+    def test_actual_success_original_intent_source_and_private_configs(self):
+        self.absent();self.assertIsNone(self.backend.start_record)
+        args=self.backend.start_command(self.env)
+        self.assertTrue(self.backend.start_record[0].is_file());self.absent()
+        before=hashlib.sha256(self.colima.read_bytes()).hexdigest()
+        self.assertEqual(before,self.backend.prepared['tool_provenance']['colima']['sha256'])
+        result=self.capture(args)
+        self.assertEqual(result['exit'],0);self.assertIsNone(result['refusal'])
+        self.assertTrue(result['stdout']['eof']);self.assertTrue(result['stderr']['eof'])
+        self.backend.bind_generated_profile()
+        self.assertEqual(before,hashlib.sha256(self.colima.read_bytes()).hexdigest())
+        self.backend.guard()
+        for relative in ('lima-home/colima-effigy','colima-home/effigy'):
+            self.assertEqual((self.root/relative).stat().st_mode & 0o777,0o700)
+        for relative in ('lima-home/colima-effigy/lima.yaml','colima-home/effigy/colima.yaml'):
+            path=self.root/relative;self.assertEqual(path.stat().st_mode & 0o777,0o600)
+            self.assertEqual(path.read_text().count('location:'),1)
+            self.assertEqual(path.read_text().count('writable: true'),1)
+
+    def test_wrong_arguments_extra_option_and_root_refuse(self):
+        self.absent();self.assertIsNone(self.backend.start_record)
+        args=self.backend.start_command(self.env)
+        variants=[args+['--extra'],args[:1]+['wrong']+args[2:]]
+        wrong=args.copy();wrong[wrong.index('--mount')+1]=str(self.root)+'/wrong:w';variants.append(wrong)
+        for argv in variants:
+            self.assertEqual(self.capture(argv)['exit'],81);self.absent()
+        env=dict(self.env,LIMA_HOME=str(self.root/'wrong'))
+        self.assertEqual(self.capture(args,env)['exit'],82);self.absent()
+        self.backend.guard()
+
+class CarrierDeadlineControls(unittest.TestCase):
+    over_budget=True
+    setUp=RouteControls.setUp
+    tearDown=RouteControls.tearDown
+    write=RouteControls.write
+    capture=CarrierControls.capture
+    absent=CarrierControls.absent
+
+    def test_genuine_over_budget_carrier_same_deadline_refuses_handoff(self):
+        self.absent();args=self.backend.start_command(self.env)
+        result=self.capture(args)
+        self.assertTrue(result['identity_admitted'])
+        self.assertEqual(result['refusal'],'deadline')
+        self.assertNotEqual(result['exit'],0)
+        self.assertGreaterEqual(result['elapsed_ms'],2000)
+        self.assertEqual(result['group_absence'],'unverified')
+        self.assertEqual(result['remote_cancellation'],'unverified')
+        self.absent()
+        # Missing generated profile is the existing filesystem refusal, not a
+        # fabricated typed production reason. No transport or handoff follows.
+        with self.assertRaises(FileNotFoundError):self.backend.admit_original_route(self.env)
+        self.assertIsNone(self.backend.original_route)
+        self.assertIsNone(self.backend.profile_binding)
+        self.assertFalse((self.root/'calls').exists())
+        self.backend.guard()
 
 if __name__=='__main__':
     signal.signal(signal.SIGALRM,lambda *unused:os._exit(124));signal.alarm(60)
