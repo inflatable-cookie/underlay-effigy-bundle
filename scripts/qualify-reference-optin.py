@@ -1552,6 +1552,41 @@ def observe_silo_storage(checkout,env,port,origin,diagnostics=None):
                               client_service='silo_client',bucket_name='acme-media',cleanup_bucket=False,diagnostics=diagnostics)
 
 
+@storage.boundary('observe_silo_profile',preserve=(UncertainProfileOwnership,))
+def observe_silo_profile(checkout,env,port,gateway_root,gateway_port,domains,states,diagnostics):
+    import route_observation as routes
+    storage.mark('observe_silo_profile','browser_context')
+    try:
+        root,current_port,gateway=gateway_context(checkout,env)
+        current_domains=route_domains(checkout,env)
+        current={role:listener_state(checkout,role,env)[1] for role in ('api','front','admin')}
+        o=storage.Operation('observe_silo_profile','cors_policy_readback',emit=diagnostics.append)
+        matches=root==gateway_root and current_port==gateway_port and all(
+            current_domains[role]==domains[role]==current[role]['route_domain'] for role in ('api','front','admin'))
+        origins=[routes.public_origin(current[role]['route_domain'],current_port) for role in ('front','admin')]
+        matches=matches and all(routes.public_origin(urlsplit(current[role]['public_url']).hostname,urlsplit(current[role]['public_url']).port or 443)==origins[index] for index,role in enumerate(('front','admin')))
+        o.check(matches,'cors_context',browser_context_matches=matches);o.finish()
+        routes.context_gate(gateway,root,current_port,states,current)
+    except BaseException as error:
+        raise UncertainProfileOwnership('current browser context ownership is uncertain') from error
+    policy=RUNTIME.observe_silo_policy(checkout,env,'hybrid_services','acme-media',origins,diagnostics)
+    result=observe_silo_storage(checkout,env,port,origins[0],diagnostics)
+    storage.mark('observe_silo_profile','browser_context')
+    try:
+        after_root,after_port,after_gateway=gateway_context(checkout,env)
+        after={role:listener_state(checkout,role,env)[1] for role in ('api','front','admin')}
+        o=storage.Operation('observe_silo_profile','browser_context',emit=diagnostics.append)
+        matches=after_root==root and after_port==current_port and all(
+            routes.public_origin(urlsplit(after[role]['public_url']).hostname,urlsplit(after[role]['public_url']).port or 443)==origins[index]
+            for index,role in enumerate(('front','admin')))
+        o.check(matches,'cors_context',browser_context_matches=matches);o.finish()
+        routes.context_gate(after_gateway,root,current_port,current,after)
+    except BaseException as error:
+        raise UncertainProfileOwnership('current browser context changed during storage proof') from error
+    result['policy_readback']=policy
+    return result
+
+
 @storage.boundary('verify_profile_runtime')
 def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backend_admission: FreshBackend, storage_only: bool,
                             diagnostics: StorageDiagnosticJournal | None = None,
@@ -1681,8 +1716,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
             gateway_port = int(record["gateway_port"])
             if not remaining_lifecycle:
                 RUNTIME.observe_routes(checkout, gateway_root, env, states, gateway_port)
-                observe_silo_storage(checkout,env,int(record['ports']['silo']),
-                                     f"https://{record['domains']['front']}:{gateway_port}",diagnostics)
+                observe_silo_profile(checkout,env,int(record['ports']['silo']),gateway_root,gateway_port,record['domains'],states,diagnostics)
                 silo_route = RUNTIME.prove_silo_gateway_route(checkout, gateway_root, record["domains"], gateway_port)
                 if silo_route.get("status") != "passed":
                     raise RuntimeError(f"profile Silo HTTPS/SNI route did not pass: {silo_route}")
@@ -1941,6 +1975,10 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
 
 
         return receipts
+    except UncertainProfileOwnership:
+        held_for_uncertain_owner=True
+        receipts.setdefault('owner_uncertainty',{'stage':'current_browser_context','reason':'current listener/gateway context unverified'})
+        raise
     finally:
         original_failure=sys.exc_info()[1]
         if diagnostics is not None:
@@ -2160,7 +2198,7 @@ def main() -> int:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","reference_api_preparation.py","route_observation.py","storage_observation.py","dev/startup_evidence.py","dev/owned_capture.py","dev/host_identity.py","dev/profile_launcher.py","dev/silo_client.py","dev/storage_launcher.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","reference_api_preparation.py","route_observation.py","storage_observation.py","silo_cors_contract.py","dev/startup_evidence.py","dev/owned_capture.py","dev/host_identity.py","dev/profile_launcher.py","dev/silo_client.py","dev/storage_launcher.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
                            effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",
@@ -2257,7 +2295,7 @@ def main() -> int:
                 api_preparation, checkout, runtime_env, auth_patch_receipt,
                 lambda event, **fields: diagnostics.append(event, **fields))
         verify_private_cargo(runtime_env, cargo_receipt)
-        from formatter_provenance import bind_host, bound_colima, observe, version_arguments
+        from formatter_provenance import bind_host, bound_colima, version_arguments
         bind_host(runtime_env)
         version_arguments(runtime_env,fixture_root)
         from service_defaults import baseline, image_defaults
@@ -2285,13 +2323,11 @@ def main() -> int:
         started_colima = True
         backend_admission.admit_original_route(runtime_env)
         if diagnostics is None:raise RuntimeError('full-profile finite diagnostics required')
-        observe(runtime_env,fixture_root,diagnostics)
         import importlib.util as _import_util
         _spec=_import_util.spec_from_file_location('full_image_interfaces',ROOT/'scripts/qualify-storage-correlation.py')
         _image=_import_util.module_from_spec(_spec);_spec.loader.exec_module(_image)
         image_receipt = prepare_published_images(fixture_root,runtime_env,
             client_probe=lambda shape:_image.client_image_provenance(runtime_env,diagnostics,shape))
-        _image.image_interfaces(runtime_env,diagnostics,__import__('secrets').token_hex(16))
         if diagnostics is not None:
             diagnostics.append("pinned_images_prepared", silo_image=IMAGE,
                                silo_release=RELEASE, silo_client_image=CLIENT_IMAGE)

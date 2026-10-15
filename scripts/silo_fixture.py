@@ -47,13 +47,13 @@ def registry_contract(repository: str, arch: str) -> dict:
     pin = PINS[repository]
     url = "https://auth.docker.io/token?" + urllib.parse.urlencode({
         "service": "registry.docker.io", "scope": f"repository:{repository}:pull"})
-    with urllib.request.urlopen(url, timeout=30) as response:
+    with urllib.request.urlopen(url, timeout=__import__("qualification_batch").cap(30)) as response:
         token = json.load(response)["token"]
 
     def fetch(kind: str, digest: str) -> dict:
         request = urllib.request.Request(f"https://registry-1.docker.io/v2/{repository}/{kind}/{digest}",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json"})
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=__import__("qualification_batch").cap(60)) as response:
             body = response.read(8 * 1024 * 1024 + 1)
         if len(body) > 8 * 1024 * 1024 or "sha256:" + hashlib.sha256(body).hexdigest() != digest:
             raise RuntimeError(f"registry {repository} {kind} content failed bounded digest verification")

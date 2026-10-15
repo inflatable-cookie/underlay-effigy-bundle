@@ -10,22 +10,22 @@ EMIT=None
 PRESERVED=set()
 CURRENT=contextvars.ContextVar('storage_current',default=None)
 LAST=contextvars.ContextVar('storage_last',default=None)
-OWNERS=frozenset(('observe_silo_storage','_s3_request','prove_silo','prove_silo_gateway_route','prove_reference_upload',
+OWNERS=frozenset(('observe_silo_storage','observe_silo_profile','observe_silo_policy','_s3_request','prove_silo','prove_silo_gateway_route','prove_reference_upload',
  'wait_loopback_service','verify_profile_runtime','verify_disposable_action','_run_interruptible_profile_start',
  '_run_profile_collision','_verify_live','_verify_stopped','verify_scope_down','verify_stopped_scope',
  'prove_interrupted_startup','prove_failed_collision_is_scoped','recover_reference_apps','main',
  'http_request','selector','cleanup_profile','gateway_service'))
-OPERATIONS=frozenset(('stage','register','login','fixture_admin_role_grant','hybrid_start','hybrid_status','hybrid_down','disposable_test','invalid_credentials_get','cors_allowed','cors_foreign','signed_put','signed_get',
+OPERATIONS=frozenset(('stage','register','login','fixture_admin_role_grant','hybrid_start','hybrid_status','hybrid_down','disposable_test','invalid_credentials_get','cors_allowed','cors_foreign','browser_context','cors_policy_readback','signed_put','signed_get',
  'signed_delete','media_create','upload_initiate','upload_finalise','presigned_put','gateway_silo','gateway_dbgate','gateway_mailpit','anonymous_get','gateway_health','service_health','signed_s3_get','signed_s3_delete'))
 REASONS=routes.REASONS|frozenset(('intent','dispatch','completed','publication','external','credentials_status',
- 'cors_origin','cors_status','cors_method','cors_headers','put_status','get_status','object_equal','anonymous_status',
+ 'cors_policy','cors_policy_schema','cors_context','cors_origin','cors_status','cors_method','cors_headers','put_status','get_status','object_equal','anonymous_status',
  'delete_status','foreign_origin','s3_error_schema','response_json','response_schema','media_state'))
 PHASES=frozenset(('intent','dispatch','request_sent','response_headers','response_body','validation','completed','external'))
 ERRORS=frozenset(('none','timeout','os','tls','value','external'))
 S3_CODES=frozenset(('AccessDenied','SignatureDoesNotMatch','InvalidAccessKeyId','NoSuchKey','NoSuchBucket',
  'InvalidRequest','SlowDown','AuthorizationHeaderMalformed','RequestTimeTooSkewed','InternalError','unknown','none'))
 EXTRA=frozenset(('dispatch_started','response_received','origin_matches','method_allowed','headers_allowed',
- 'bytes_equal','foreign_origin_absent','expected_negative','predicate_matches'))
+ 'policy_schema_valid','policy_origin_matches','policy_methods_match','policy_headers_match','policy_foreign_ungranted','browser_context_matches','bytes_equal','foreign_origin_absent','expected_negative','predicate_matches'))
 CORS_ORIGIN_STATES=frozenset(('absent','present_equal','present_unequal'))
 
 def configure(emit):

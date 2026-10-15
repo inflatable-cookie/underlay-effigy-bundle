@@ -61,11 +61,26 @@ def policy_facts(raw,origins):
                 request_matches=any(r['request_matches'] for r in rows),foreign_matches=any(r['foreign_request_matches'] for r in rows))
 
 
-def read_policy(client,call,journal,bucket,origins):
+def read_policy(client,call,journal,bucket,origins,container="hybrid_services"):
     if not re.fullmatch('[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]',bucket):raise Refusal('cors_bucket_input')
-    xml=client.finite_shell(call,journal,'cors_get',client.mc_command(['cors','get','local/'+bucket]))
+    xml=client.finite_shell(call,journal,'cors_get',client.mc_command(['cors','get','local/'+bucket]),container=container)
     facts=policy_facts(xml,origins)
     journal.append('cors_policy_readback',observation=facts)
+    return facts
+
+
+def require_policy(client,call,journal,bucket,origins,container='hybrid_services'):
+    o=storage.Operation('observe_silo_policy','cors_policy_readback',emit=journal.append)
+    try:facts=read_policy(client,call,journal,bucket,origins,container)
+    except Refusal:
+        o.fail('cors_policy_schema',policy_schema_valid=False)
+    rules=facts['rules']
+    predicates=dict(policy_schema_valid=True,
+        policy_origin_matches=facts['rule_count']==1 and all(r['intended_origin_set_equal'] and r['origin_count']==2 for r in rules),
+        policy_methods_match=all(r['get_allowed'] and r['head_allowed'] and r['put_allowed'] for r in rules),
+        policy_headers_match=all(all(r['signed_header_matches']) for r in rules),
+        policy_foreign_ungranted=not facts['foreign_matches'])
+    o.check(all(predicates.values()),'cors_policy',**predicates);o.finish()
     return facts
 
 

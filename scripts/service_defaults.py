@@ -45,7 +45,7 @@ def image_defaults(repository):
     def fetch(kind,digest):
         request=urllib.request.Request('https://registry-1.docker.io/v2/'+repository+'/'+kind+'/'+digest,
           headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json'})
-        with urllib.request.urlopen(request,timeout=30) as response:raw=response.read(8388609)
+        with urllib.request.urlopen(request,timeout=__import__("qualification_batch").cap(30)) as response:raw=response.read(8388609)
         if len(raw)>8388608 or 'sha256:'+hashlib.sha256(raw).hexdigest()!=digest:raise ValueError('service_image_digest_refused')
         return json.loads(raw)
     index=fetch('manifests',pin['digest'])

@@ -1613,13 +1613,7 @@ def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid
 
 
 @storage.boundary('prove_silo')
-def prove_silo(checkout: Path, env: dict[str, str], silo_port: int, allowed_origin: str,
-               *, container: str, service: str, client_service: str,
-               bucket_name: str, cleanup_bucket: bool = False, diagnostics=None) -> dict:
-    # Signing, object bytes and security policy are unchanged; only transport/evidence are shared.
-    bucket=bucket_name
-    invalid_status,_,_=_s3_request(silo_port,'GET',f'/{bucket}/',invalid_credentials=True,diagnostics=diagnostics)
-    o=storage.CURRENT.get();o.check(invalid_status==403,'credentials_status',expected_negative=True)
+def prove_silo_cors(silo_port,bucket,allowed_origin,diagnostics=None):
     def unsigned(operation,method,path,headers=None):
         return storage.request('prove_silo',operation,'127.0.0.1',silo_port,path,method=method,headers=headers,
                                emit=diagnostics.append if diagnostics is not None else None)
@@ -1632,6 +1626,36 @@ def prove_silo(checkout: Path, env: dict[str, str], silo_port: int, allowed_orig
     o.check(cors_status==200,'cors_status')
     o.check(facts['method_allowed'],'cors_method')
     o.check(facts['headers_allowed'],'cors_headers');o.finish()
+    (foreign_status,foreign_headers,_),o=unsigned('cors_foreign','OPTIONS',f'/{bucket}/foreign-probe',{
+        'Origin':'https://foreign.invalid','Access-Control-Request-Method':'PUT',
+        'Access-Control-Request-Headers':'authorization,x-amz-content-sha256,x-amz-date'})
+    o.facts.update(storage.cors_facts(foreign_headers,'https://foreign.invalid'))
+    o.check(foreign_headers.get('access-control-allow-origin') is None,'foreign_origin',foreign_origin_absent=foreign_headers.get('access-control-allow-origin') is None,expected_negative=True);o.finish()
+    return {'allowed_status':cors_status,'foreign_status':foreign_status}
+
+
+@storage.boundary('observe_silo_policy')
+def observe_silo_policy(checkout,env,container,bucket,origins,diagnostics):
+    from dev import silo_client
+    from silo_cors_contract import require_policy
+    def call(label,unused,args,timeout):
+        result=run([EFFIGY,'--repo',str(checkout),*args],cwd=checkout,env=env,timeout=timeout,print_output=False)
+        return result.stdout,result.returncode
+    return require_policy(silo_client,call,diagnostics,bucket,origins,container)
+
+
+@storage.boundary('prove_silo')
+def prove_silo(checkout: Path, env: dict[str, str], silo_port: int, allowed_origin: str,
+               *, container: str, service: str, client_service: str,
+               bucket_name: str, cleanup_bucket: bool = False, diagnostics=None) -> dict:
+    # Signing, object bytes and security policy are unchanged; only transport/evidence are shared.
+    bucket=bucket_name
+    invalid_status,_,_=_s3_request(silo_port,'GET',f'/{bucket}/',invalid_credentials=True,diagnostics=diagnostics)
+    o=storage.CURRENT.get();o.check(invalid_status==403,'credentials_status',expected_negative=True)
+    cors_result=prove_silo_cors(silo_port,bucket,allowed_origin,diagnostics)
+    cors_status=cors_result['allowed_status'];foreign_status=cors_result['foreign_status']
+    def unsigned(operation,method,path,headers=None):
+        return storage.request('prove_silo',operation,'127.0.0.1',silo_port,path,method=method,headers=headers,emit=diagnostics.append if diagnostics is not None else None)
     payload=b'host-signed-reference-silo-loopback-proof'
     object_path=f'/{bucket}/proof-'+__import__('secrets').token_hex(16)
     put_status,_,_=_s3_request(silo_port,'PUT',object_path,payload,diagnostics=diagnostics)
@@ -1642,10 +1666,6 @@ def prove_silo(checkout: Path, env: dict[str, str], silo_port: int, allowed_orig
     o.check(anonymous_status==200,'anonymous_status');o.check(anonymous_body==payload,'object_equal',bytes_equal=anonymous_body==payload);o.finish()
     delete_status,_,_=_s3_request(silo_port,'DELETE',object_path,diagnostics=diagnostics)
     storage.CURRENT.get().check(delete_status in (200,204),'delete_status')
-    (foreign_status,foreign_headers,_),o=unsigned('cors_foreign','OPTIONS',f'/{bucket}/foreign-probe',{
-        'Origin':'https://foreign.invalid','Access-Control-Request-Method':'PUT'})
-    o.facts.update(storage.cors_facts(foreign_headers,'https://foreign.invalid'))
-    o.check(not foreign_headers.get('access-control-allow-origin'),'foreign_origin',foreign_origin_absent=not bool(foreign_headers.get('access-control-allow-origin')),expected_negative=True);o.finish()
     return {'product':'PGSTY Silo','release':RELEASE,'bootstrap':'exported production bounded recipe',
             'signed_put':put_status,'signed_get':get_status,'signed_delete':delete_status,
             'bytes_equal':True,'anonymous_download':True,'allowed_origin':allowed_origin,

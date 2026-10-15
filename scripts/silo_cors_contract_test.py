@@ -5,7 +5,7 @@ sys.path.insert(0,str(Path(__file__).parent/"dev"))
 from unittest.mock import patch
 import silo_cors_contract as cors
 from container_identity_observer import Refusal
-from storage_observation_test import Producer
+from storage_observation_test import Producer,load_runtime
 from reference_storage_probe import StorageDiagnosticJournal,decode_journal_rows
 import storage_observation as storage
 from qualification_refusal import project
@@ -22,6 +22,11 @@ class Controls(unittest.TestCase):
    self.assertNotIn('example.test',json.dumps(facts))
   for old,new,field in [('front.example.test','wrong.example.test','front_matches'),('PUT','POST','put_allowed'),('<AllowedHeader>*</AllowedHeader>','<AllowedHeader>x-amz*</AllowedHeader>','request_matches')]:
    facts=cors.policy_facts(XML.replace(old,new),ORIGINS);self.assertFalse(facts['rules'][0][field]);self.assertFalse(facts['request_matches'])
+ def test_browser_origin_default_and_nondefault_port_semantics(self):
+  from route_observation import public_origin
+  self.assertEqual(public_origin('front.example.test',443),'https://front.example.test')
+  self.assertEqual(public_origin('front-first.example.test',54321),'https://front-first.example.test:54321')
+
  def test_unknown_ambiguous_unsafe_xml_refuses_without_values(self):
   for xml in ('<!DOCTYPE x [<!ENTITY y "PRIVATE_SECRET">]>'+XML,XML+'PRIVATE_SECRET',XML.replace('CORSRule','Unknown'),XML.replace('<AllowedHeader>','<AllowedHeader x="PRIVATE_SECRET">'),XML.replace('</CORSRule>','<ID>a</ID><ID>b</ID></CORSRule>'),XML.replace('PUT','INPUT'),'x'*65537):
    with self.assertRaises(Refusal) as caught:cors.policy_facts(xml,ORIGINS)
@@ -42,8 +47,8 @@ class Controls(unittest.TestCase):
     import subprocess
     self.assertEqual(label,'cors_get');self.assertEqual(timeout,10)
     command=args[args.index('--command')+1]
-    self.assertIn('cors get local/owned-bucket',command)
-    prefix='mc() { test "$HOME" = /root && test "$1" = --config-dir && test "$2" = /root/.mc || return 91; shift 2; test "$1" = cors && test "$2" = get && test "$3" = local/owned-bucket && test "$#" = 3 || return 92; printf %s '+shlex.quote(captured[0])+'; }; '
+    self.assertTrue('cors get local/owned-bucket' in command or 'cors get local/acme-media' in command)
+    prefix='mc() { test "$HOME" = /root && test "$1" = --config-dir && test "$2" = /root/.mc || return 91; shift 2; test "$1" = cors && test "$2" = get && { test "$3" = local/owned-bucket || test "$3" = local/acme-media; } && test "$#" = 3 || return 92; printf %s '+shlex.quote(captured[0])+'; }; '
     result=__import__('subprocess').run(['/bin/sh','-c',prefix+command],capture_output=True,text=True,timeout=3,env={'PATH':'/usr/bin:/bin','HOME':str(fixture)})
     self.assertEqual(result.returncode,0)
     v=dict(schema='effigy.container.bounded-exec.v1',schema_version=1,ok=True,container='hybrid_services',service='silo_client',failure='complete',code=0,limits=m.shared.BOUNDS,retained={'stdout_bytes':len(result.stdout.encode()),'stderr_bytes':len(result.stderr.encode())},preparation={'captures':0,'retained':{'stdout_bytes':0,'stderr_bytes':0}},attempts=1,workspace_user_fallback=False,remote_cancellation='unverified',stdout=result.stdout,stderr=result.stderr,stdout_bytes=len(result.stdout.encode()),stderr_bytes=len(result.stderr.encode()))
@@ -53,14 +58,47 @@ class Controls(unittest.TestCase):
    server=None
    def response(n,c,h,b):
     method,path,headers,body=server.requests[-1]
-    self.assertEqual(method,'OPTIONS');self.assertEqual(body,b'')
-    matched=headers.get('origin')==ORIGINS[0] and headers.get('access-control-request-method')=='PUT' and set(headers.get('access-control-request-headers','').split(','))==set(cors.SIGNED_HEADERS) and policy['request_matches']
+    if method!='OPTIONS':return c,h,b
+    self.assertEqual(body,b'');self.assertEqual(headers.get('access-control-request-method'),'PUT')
+    self.assertEqual(set(headers.get('access-control-request-headers','').split(',')),set(cors.SIGNED_HEADERS))
+    matched=headers.get('origin')==ORIGINS[0] and policy['request_matches']
     return (200,{'Access-Control-Allow-Origin':ORIGINS[0],'Access-Control-Allow-Methods':'GET, HEAD, PUT','Access-Control-Allow-Headers':','.join(cors.SIGNED_HEADERS)},b'') if matched else (403,{},b'')
+   caller=load_runtime();caller.RUNTIME.EFFIGY=__import__("os").environ["UNDERLAY_PROFILE_EFFIGY_BIN"]
+   gateway=fixture/'gateway';gateway.mkdir(mode=0o700)
+   domains={'front':'front.example.test','admin':'admin.example.test','api':'api.example.test'}
+   states={role:dict(route_domain=domain,public_url='https://'+domain+':54321',generation='a'*32,
+                    runtime_generation='b'*32,address='127.0.0.1:12345',route_owner={'generation':'a'*32}) for role,domain in domains.items()}
+   status=dict(private=True,gateway_dir=str(gateway),client_ca_file=str(gateway/'ca/rootCA.pem'),https_addr='127.0.0.1:54321')
+   def native_run(args,**kw):
+    from types import SimpleNamespace
+    output,code=selected_client('cors_get',None,args,10)
+    return SimpleNamespace(stdout=output,returncode=code)
    server=Producer(response)
-   try:result=cors.preflight(server.port,'owned-bucket',ORIGINS[0],journal);self.assertTrue(result['positive']);self.assertEqual(len(server.requests),1)
-   finally:server.close();journal.close()
+   try:
+    with patch.object(caller,'gateway_context',return_value=(gateway,54321,status)), \
+         patch.object(caller,'route_domains',return_value=domains), \
+         patch.object(caller,'listener_state',side_effect=lambda c,r,e:(fixture,states[r])), \
+         patch.object(caller.RUNTIME,'run',side_effect=native_run):
+     storage.configure(journal.append)
+     bad={r:dict(v,public_url='https://PRIVATE_SECRET') for r,v in states.items()}
+     with patch.object(caller,'listener_state',side_effect=lambda c,r,e:(fixture,bad[r])):
+      with self.assertRaises(caller.UncertainProfileOwnership):caller.observe_silo_profile(fixture,{},server.port,gateway,54321,domains,states,journal)
+     self.assertEqual(len(server.requests),0)
+     original_xml=captured[0];captured[0]=original_xml.replace('front.example.test','PRIVATE_SECRET')
+     with self.assertRaises(storage.StorageRefusal) as mismatch:
+      caller.observe_silo_profile(fixture,{},server.port,gateway,54321,domains,states,journal)
+     self.assertEqual(mismatch.exception.storage_observation['reason'],'cors_policy')
+     self.assertFalse(mismatch.exception.storage_observation['facts']['policy_origin_matches'])
+     self.assertEqual(len(server.requests),0)
+     self.assertNotIn('PRIVATE_SECRET',json.dumps(outer_refusals(json.dumps(project(mismatch.exception,'runtime_profile')))))
+     captured[0]=original_xml
+     result=caller.observe_silo_profile(fixture,{},server.port,gateway,54321,domains,states,journal)
+     self.assertTrue(result['bytes_equal']);self.assertEqual(len(server.requests),7)
+     self.assertEqual([r[0] for r in server.requests],['GET','OPTIONS','OPTIONS','PUT','GET','GET','DELETE'])
+     self.assertFalse(result['policy_readback']['foreign_matches'])
+   finally:storage.configure(None);server.close();journal.close()
    rows=decode_journal_rows((root/'storage-diagnostics.jsonl').read_text());text=json.dumps(rows)
-   self.assertIn('present_equal',text);self.assertNotIn('example.test',text)
+   self.assertIn('present_equal',text);self.assertNotIn('example.test',text);self.assertNotIn('PRIVATE_SECRET',text)
  def test_complete403_once_then_distinct_foreign_read_only_and_privacy(self):
   with tempfile.TemporaryDirectory(prefix='ur.cors-negative.') as d:
    root=Path(d).resolve();root.chmod(0o700);fixture=root/'fixture';fixture.mkdir(mode=0o700);journal=StorageDiagnosticJournal(root/'storage-diagnostics.jsonl',fixture)

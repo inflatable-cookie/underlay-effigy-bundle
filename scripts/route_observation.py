@@ -361,7 +361,7 @@ def observe(status,states,port,context,request=exchange):
         code,_,_=request(state['route_domain'],port,context,'/v1/health' if role=='api' else '/',role=role,operation='health',observation=o)
         require_status(code,o)
     for role in ('front','admin'):
-        state=states[role];domain=state['route_domain'];origin=f'https://{domain}:{port}'
+        state=states[role];domain=state['route_domain'];origin=public_origin(domain,port)
         observe_origin(state,port,context,role,request)
         o=Observation(role,'vite')
         code,headers,body=request(domain,port,context,'/@vite/client',role=role,operation='vite',observation=o)
@@ -442,8 +442,12 @@ def outer_refusals(stderr):
             'typed_failure_available':bool(records)}
 
 
+def public_origin(domain,port):
+    return 'https://'+domain+('' if port==443 else ':'+str(port))
+
+
 def observe_origin(state,port,context,role,request=exchange):
-    domain=state['route_domain'];origin=f'https://{domain}:{port}'
+    domain=state['route_domain'];origin=public_origin(domain,port)
     o=Observation(role,'origin')
     code,headers,body=request(domain,port,context,'/__qualification/origin?probe=public-origin',
          {'Host':f'{domain}:{port}','Origin':origin},role=role,operation='origin',body_cap=ORIGIN_CAP,observation=o)

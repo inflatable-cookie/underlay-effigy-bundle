@@ -428,3 +428,10 @@ Silo requests, CORS, anonymous reads and media transport. Each request has one
 absolute eight-second budget (auth retains its separate policy), bounded
 headers/body and closed operation/phase/predicate evidence. A lost response
 after dispatch leaves the operation uncertain and never triggers a write retry.
+
+Full-profile qualification compares one bounded installed Silo CORS policy
+readback with current owned browser origins, then proves allowed and foreign
+preflights before object writes. The default container path shares those policy
+and HTTP checks. Policy values remain in memory; closed predicates and framing
+facts survive refusal. A separate diagnostic result does not establish full
+profile readiness or independent cleanup.

@@ -1820,3 +1820,15 @@ HTTP observations remain separate; a pure rule match does not observe server
 execution. A diagnostic result does not qualify a complete development profile.
 The original backend reader does not establish VM kernel/agent ownership;
 private paths alone do not authorize suspending a diagnostic backend.
+
+Full qualification reads each current bucket policy through the maintained
+client before object writes. Intended browser origins come from current owned
+listener URLs, effective routes and the private gateway, with default HTTPS
+port canonicalization. Both allowed and foreign browser preflights precede
+storage writes. Policy mismatch retains closed per-predicate facts; uncertain
+listener/gateway context preserves the ownership hold. The default container
+stage uses its current service route context and the same policy/preflight
+helpers. Optional formatter-source and image-help acquisition is excluded from
+this acceptance path; source-qualified routing, pinned-image verification and
+production guards remain in force. Separate operation clocks retain their
+authenticated binding time and cannot borrow or renew a prior window.

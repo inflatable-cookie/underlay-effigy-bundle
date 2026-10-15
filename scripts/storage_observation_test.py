@@ -43,12 +43,12 @@ class Producer:
       for part in ('us-east-1','s3','aws4_request'):key=sign(key,part)
       expected=hmac.new(key,('AWS4-HMAC-SHA256\n'+date+'\n'+scope+'\n'+hashlib.sha256(canonical.encode()).hexdigest()).encode(),hashlib.sha256).hexdigest()
       assert headers['authorization']=='AWS4-HMAC-SHA256 Credential=minioadmin/'+scope+', SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature='+expected
-     status=403 if index==1 else 204 if method=='DELETE' else 200
+     status=403 if index==1 and method=='GET' else 204 if method=='DELETE' else 200
      response=b'<Error><Code>SignatureDoesNotMatch</Code><Message>PRIVATE_SECRET</Message></Error>' if index==1 else b''
      extra={}
      if method=='PUT':self.object=body
      if method=='GET' and index!=1:response=self.object
-     if method=='OPTIONS' and index==2:extra={'Access-Control-Allow-Origin':'https://browser.test','Access-Control-Allow-Methods':'PUT','Access-Control-Allow-Headers':'authorization,x-amz-content-sha256,x-amz-date'}
+     if method=='OPTIONS' and headers.get('origin')=='https://browser.test':extra={'Access-Control-Allow-Origin':'https://browser.test','Access-Control-Allow-Methods':'PUT','Access-Control-Allow-Headers':'authorization,x-amz-content-sha256,x-amz-date'}
      if self.mutate:
       value=self.mutate(index,status,extra,response)
       if value is None:continue # Lost response after an actual fully received request.
@@ -118,9 +118,9 @@ class StorageControls(unittest.TestCase):
    (2,'cors_origin',lambda c,h,b:(c,dict(h,**{'Access-Control-Allow-Origin':'PRIVATE_SECRET'}),b)),
    (2,'cors_method',lambda c,h,b:(c,dict(h,**{'Access-Control-Allow-Methods':'GET'}),b)),
    (2,'cors_headers',lambda c,h,b:(c,dict(h,**{'Access-Control-Allow-Headers':''}),b)),
-   (3,'put_status',lambda c,h,b:(500,h,b)),(4,'get_status',lambda c,h,b:(404,h,b)),
-   (4,'object_equal',lambda c,h,b:(c,h,b'PRIVATE_SECRET')),(5,'anonymous_status',lambda c,h,b:(403,h,b)),
-   (6,'delete_status',lambda c,h,b:(500,h,b)),(7,'foreign_origin',lambda c,h,b:(c,{'Access-Control-Allow-Origin':'PRIVATE_SECRET'},b))]
+   (4,'put_status',lambda c,h,b:(500,h,b)),(5,'get_status',lambda c,h,b:(404,h,b)),
+   (5,'object_equal',lambda c,h,b:(c,h,b'PRIVATE_SECRET')),(6,'anonymous_status',lambda c,h,b:(403,h,b)),
+   (7,'delete_status',lambda c,h,b:(500,h,b)),(3,'foreign_origin',lambda c,h,b:(c,{'Access-Control-Allow-Origin':'PRIVATE_SECRET'},b))]
   for number,reason,mutator in cases:
    with self.subTest(reason=reason):
     with self.assertRaises(storage.StorageRefusal) as caught:self.call(lambda n,c,h,b:mutator(c,h,b) if n==number else (c,h,b))
@@ -138,10 +138,10 @@ class StorageControls(unittest.TestCase):
    with self.subTest(reason=reason):
     with self.assertRaises(storage.StorageRefusal) as caught:self.call(lambda *args:wire)
     self.assertEqual(caught.exception.storage_observation['reason'],reason)
-  server=Producer(lambda n,c,h,b:None if n==3 else (c,h,b))
+  server=Producer(lambda n,c,h,b:None if n==4 else (c,h,b))
   try:
    with self.assertRaises(storage.StorageRefusal) as caught:self.caller.observe_silo_storage(self.root,{},server.port,'https://browser.test',self.journal)
-   self.assertEqual(len(server.requests),3);self.assertEqual(caught.exception.storage_observation['effect_state'],'unknown')
+   self.assertEqual(len(server.requests),4);self.assertEqual(caught.exception.storage_observation['effect_state'],'unknown')
    self.assertTrue(caught.exception.storage_observation['facts']['request_sent'])
   finally:server.close()
  def test_absolute_deadline_and_remaining_stage_external_projection(self):

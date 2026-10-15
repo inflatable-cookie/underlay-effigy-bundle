@@ -16,7 +16,7 @@ SCHEMA='underlay.ready-service-association.v1'
 BASELINE='underlay.ready-service-baseline.v1'
 SOURCES=('service_baseline_handoff.py','qualification_cleanup_action.py','qualification_cleanup.py',
          'container_identity_observer.py','fresh_backend_admission.py','original_container_route.py',
-         'qualification_runtime.py','qualify-reference-optin.py','qualification_batch.py','qualify-reference-runtime.py','private_caller_environment.py','private_cargo_cache.py','reference_api_preparation.py','route_observation.py','storage_observation.py','dev/startup_evidence.py','dev/owned_capture.py','dev/host_identity.py','dev/profile_launcher.py','dev/silo_client.py','dev/storage_launcher.py','generated_profile.py','qualification_refusal.py','auth_operation.py','qualify-reference-profiles.py')
+         'qualification_runtime.py','qualify-reference-optin.py','qualification_batch.py','qualify-reference-runtime.py','private_caller_environment.py','private_cargo_cache.py','reference_api_preparation.py','route_observation.py','storage_observation.py','silo_cors_contract.py','dev/startup_evidence.py','dev/owned_capture.py','dev/host_identity.py','dev/profile_launcher.py','dev/silo_client.py','dev/storage_launcher.py','generated_profile.py','qualification_refusal.py','auth_operation.py','qualify-reference-profiles.py')
 
 
 def digest(value):return hashlib.sha256(json.dumps(value,sort_keys=True).encode()).hexdigest()

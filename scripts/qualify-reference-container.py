@@ -131,7 +131,7 @@ def main() -> int:
         "container_up": None,
         "cleanup": [],
         "cleanup_source_sha256": {name:hashlib.sha256((REPO/"scripts"/name).read_bytes()).hexdigest()
-                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","generated_profile.py","qualification_refusal.py","auth_operation.py","private_cargo_cache.py","reference_api_preparation.py","route_observation.py","storage_observation.py","dev/startup_evidence.py","dev/owned_capture.py","dev/host_identity.py","dev/profile_launcher.py","dev/silo_client.py","dev/storage_launcher.py")},
+                                  for name in ("container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","qualify-reference-container.py","private_caller_environment.py","generated_profile.py","qualification_refusal.py","auth_operation.py","private_cargo_cache.py","reference_api_preparation.py","route_observation.py","storage_observation.py","silo_cors_contract.py","dev/startup_evidence.py","dev/owned_capture.py","dev/host_identity.py","dev/profile_launcher.py","dev/silo_client.py","dev/storage_launcher.py")},
     }
     from reference_storage_probe import StorageDiagnosticJournal
     packet=Path(subprocess.run(['mktemp','-d',str(Path.home()/'ur.005-container.XXXXXX')],check=True,capture_output=True,text=True).stdout.strip())
@@ -214,7 +214,7 @@ def main() -> int:
         qualification_batch.enter('container')
         run([effigy,'--repo',str(checkout),'silo:prepare'],cwd=checkout,env=runtime_env,timeout=60)
         run([effigy,'--repo',str(checkout),'silo:admit'],cwd=checkout,env=runtime_env,timeout=60)
-        from formatter_provenance import bind_host, bound_colima, observe, version_arguments
+        from formatter_provenance import bind_host, bound_colima, version_arguments
         interface_spec=importlib.util.spec_from_file_location('container_image_interfaces',REPO/'scripts/qualify-storage-correlation.py')
         interfaces=importlib.util.module_from_spec(interface_spec);sys.modules[interface_spec.name]=interfaces;interface_spec.loader.exec_module(interfaces)
         bind_host(runtime_env)
@@ -237,10 +237,8 @@ def main() -> int:
         profile_started = True
         backend_admission.admit_original_route(runtime_env)
 
-        receipts['formatter']=observe(runtime_env,fixture_root,journal)
         from silo_fixture import prepare_published_images, IMAGE, CLIENT_IMAGE
         prepare_published_images(fixture_root,runtime_env,client_probe=lambda shape:interfaces.client_image_provenance(runtime_env,journal,shape))
-        interfaces.image_interfaces(runtime_env,journal,__import__('secrets').token_hex(16))
         foreign_fixture.start(effigy,runtime_env,effigy_json)
         foreign_reader=backend_admission.observer_for(foreign_fixture.checkout,runtime_env,foreign_fixture=foreign_fixture)
         foreign_fixture.baseline=foreign_reader.baseline()
@@ -302,6 +300,21 @@ def main() -> int:
         if not receipts['container_up']['silo_server_pin'] or not receipts['container_up']['silo_client_pin'] or receipts['container_up']['obsolete_storage_service']:
             raise RuntimeError('default stack storage identity refused')
         run([effigy,'--repo',str(checkout),'silo:reconcile'],cwd=checkout,env=runtime_env,timeout=180)
+        # Current default service routes are observations of this container stage,
+        # never transplanted hybrid listener identities.
+        from route_observation import public_origin
+        hosts=effigy_json(effigy,checkout,runtime_env,'container','hosts','--json')
+        names={}
+        for role,declared in (('front','acme.test'),('admin','admin.acme.test')):
+            found=[r['effective'] for r in hosts['routes'] if r.get('declared')==declared]
+            if len(found)!=1:raise container_identity_observer.Refusal('default_cors_context')
+            names[role]=found[0]
+        current_gateway=gateway_json(effigy,runtime_env,gateway_root,'status')
+        from dev.profile_launcher import _gateway_https_port
+        port=_gateway_https_port(current_gateway)
+        origins=[public_origin(names[role],port) for role in ('front','admin')]
+        RUNTIME.observe_silo_policy(checkout,runtime_env,'stack','acme-media',origins,journal)
+        RUNTIME.prove_silo_cors(interfaces.OPT.service_loopback_port(compose,'silo',9000),'acme-media',origins[0],journal)
         print('PASS private Reference default container build/startup and production Silo bootstrap',flush=True)
     except Exception as error:
         failure = type(error).__name__

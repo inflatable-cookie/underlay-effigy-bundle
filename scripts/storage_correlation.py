@@ -179,6 +179,8 @@ def status_projection(status, identity, bindings, after_down=False, diagnostics=
 
 
 def bounded_run(args, *, cwd=None, env=None, timeout=180, cap=CAPTURE_LIMIT):
+    import qualification_batch
+    timeout=qualification_batch.cap(timeout)
     # Drain both pipes without retaining beyond the cap. Only our exact child
     # PID is stopped on a violated diagnostic bound; no pattern signalling.
     import selectors, subprocess, time, os
