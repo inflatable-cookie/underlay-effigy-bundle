@@ -367,6 +367,14 @@ run_in = "host"
 run = [{ task = "container hybrid down" }]
 run_in = "host"
 
+# Run a host command against the running hybrid profile's services, e.g.
+# `effigy hybrid:exec -- cargo run --bin migrate`.
+[tasks."hybrid:exec"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec hybrid -- {args}'
+run_in = "host"
+secrets = "required"
+env = { {{ hybrid_env }} }
+
 {% if hybrid_default %}
 [tasks.dev]
 run = [{ task = "dev:hybrid" }]
