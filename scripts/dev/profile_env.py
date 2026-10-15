@@ -17,17 +17,23 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
+import time
+import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 
 ROLES = ("api", "front", "admin", "s3")
 DATABASE_USER = "postgres"
 DATABASE_PASSWORD = "secret"  # catalog postgres default; local loopback only
+SILO_ACCESS_KEY = "minioadmin"  # catalog silo default; local loopback only
+SILO_SECRET_KEY = "minioadmin"
 POSTGRES_PORT = 5432
 SMTP_PORT = 1025
 S3_PORT = 9000
+SERVICE_WAIT_SECS = 120
 
 
 class ProfileError(RuntimeError):
@@ -124,6 +130,62 @@ def published_port(status: dict, service: str, container_port: int) -> int:
     raise ProfileError(f"the profile publishes no host port for {service}:{container_port}")
 
 
+def tcp_ready(port: int) -> bool:
+    try:
+        socket.create_connection(("127.0.0.1", port), timeout=1).close()
+        return True
+    except OSError:
+        return False
+
+
+def silo_ready(port: int) -> bool:
+    # The runtime's port forwarder accepts TCP before Silo listens, so ask
+    # Silo itself.
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/minio/health/live", timeout=2) as response:
+            return response.status == 200
+    except OSError:
+        return False
+
+
+SERVICE_PROBES = {
+    "postgres": (POSTGRES_PORT, tcp_ready),
+    "mailpit": (SMTP_PORT, tcp_ready),
+    "minio": (S3_PORT, silo_ready),
+}
+
+
+def wait_for_services(
+    status: dict,
+    probes: dict = SERVICE_PROBES,
+    timeout: float = SERVICE_WAIT_SECS,
+    clock=time.monotonic,
+    sleep=time.sleep,
+) -> None:
+    """Wait until each service answers on its published loopback port.
+
+    Effigy starts host processes once the containers launch, which can be
+    before a service is ready; an app that sets up storage at startup would
+    otherwise race it.
+    """
+    pending = {
+        service: (published_port(status, service, port), probe)
+        for service, (port, probe) in probes.items()
+    }
+    deadline = clock() + timeout
+    while pending:
+        for service, (port, probe) in list(pending.items()):
+            if probe(port):
+                del pending[service]
+        if not pending:
+            return
+        if clock() >= deadline:
+            raise ProfileError(
+                f"services not ready after {timeout:.0f}s: {', '.join(sorted(pending))}"
+            )
+        sleep(0.5)
+
+
 def declared_domains(env: dict[str, str]) -> dict[str, str]:
     domains = {}
     for role in ROLES:
@@ -180,6 +242,11 @@ def app_environment(report: dict, status: dict, declared: dict[str, str], databa
         "SMTP_HOST": "127.0.0.1",
         "SMTP_PORT": str(published_port(status, "mailpit", SMTP_PORT)),
         "EFFIGY_PROFILE_S3_ENDPOINT": f"http://127.0.0.1:{published_port(status, 'minio', S3_PORT)}",
+        # The profile's own Silo, not a deployed store: its catalog
+        # credentials, and no instance-metadata lookup on a miss.
+        "AWS_ACCESS_KEY_ID": SILO_ACCESS_KEY,
+        "AWS_SECRET_ACCESS_KEY": SILO_SECRET_KEY,
+        "AWS_EC2_METADATA_DISABLED": "true",
         "EFFIGY_PROFILE_API_PUBLIC_URL": origins["api"],
         "EFFIGY_PROFILE_FRONT_PUBLIC_URL": origins["front"],
         "EFFIGY_PROFILE_ADMIN_PUBLIC_URL": origins["admin"],
@@ -188,13 +255,16 @@ def app_environment(report: dict, status: dict, declared: dict[str, str], databa
     }
 
 
-def resolved_environment(repo: Path, container: str, env: dict[str, str]) -> dict[str, str]:
+def resolved_environment(
+    repo: Path, container: str, env: dict[str, str], wait: bool = False
+) -> dict[str, str]:
     database = env.get("EFFIGY_PROFILE_DATABASE")
     if not database:
         raise ProfileError("EFFIGY_PROFILE_DATABASE is not set by the bundle")
-    return app_environment(
-        hosts_report(repo, container), status_report(repo, container), declared_domains(env), database
-    )
+    status = status_report(repo, container)
+    if wait:
+        wait_for_services(status)
+    return app_environment(hosts_report(repo, container), status, declared_domains(env), database)
 
 
 def cors_document(origins: list[str]) -> str:
@@ -293,7 +363,7 @@ def main(argv: list[str]) -> int:
     command = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
     if not command:
         raise ProfileError("usage: profile_env.py exec <container> [--self ROLE] -- COMMAND...")
-    env.update(resolved_environment(repo, args.container, env))
+    env.update(resolved_environment(repo, args.container, env, wait=True))
     if args.self:
         env["EFFIGY_PROFILE_PUBLIC_URL"] = env[f"EFFIGY_PROFILE_{args.self.upper()}_PUBLIC_URL"]
     os.execvpe(command[0], command, env)

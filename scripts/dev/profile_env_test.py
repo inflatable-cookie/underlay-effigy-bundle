@@ -63,6 +63,8 @@ class AppEnvironmentTest(unittest.TestCase):
         self.assertEqual(env["DATABASE_URL"], "postgres://postgres:secret@127.0.0.1:11932/acme")
         self.assertEqual((env["SMTP_HOST"], env["SMTP_PORT"]), ("127.0.0.1", "11926"))
         self.assertEqual(env["EFFIGY_PROFILE_S3_ENDPOINT"], "http://127.0.0.1:11940")
+        self.assertEqual(env["AWS_EC2_METADATA_DISABLED"], "true")
+        self.assertEqual(env["AWS_ACCESS_KEY_ID"], "minioadmin")
         self.assertEqual(env["EFFIGY_PROFILE_S3_PUBLIC_URL"], "https://s3.acme.test")
 
     def test_worktree_uses_effective_names_everywhere(self) -> None:
@@ -100,6 +102,33 @@ class AppEnvironmentTest(unittest.TestCase):
         self.assertEqual(profile_env.shared_apex(["api.acme.test", "www.acme.test", "admin.acme.test"]), "acme.test")
         with self.assertRaises(profile_env.ProfileError):
             profile_env.shared_apex(["api.acme.test", "admin.other.dev"])
+
+
+class ServiceWaitTest(unittest.TestCase):
+    def test_waits_until_every_probe_passes(self) -> None:
+        calls: list[int] = []
+
+        def becomes_ready(after: int):
+            def probe(port: int) -> bool:
+                calls.append(port)
+                return calls.count(port) > after
+            return probe
+
+        profile_env.wait_for_services(
+            STATUS,
+            {"postgres": (5432, becomes_ready(1)), "minio": (9000, becomes_ready(3))},
+            sleep=lambda _: None,
+        )
+        self.assertEqual(calls.count(11940), 4)
+        self.assertEqual(calls.count(11932), 2)
+
+    def test_times_out_naming_the_service(self) -> None:
+        now = iter(range(0, 1000, 10))
+        with self.assertRaisesRegex(profile_env.ProfileError, "minio"):
+            profile_env.wait_for_services(
+                STATUS, {"minio": (9000, lambda port: False)}, timeout=30,
+                clock=lambda: next(now), sleep=lambda _: None,
+            )
 
 
 class BootstrapTest(unittest.TestCase):
