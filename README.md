@@ -414,3 +414,11 @@ capacity, identity and write failures even when another journal append is
 unavailable. The main qualification journal remains 128KiB; native stream and
 time limits are unchanged. Journal completion supplies no runtime or cleanup
 credit.
+
+Private gateway qualification validates the complete dashboard route inventory
+against the pinned serializer's ten fields. DNS-only and TCP aliases may have
+null HTTP targets; selected API/front/admin routes still require their exact
+current listener target, TLS and ready certificate. Unknown fields, duplicate
+domains, mismatched counts and invalid field types refuse qualification. Schema
+failures retain only the route index, known field identifier, type/nullability
+and closed predicate results; route values remain in memory.

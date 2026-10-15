@@ -1,6 +1,8 @@
 """Private route qualification. Payload stays in memory; evidence is closed."""
 import base64
 import hashlib
+import ipaddress
+from datetime import datetime
 import json
 import re
 import socket
@@ -17,7 +19,7 @@ OPERATIONS = frozenset(('gateway_status','ca','route','health','origin','vite','
 EMIT = None
 FACT_KEYS=frozenset(('status_observed','headers_complete','body_complete','header_bytes','body_bytes','publication_available',
  'native_exit','stdout_bytes','stderr_bytes','stdout_eof','stderr_eof','envelope_valid','status_schema_valid','route_count',
- 'domains_unique','ca_available','verification_required','name_verification','tls_verified','tls_verify_code',
+ 'route_index','row_is_dict','keys_known','missing_key_count','extra_key_count','field_id','observed_type','field_nullable','expected_class_match','field_value_valid','count_matches','inventory_within_limit','domains_unique','ca_available','verification_required','name_verification','tls_verified','tls_verify_code',
  'connection_established','request_sent','status_line_valid','http_status','header_count','content_type_class',
  'accept_matches','duplicate_framing','ambiguous_length','transfer_supported','body_over_limit','declared_body_bytes',
  'trailers_present','extra_bytes_present','wire_over_limit','transport_error','external_error','state_available',
@@ -33,14 +35,24 @@ ROUTE_KEYS=frozenset(('domain','target','dns_ip','tcp_port','tcp_target','source
 
 def safe_record(record):
     if type(record) is not dict:return {}
+    if set(record)-{'schema','role','role_known','operation','reason','facts','elapsed_ms','signal_authority','remote_cancellation_verified','publication_unavailable'}:return {}
+    if 'schema' in record and record['schema']!='underlay.route-observation.v1':return {}
     role=record.get('role');operation=record.get('operation');reason=record.get('reason')
     if role not in (None,'api','front','admin') or type(operation) is not str or operation not in OPERATIONS or type(reason) is not str or reason not in REASONS:return {}
     facts={}
     source=record.get('facts',{})
-    if type(source) is not dict:source={}
+    if type(source) is not dict:return {}
+    enums={'content_type_class':('json','javascript','html','other'),
+           'field_id':tuple(sorted(ROUTE_KEYS)),
+           'observed_type':('null','bool','int','str','list','dict','other')}
     for key,value in source.items():
-        if key in FACT_KEYS and (type(value) is bool or value is None or type(value) is int and -128<=value<=2**64-1):facts[key]=value
-        if key=='content_type_class' and value in ('json','javascript','html','other'):facts[key]=value
+        if key not in FACT_KEYS:return {}
+        if key in enums:
+            if type(value) is not str or value not in enums[key]:return {}
+        elif key in ('route_index','missing_key_count','extra_key_count','route_count') and not (type(value) is int and 0<=value<=2**64-1):return {}
+        elif key in ('row_is_dict','keys_known','field_nullable','expected_class_match','field_value_valid','count_matches','inventory_within_limit') and type(value) is not bool:return {}
+        elif not (type(value) is bool or value is None or type(value) is int and -128<=value<=2**64-1):return {}
+        facts[key]=value
     return {'schema':'underlay.route-observation.v1','role':role,'role_known':role is not None,'operation':operation,
             'reason':reason,'facts':facts,'elapsed_ms':record.get('elapsed_ms') if type(record.get('elapsed_ms')) is int else None,
             'signal_authority':False,'remote_cancellation_verified':False}
@@ -82,9 +94,12 @@ class Observation:
         return value
 
     def record(self,reason='unknown'):
+        admitted=safe_record({'role':self.role,'operation':self.operation,'reason':reason,'facts':self.facts})
+        if not admitted:
+            raise RouteObservationRefusal('unknown',{'role':self.role,'operation':self.operation,'reason':'unknown','facts':{}})
         return {'schema':'underlay.route-observation.v1','role':self.role,'role_known':self.role is not None,
                 'operation':self.operation,'reason':reason,'elapsed_ms':round((time.monotonic()-self.started)*1000),
-                'facts':safe_record({'role':self.role,'operation':self.operation,'reason':reason,'facts':self.facts})['facts'],'signal_authority':False,'remote_cancellation_verified':False}
+                'facts':admitted['facts'],'signal_authority':False,'remote_cancellation_verified':False}
 
     def publish(self,reason='unknown',primary=None):
         record=self.record(reason)
@@ -135,11 +150,54 @@ def gateway_status(completed, o=None):
            and status.get('ok') is True and status.get('running') is True and type(status.get('routes')) is list,
            'envelope_shape',status_schema_valid=status.get('schema')=='effigy.gateway.status.v1')
     routes=status['routes']
-    valid=len(routes)<=256 and all(type(r) is dict and set(r)==ROUTE_KEYS and type(r.get('domain')) is str
-        and type(r.get('target')) is str and type(r.get('cert_ready')) is bool for r in routes)
-    o.gate(valid,'routes_schema',route_count=len(routes))
-    o.gate(len({r['domain'] for r in routes})==len(routes),'routes_schema',domains_unique=len({r['domain'] for r in routes})==len(routes))
+    validate_routes(routes,status.get('route_count'),o)
     return status
+
+
+def value_type(value):
+    return {type(None):'null',bool:'bool',int:'int',str:'str',list:'list',dict:'dict'}.get(type(value),'other')
+
+
+def validate_routes(routes,declared_count,o):
+    """Dashboard serializer contract, distinct from requested HTTP role evidence.
+
+    Source: pinned gateway_command::render_routes_json/GatewayRouteDashboardEntry;
+    RouteSource is debug-formatted lowercase, not the persistent Route schema.
+    """
+    o.gate(type(routes) is list,'routes_schema',inventory_within_limit=type(routes) is list and len(routes)<=256)
+    o.gate(len(routes)<=256 and type(declared_count) is int and declared_count==len(routes),
+           'routes_schema',route_count=len(routes),count_matches=type(declared_count) is int and declared_count==len(routes))
+    seen=set()
+    nullable={'target','dns_ip','tcp_port','tcp_target'}
+    for index,row in enumerate(routes):
+        facts={'route_index':index,'row_is_dict':type(row) is dict}
+        if type(row) is not dict:o.fail('routes_schema',**facts)
+        missing=len(ROUTE_KEYS-set(row));extra=len(set(row)-ROUTE_KEYS)
+        facts.update(keys_known=extra==0,missing_key_count=missing,extra_key_count=extra)
+        if missing or extra:o.fail('routes_schema',**facts)
+        for field in sorted(ROUTE_KEYS):
+            value=row[field]
+            expected=int if field=='tcp_port' else bool if field in ('tls','cert_ready') else str
+            matches=type(value) is expected or value is None and field in nullable
+            valid=matches
+            if matches and value is not None:
+                if field=='tcp_port':valid=0<=value<=65535 # u16 serializer, bool excluded above
+                elif field=='source':valid=value in ('container','task','manual')
+                elif field=='dns_ip':
+                    try:valid=str(ipaddress.IPv4Address(value))==value
+                    except (ValueError,TypeError):valid=False
+                elif field=='registered':
+                    try:
+                        stamp=datetime.fromisoformat(re.sub(r'(\.\d{6})\d+',r'\1',value).replace('Z','+00:00'))
+                        valid=stamp.tzinfo is not None and stamp.utcoffset().total_seconds()==0
+                    except (ValueError,TypeError,OverflowError):valid=False
+            if not valid:
+                o.fail('routes_schema',**facts,field_id=field,observed_type=value_type(value),
+                       field_nullable=field in nullable,expected_class_match=matches,field_value_valid=valid)
+        if row['domain'] in seen:o.fail('routes_schema',**facts,domains_unique=False)
+        seen.add(row['domain'])
+    # Publish one bounded collection receipt; per-field evidence is emitted on refusal.
+    o.gate(True,'routes_schema',domains_unique=True)
 
 
 def ca_context(path):
@@ -287,8 +345,8 @@ def observe(status,states,port,context,request=exchange):
                'state_schema',state_available=type(state) is dict)
         route=routes.get(state['route_domain'])
         o.gate(route is not None,'route_absent',route_present=route is not None)
-        o.gate(route['target']==state['address'],'route_target',target_matches=route['target']==state['address'])
-        o.gate(route['cert_ready'] is True,'route_certificate',certificate_ready=route['cert_ready'] is True)
+        o.gate(type(route['target']) is str and bool(route['target']) and route['target']==state['address'],'route_target',target_matches=type(route['target']) is str and bool(route['target']) and route['target']==state['address'])
+        o.gate(route.get('tls') is True and route['cert_ready'] is True,'route_certificate',certificate_ready=route.get('tls') is True and route['cert_ready'] is True)
         o=Observation(role,'health')
         code,_,_=request(state['route_domain'],port,context,'/v1/health' if role=='api' else '/',role=role,operation='health',observation=o)
         require_status(code,o)

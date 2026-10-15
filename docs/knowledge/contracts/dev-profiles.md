@@ -1762,3 +1762,25 @@ remain secondary. Partial writes never supply complete-prefix success. These
 records remain private typed data, without native output or exception text.
 The main journal's 131072-byte physical, 256KiB record and 4MiB decoded bounds,
 port/bootstrap journals, native capture limits and all deadlines are unchanged.
+
+### Gateway dashboard inventory
+
+The private observer consumes `GatewayRouteDashboardEntry` through
+`render_routes_json`, rather than the persistent route-table serde schema.
+Every row has `domain`, `target`, `dns_ip`, `tcp_port`, `tcp_target`, `source`,
+`project`, `tls`, `cert_ready` and `registered`. The four endpoint fields are
+nullable; `tcp_port` is a u16, `dns_ip` an IPv4 string, and source is
+`container`, `task` or `manual`. UTC registration timestamps preserve the
+producer's fractional precision in memory. A complete inventory is bounded to
+256 rows and must agree with the declared count and contain unique domains.
+Null targets on unrelated DNS/TCP rows do not satisfy requested HTTP route
+predicates. Selected roles require exact current target equality, TLS and ready
+certificates, followed by private CA/name verification and the existing
+source/generation/context checks. Dashboard names alone establish no ownership.
+
+Before refusing a row, qualification records its index, dictionary/key-count
+predicates and, for a known field, its identifier, observed type, nullability
+and type/value predicate. It never records actual route values or unknown keys.
+Malformed diagnostic fields are rejected by the parent/outer projection.
+These finite serializer and caller controls provide source-contract evidence;
+they do not qualify a running application or independent cleanup.
