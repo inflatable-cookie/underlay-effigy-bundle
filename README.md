@@ -51,11 +51,17 @@ Run the API, front and admin on the host while services stay in containers:
 ```toml
 [bundle.profiles]
 enabled = true
+dev = "hybrid"                # optional: make `effigy dev` start the hybrid profile
 test_task = "acme-api/test"   # what dev:test runs
 test_timeout_secs = 900
 ```
 
-- `effigy dev:hybrid` starts the `hybrid` services and host listeners behind
+With `dev = "hybrid"`, `effigy dev` starts the hybrid profile and returns once
+it is ready; `effigy dev:down` stops it. The whole-stack container session
+remains available as `dev:container`.
+
+- `effigy dev:hybrid` starts the `hybrid` services, the API, front and admin
+  listeners and the background `jobs` worker; the listeners are served behind
   the gateway on the usual app hostnames. `dev:hybrid:status`,
   `dev:hybrid:logs` and `dev:hybrid:down` operate it. Use it instead of `dev`,
   not alongside it.

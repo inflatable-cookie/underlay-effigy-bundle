@@ -218,6 +218,13 @@ description = "Opt in to the host `dev:hybrid` and short-lived `dev:test` profil
 default = false
 
 [[inputs]]
+name = "profiles.dev"
+type = "string"
+description = "Which stack `effigy dev` starts once profiles are enabled: `container` (default) keeps the whole-stack container session, `hybrid` makes `dev` start the hybrid profile and keeps the container session as `dev:container`."
+default = "container"
+example = "hybrid"
+
+[[inputs]]
 name = "profiles.test_task"
 type = "string"
 description = "Effigy selector `dev:test` runs once its isolated environment is ready. Empty makes `dev:test` refuse before starting anything; full `qa` is never implied."
