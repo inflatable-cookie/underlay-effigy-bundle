@@ -247,6 +247,18 @@ class RouteControls(unittest.TestCase):
         for field,value in [('route_index',True),('observed_type','PRIVATE'),('field_id','PRIVATE'),('keys_known',1)]:
             self.assertEqual(routes.safe_record(dict(role=None,operation='gateway_status',reason='routes_schema',facts={field:value})),{})
 
+    def test_storage_media_adapter_real_TLS_POST_and_closed_response(self):
+        import storage_observation as storage
+        observed=[]
+        def producer(peer,request):
+            observed.append(request.startswith(b'POST /media HTTP/1.1\r\n') and b'Content-Length: 2' in request)
+            peer.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}')
+        server=self.server(producer)
+        (code,_,body),o=storage.request('http_request','media_create','route.test',server.port,'/media',
+             method='POST',body=b'{}',context=self.context,emit=lambda *a,**kw:None)
+        self.assertEqual(code,200);self.assertEqual(storage.decode_api(body,o),{});o.finish()
+        self.assertEqual(observed,[True])
+
     def test_origin_status_before_decode_and_schema_path_query(self):
         for reason,code,body in [('status',503,b'PRIVATE'),('origin_json',200,b'PRIVATE'),('origin_schema',200,b'{}')]:
             def request(*args,**kwargs):return code,{},body

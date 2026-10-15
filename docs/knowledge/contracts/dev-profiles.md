@@ -1784,3 +1784,22 @@ and type/value predicate. It never records actual route values or unknown keys.
 Malformed diagnostic fields are rejected by the parent/outer projection.
 These finite serializer and caller controls provide source-contract evidence;
 they do not qualify a running application or independent cleanup.
+
+### Storage HTTP evidence
+
+Qualification signs S3 requests using the existing canonical request and credentials
+in memory. Host storage requests reuse the route reader with an absolute eight
+second deadline, at most 16 KiB/32 response headers and 1 MiB response body.
+Service readiness retains its tighter three-second probe bound. Duplicate or
+ambiguous framing, incomplete bodies, overflow and late publication refuse.
+Auth operations retain their twenty-second policy and three-second post-window.
+
+The private storage observation identifies a closed owning function, operation,
+phase and predicate, plus status/count/framing/equality facts and dispatch
+uncertainty. Allowed S3 error codes are enums; messages, request IDs, object
+keys, signatures, credentials, request values and body bytes are never projected.
+Intent and request dispatch do not establish server commit. Exact typed failures
+survive cause wrappers and secondary journal failures; unrelated exceptions keep
+the last closed operation with an unknown outcome. Runtime/default, media,
+readiness, restart, interruption, collision, test and cleanup caller boundaries
+record their stage before entering it. This evidence grants no cleanup authority.

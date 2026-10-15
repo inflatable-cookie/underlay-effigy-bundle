@@ -24,6 +24,7 @@ from pathlib import Path
 
 from silo_fixture import CLIENT_IMAGE, IMAGE, RELEASE, prepare_published_images
 from reference_storage_probe import prove_reference_upload
+import storage_observation as storage
 from qualification_runtime import require_effigy_binary
 
 
@@ -79,6 +80,7 @@ def gateway_json(binary: str, env: dict[str, str], gateway_root: Path, *args: st
     return json_result(result.stdout,getattr(result,"native_observation",None))
 
 
+@storage.boundary('wait_loopback_service')
 def wait_loopback_service(port: int, service: str, timeout_secs: int = 120) -> dict:
     """Prove a private service is reachable before a host adapter consumes it."""
     deadline = time.monotonic() + timeout_secs
@@ -88,12 +90,10 @@ def wait_loopback_service(port: int, service: str, timeout_secs: int = 120) -> d
         attempts += 1
         try:
             if service in {"minio", "silo"}:
-                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
-                connection.request("GET", "/minio/health/ready")
-                response = connection.getresponse()
-                status = response.status
-                response.read()  # Discard the health body; only status is evidence.
-                connection.close()
+                observation=storage.Operation('wait_loopback_service','service_health')
+                observation.deadline=min(observation.deadline,time.monotonic()+3,deadline)
+                (status,_,_),observation=storage.request('wait_loopback_service','service_health','127.0.0.1',port,'/minio/health/ready',body_cap=65536,observation=observation)
+                observation.finish()
                 last_result = f"HTTP {status}"
                 if status == 200:
                     return {"service": service, "endpoint": f"127.0.0.1:{port}",
@@ -112,6 +112,9 @@ def wait_loopback_service(port: int, service: str, timeout_secs: int = 120) -> d
                             "result": last_result, "attempts": attempts}
             else:
                 raise ValueError(f"unsupported private service readiness check: {service}")
+        except storage.StorageRefusal as error:
+            if error.storage_observation['reason'] not in ('connect','deadline','header_eof','body_eof'):raise
+            last_result='readiness_transport_unavailable'
         except (OSError, http.client.HTTPException, smtplib.SMTPException) as error:
             last_result = type(error).__name__
         time.sleep(0.5)
@@ -559,6 +562,7 @@ def verify_failed_scope_reconciled(checkout: Path, gateway_root: Path,
             "runtime_services": [], "owned_gateway_route_count": 0}
 
 
+@storage.boundary('verify_scope_down')
 def verify_scope_down(checkout: Path, states: dict[str, dict], gateway_root: Path,
                       gateway_port: int, ca_file: Path,
                       survivor_instances: list[tuple[Path, dict[str, dict]]],
@@ -614,6 +618,7 @@ def verify_scope_down(checkout: Path, states: dict[str, dict], gateway_root: Pat
             "foreign_survivors": survivor_receipts}
 
 
+@storage.boundary('verify_stopped_scope')
 def verify_stopped_scope(checkout: Path, states: dict[str, dict], gateway_root: Path) -> dict:
     closed = []
     processes = []
@@ -976,6 +981,7 @@ def hybrid_up_with_declared_task_secrets(checkout: Path, env: dict[str, str]) ->
     }
 
 
+@storage.boundary('recover_reference_apps')
 def recover_reference_apps(checkout: Path, original_manifest: str, env: dict[str, str],
                            gateway_port: int, label: str) -> tuple[dict, dict[str, dict]]:
     """Restart services first, then actual Reference apps via their secret-bearing task."""
@@ -1117,6 +1123,7 @@ def assert_foreign_instances_live(instances: list[tuple[Path, dict[str, dict]]],
     return receipts
 
 
+@storage.boundary('prove_interrupted_startup')
 def prove_interrupted_startup(main_checkout: Path, main_states: dict[str, dict],
                               foreign_instances: list[tuple[Path, dict[str, dict]]],
                               gateway_root: Path, gateway_port: int,
@@ -1312,6 +1319,7 @@ def prove_interrupted_startup(main_checkout: Path, main_states: dict[str, dict],
     return receipt, recovered_states
 
 
+@storage.boundary('prove_failed_collision_is_scoped')
 def prove_failed_collision_is_scoped(main_checkout: Path, main_states: dict[str, dict],
                                      foreign_checkout: Path, foreign_states: dict[str, dict],
                                      gateway_root: Path, gateway_port: int,
@@ -1542,9 +1550,12 @@ def service_shell(binary: str, checkout: Path, env: dict[str, str], command: str
     return result.stdout
 
 
+@storage.boundary('_s3_request')
 def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid_credentials: bool = False,
                 diagnostics=None, diagnostic_operation: str | None = None,
                 diagnostic_path_template: str | None = None) -> tuple[int, dict[str, str], bytes]:
+    operation=diagnostic_operation or ('invalid_credentials_get' if invalid_credentials else {'GET':'signed_get','PUT':'signed_put','DELETE':'signed_delete'}[method])
+    o=storage.Operation('_s3_request',operation,diagnostics.append if diagnostics is not None else None)
     now = datetime.now(timezone.utc)
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     short_date = now.strftime("%Y%m%d")
@@ -1589,115 +1600,49 @@ def _s3_request(port: int, method: str, path: str, body: bytes = b"", *, invalid
             f", SignedHeaders={signed_headers}, Signature={signature}"
         ),
     }
-    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-    op_id = None
-    phase = "before_request"
-    response = None
-    status = None
-    if diagnostics is not None:
-        if not diagnostic_operation or not diagnostic_path_template:
-            raise ValueError("S3 storage diagnostics require an operation label and redacted path template")
-        op_id = diagnostics.begin(diagnostic_operation, method, diagnostic_path_template,
-                                  public_name=None, connect_address=f"127.0.0.1:{port}")
-    try:
-        connection.request(method, path, body=body, headers=headers)
-        phase = "request_sent"
-        if diagnostics is not None:
-            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase)
-        phase = "before_response_headers"
-        if diagnostics is not None:
-            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase)
-        response = connection.getresponse()
-        status = response.status
-        from storage_correlation import safe_framing, s3_error
-        framing = safe_framing(response)
-        phase = "response_headers_received"
-        if diagnostics is not None:
-            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase,
-                              status=status, framing=framing)
-        response_headers = {key.lower(): value for key, value in response.getheaders()}
-        phase = "before_response_body"
-        if diagnostics is not None:
-            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase,
-                              status=status)
-        response_body = response.read(1_048_577)
-        phase = "response_body_received"
-        if diagnostics is not None:
-            diagnostics.phase(op_id, diagnostic_operation, method, diagnostic_path_template, phase,
-                              status=status, body_bytes=len(response_body),
-                              body_bytes_over_limit=len(response_body) > 1_048_576)
-        if len(response_body) > 1_048_576:
-            phase = "response_body_limit_validation"
-            raise RuntimeError("Silo response exceeded the bounded storage-probe limit")
-        if diagnostics is not None and status >= 400:
-            diagnostics.append("s3_error", operation_id=op_id, status=status,
-                               **s3_error(response_body))
-        return status, response_headers, response_body
-    except BaseException as error:
-        if diagnostics is not None and op_id:
-            diagnostics.exception(op_id, diagnostic_operation, method, diagnostic_path_template,
-                                  phase, error, status=status)
-        raise
-    finally:
-        connection.close()
+    result,o=storage.request('_s3_request',operation,'127.0.0.1',port,path,method=method,
+                             headers=headers,body=body,observation=o)
+    status,_,response_body=result
+    if status>=400:
+        from storage_correlation import s3_error
+        code=s3_error(response_body)['error_code']
+        o.s3_error=code if code in storage.S3_CODES else 'unknown'
+        o.publish('status')
+    o.finish()
+    return result
 
 
+@storage.boundary('prove_silo')
 def prove_silo(checkout: Path, env: dict[str, str], silo_port: int, allowed_origin: str,
                *, container: str, service: str, client_service: str,
-               bucket_name: str, cleanup_bucket: bool = False) -> dict:
-    # The production selector already ran the shared bounded bootstrap. This
-    # proof observes its bucket/ACL/CORS and uses host-signed object requests;
-    # it never substitutes handwritten/unbounded MC mutations.
+               bucket_name: str, cleanup_bucket: bool = False, diagnostics=None) -> dict:
+    # Signing, object bytes and security policy are unchanged; only transport/evidence are shared.
     bucket=bucket_name
-    invalid_status, _, _ = _s3_request(silo_port,'GET',f'/{bucket}/',invalid_credentials=True)
-    if invalid_status != 403:raise RuntimeError('Silo invalid credential refusal unproved')
-    cors_connection = http.client.HTTPConnection("127.0.0.1", silo_port, timeout=10)
-    try:
-        cors_connection.request(
-            "OPTIONS", f"/{bucket}/cors-probe",
-            headers={
-                "Origin": allowed_origin,
-                "Access-Control-Request-Method": "PUT",
-                "Access-Control-Request-Headers": "authorization,x-amz-content-sha256,x-amz-date",
-            },
-        )
-        cors_response = cors_connection.getresponse()
-        cors_headers = {key.lower(): value for key, value in cors_response.getheaders()}
-        cors_response.read()
-        if cors_headers.get("access-control-allow-origin") != allowed_origin:
-            raise RuntimeError("Silo did not allow the configured disposable browser origin")
-        if "PUT" not in cors_headers.get("access-control-allow-methods", "").upper():
-            raise RuntimeError("Silo CORS preflight did not allow the S3 PUT method")
-        allowed_headers = cors_headers.get("access-control-allow-headers", "").lower()
-        if not all(header in allowed_headers for header in ("authorization", "x-amz-content-sha256", "x-amz-date")):
-            raise RuntimeError("Silo CORS preflight did not allow the signed S3 request headers")
-        print("PASS published Silo bucket CORS preflight for the exact browser origin, PUT, and signed headers",
-              flush=True)
-    finally:
-        cors_connection.close()
-
-    payload = b'host-signed-reference-silo-loopback-proof'
+    invalid_status,_,_=_s3_request(silo_port,'GET',f'/{bucket}/',invalid_credentials=True,diagnostics=diagnostics)
+    o=storage.CURRENT.get();o.check(invalid_status==403,'credentials_status',expected_negative=True)
+    def unsigned(operation,method,path,headers=None):
+        return storage.request('prove_silo',operation,'127.0.0.1',silo_port,path,method=method,headers=headers,
+                               emit=diagnostics.append if diagnostics is not None else None)
+    (cors_status,cors_headers,_),o=unsigned('cors_allowed','OPTIONS',f'/{bucket}/cors-probe',{
+        'Origin':allowed_origin,'Access-Control-Request-Method':'PUT',
+        'Access-Control-Request-Headers':'authorization,x-amz-content-sha256,x-amz-date'})
+    o.check(cors_headers.get('access-control-allow-origin')==allowed_origin,'cors_origin',origin_matches=cors_headers.get('access-control-allow-origin')==allowed_origin)
+    o.check('PUT' in cors_headers.get('access-control-allow-methods','').upper(),'cors_method',method_allowed='PUT' in cors_headers.get('access-control-allow-methods','').upper())
+    headers_allowed=all(h in cors_headers.get('access-control-allow-headers','').lower() for h in ('authorization','x-amz-content-sha256','x-amz-date'))
+    o.check(headers_allowed,'cors_headers',headers_allowed=headers_allowed);o.finish()
+    payload=b'host-signed-reference-silo-loopback-proof'
     object_path=f'/{bucket}/proof-'+__import__('secrets').token_hex(16)
-    put_status,_,_=_s3_request(silo_port,'PUT',object_path,payload)
-    if put_status not in (200,201):raise RuntimeError('Silo host PUT refused')
-    get_status,_,received=_s3_request(silo_port,'GET',object_path)
-    if get_status!=200 or received!=payload:raise RuntimeError('Silo host GET bytes refused')
-    connection=http.client.HTTPConnection('127.0.0.1',silo_port,timeout=10)
-    try:
-        connection.request('GET',object_path)
-        response=connection.getresponse()
-        if response.status!=200 or response.read(65536)!=payload:raise RuntimeError('Silo anonymous download refused')
-    finally:connection.close()
-    delete_status,_,_=_s3_request(silo_port,'DELETE',object_path)
-    if delete_status not in (200,204):raise RuntimeError('Silo host DELETE refused')
-    connection=http.client.HTTPConnection('127.0.0.1',silo_port,timeout=10)
-    try:
-        connection.request('OPTIONS',f'/{bucket}/foreign-probe',headers={
-            'Origin':'https://foreign.invalid','Access-Control-Request-Method':'PUT'})
-        response=connection.getresponse();foreign_status=response.status
-        if response.getheader('access-control-allow-origin'):raise RuntimeError('Silo foreign CORS grant refused')
-        response.read(65536)
-    finally:connection.close()
+    put_status,_,_=_s3_request(silo_port,'PUT',object_path,payload,diagnostics=diagnostics)
+    storage.CURRENT.get().check(put_status in (200,201),'put_status')
+    get_status,_,received=_s3_request(silo_port,'GET',object_path,diagnostics=diagnostics)
+    o=storage.CURRENT.get();o.check(get_status==200,'get_status');o.check(received==payload,'object_equal',bytes_equal=received==payload)
+    (anonymous_status,_,anonymous_body),o=unsigned('anonymous_get','GET',object_path)
+    o.check(anonymous_status==200,'anonymous_status');o.check(anonymous_body==payload,'object_equal',bytes_equal=anonymous_body==payload);o.finish()
+    delete_status,_,_=_s3_request(silo_port,'DELETE',object_path,diagnostics=diagnostics)
+    storage.CURRENT.get().check(delete_status in (200,204),'delete_status')
+    (foreign_status,foreign_headers,_),o=unsigned('cors_foreign','OPTIONS',f'/{bucket}/foreign-probe',{
+        'Origin':'https://foreign.invalid','Access-Control-Request-Method':'PUT'})
+    o.check(not foreign_headers.get('access-control-allow-origin'),'foreign_origin',foreign_origin_absent=not bool(foreign_headers.get('access-control-allow-origin')),expected_negative=True);o.finish()
     return {'product':'PGSTY Silo','release':RELEASE,'bootstrap':'exported production bounded recipe',
             'signed_put':put_status,'signed_get':get_status,'signed_delete':delete_status,
             'bytes_equal':True,'anonymous_download':True,'allowed_origin':allowed_origin,
@@ -1721,60 +1666,24 @@ def observe_routes(checkout: Path, gateway_root: Path, env: dict[str, str],
     print('PASS closed CA-verified route/origin/HMR observations',flush=True)
 
 
+@storage.boundary('prove_silo_gateway_route')
 def prove_silo_gateway_route(checkout: Path, gateway_root: Path, domains: dict[str, str], gateway_port: int) -> dict:
-    domain = domains["s3"]
-    status = REFERENCE.private_gateway_status(checkout, gateway_root)
-    registered_domains = sorted(
-        item.get("domain") for item in status.get("routes", [])
-        if isinstance(item.get("domain"), str)
-    )
-    route = next((item for item in status.get("routes", []) if item.get("domain") == domain), None)
-    if route is None:
-        return {"status": "unavailable", "phase": "route_registration",
-                "domain": domain, "route_registered": False,
-                "registered_domains": registered_domains}
-    if route.get("tls") is not True or not route.get("target"):
-        return {"status": "unavailable", "phase": "route_configuration",
-                "domain": domain, "route_registered": True,
-                "tls": route.get("tls"), "route_target_present": bool(route.get("target"))}
-    if route.get("cert_ready") is not True:
-        return {"status": "unavailable", "phase": "certificate_readiness",
-                "domain": domain, "tls": route.get("tls"),
-                "route_target_present": bool(route.get("target")),
-                "cert_ready": route.get("cert_ready")}
-
-    cert_path = gateway_root / "certs" / f"{domain}.pem"
-    ca_path = gateway_root / "ca/rootCA.pem"
-    if not cert_path.is_file() or not ca_path.is_file():
-        return {"status": "unavailable", "phase": "private_certificate_or_ca_missing",
-                "domain": domain, "cert_present": cert_path.is_file(), "ca_present": ca_path.is_file()}
-    certificate = ssl._ssl._test_decode_cert(str(cert_path))
-    dns_sans = {value.lower() for kind, value in certificate.get("subjectAltName", []) if kind == "DNS"}
-    if domain.lower() not in dns_sans:
-        return {"status": "unavailable", "phase": "certificate_san_mismatch",
-                "domain": domain, "dns_sans": sorted(dns_sans)}
-
-    context = ssl.create_default_context(cafile=str(ca_path))
-    try:
-        code, _, _ = REFERENCE.gateway_request(
-            domain,
-            gateway_port,
-            context,
-            "/minio/health/ready",
-            {"Host": f"{domain}:{gateway_port}"},
-        )
-    except ssl.SSLError as error:
-        return {"status": "unavailable", "phase": "verified_ca_sni_handshake",
-                "domain": domain, "route_tls": route.get("tls"),
-                "cert_ready": route.get("cert_ready"), "dns_sans": sorted(dns_sans),
-                "error_type": type(error).__name__, "error": "operation_unavailable"}
-    if code != 200:
-        return {"status": "unavailable", "phase": "private_https_route_response",
-                "domain": domain, "http_status": code, "route_tls": route.get("tls"),
-                "cert_ready": route.get("cert_ready"), "dns_sans": sorted(dns_sans)}
-    print(f"PASS published Silo private HTTPS/SNI route {domain}:{gateway_port} readiness returned 200", flush=True)
-    return {"status": "passed", "domain": domain, "http_status": code,
-            "route_target": route.get("target"), "cert_ready": True, "dns_sans": sorted(dns_sans)}
+    import route_observation as routes
+    o=storage.Operation('prove_silo_gateway_route','gateway_health')
+    domain=domains['s3'];status=REFERENCE.private_gateway_status(checkout,gateway_root)
+    route=next((r for r in status.get('routes',[]) if r.get('domain')==domain),None)
+    o.check(route is not None,'route_absent',route_present=route is not None)
+    o.check(route.get('tls') is True and bool(route.get('target')),'route_target',target_matches=bool(route.get('target')))
+    o.check(route.get('cert_ready') is True,'route_certificate',certificate_ready=route.get('cert_ready') is True)
+    cert_path=gateway_root/'certs'/f'{domain}.pem';ca_path=gateway_root/'ca/rootCA.pem'
+    o.check(cert_path.is_file() and ca_path.is_file(),'ca_context',ca_available=ca_path.is_file())
+    certificate=ssl._ssl._test_decode_cert(str(cert_path))
+    dns_sans={value.lower() for kind,value in certificate.get('subjectAltName',[]) if kind=='DNS'}
+    o.check(domain.lower() in dns_sans,'tls_verify',name_verification=domain.lower() in dns_sans)
+    context=routes.ca_context(ca_path)
+    code,_,_=routes.exchange(domain,gateway_port,context,'/minio/health/ready',{'Host':f'{domain}:{gateway_port}'},observation=o)
+    o.check(code==200,'status');o.finish()
+    return {'status':'passed','domain':domain,'http_status':code,'route_target':route.get('target'),'cert_ready':True,'dns_sans':sorted(dns_sans)}
 
 
 def main() -> int:

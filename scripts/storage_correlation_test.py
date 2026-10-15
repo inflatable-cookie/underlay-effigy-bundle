@@ -1,5 +1,7 @@
-"""Hermetic production correlation controls; no container or network effects."""
+"""Hermetic correlation controls; private loopback producers, no container effects."""
 import json
+import os
+from reference_storage_probe import decode_journal_rows
 import unittest
 from unittest.mock import Mock
 import storage_correlation as probe
@@ -101,12 +103,12 @@ class CorrelationTests(unittest.TestCase):
                 for change in (None,False,'seeded-secret'):
                     altered={**alias,field:change}
                     with self.assertRaises(ValueError):probe.alias_projection(json.dumps(altered),journal)
-                    record=json.loads(p.read_text().splitlines()[-1])
+                    record=decode_journal_rows(p.read_text())[-1]
                     self.assertFalse(next(f for f in record['fields'] if f['field']==field)['expected_agreement'])
                 altered=dict(alias);altered.pop(field)
                 with self.assertRaises(ValueError):probe.alias_projection(json.dumps(altered),journal)
             with self.assertRaises(ValueError):probe.alias_projection(json.dumps({**alias,'seeded-secret':'secret'}),journal)
-            self.assertEqual(json.loads(p.read_text().splitlines()[-1])['unknown_field_count'],1)
+            self.assertEqual(decode_journal_rows(p.read_text())[-1]['unknown_field_count'],1)
             set_record=dict(alias);set_record.pop('src')
             probe.alias_projection(json.dumps(set_record),journal,'alias_set')
             with self.assertRaises(ValueError):probe.alias_projection(json.dumps(set_record),journal,'alias_list')
@@ -128,6 +130,7 @@ class CorrelationTests(unittest.TestCase):
             self.assertEqual(words[3:],args)
             self.assertEqual(shlex.split(probe.mc_command(args,'silo')),['mc']+args)
 
+    @unittest.skipUnless(os.environ.get('UNDERLAY_MC_SOURCE_ROOT'),'optional exact MC source fixture not provided')
     def test_pinned_emitted_struct_source_contract(self):
         import os,re,hashlib
         from pathlib import Path
@@ -280,7 +283,7 @@ class CorrelationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):probe.status_projection(status,{'project':'owned'},[],diagnostics=journal)
                 persisted=path.read_text()
                 self.assertNotIn('seeded-secret',persisted)
-                record=json.loads(persisted)
+                record=decode_journal_rows(persisted)[-1]
                 self.assertEqual(record['event'],'native_status_observation')
                 self.assertEqual(record['rows'][0]['port_classes'],{'unknown':1})
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode),0o600)
@@ -468,28 +471,21 @@ class CorrelationTests(unittest.TestCase):
                 with self.assertRaises(ValueError): probe.hosts_projection({**hosts,'scope':{'kind':'primary','token':'foreign'}},checkout,identity)
 
     def test_actual_signed_request_retains_safe_framing_and_error(self):
-        import importlib.util
-        from pathlib import Path
-        from unittest.mock import patch
-        spec = importlib.util.spec_from_file_location('correlation_request_runtime', Path(__file__).with_name('qualify-reference-runtime.py'))
-        runtime = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(runtime)
-        response = Mock(status=404)
-        response.getheader.side_effect = lambda name: {'Content-Length':'99', 'Content-Type':'application/xml'}.get(name)
-        response.getheaders.return_value = []
-        response.read.return_value = b'<Error><Code>NoSuchKey</Code><Message>seeded-secret</Message></Error>'
-        connection = Mock()
-        connection.getresponse.return_value = response
-        journal = Mock()
-        journal.begin.return_value = 'storage-01'
-        with patch.object(runtime.http.client, 'HTTPConnection', return_value=connection):
-            status, _, _ = runtime._s3_request(8540, 'GET', '/bucket/key', diagnostics=journal, diagnostic_operation='known_get', diagnostic_path_template='/<bucket>/<object>')
-        self.assertEqual(status, 404)
-        phases = [call.args[4] for call in journal.phase.call_args_list]
-        self.assertEqual(phases, ['request_sent', 'before_response_headers', 'response_headers_received', 'before_response_body', 'response_body_received'])
-        self.assertNotIn('seeded-secret', str(journal.mock_calls))
-        self.assertEqual(journal.append.call_args.kwargs['error_code'], 'NoSuchKey')
-        connection.close.assert_called_once()
+        from storage_observation_test import Producer,load_runtime
+        import storage_observation as storage
+        runtime=load_runtime().RUNTIME
+        server=Producer(lambda n,c,h,b:(404,h,b'<Error><Code>NoSuchKey</Code><Message>seeded-secret</Message></Error>'))
+        events=[]
+        class Journal:
+            def append(self,event,**fields):events.append((event,fields))
+        try:
+            status,_,_=runtime._s3_request(server.port,'GET','/bucket/key',invalid_credentials=True,
+                diagnostics=Journal(),diagnostic_operation='signed_s3_get',diagnostic_path_template='/<bucket>/<object>')
+            self.assertEqual(status,404)
+            self.assertEqual(storage.CURRENT.get().s3_error,'NoSuchKey')
+            self.assertTrue(any(fields['observation']['facts'].get('body_complete') for _,fields in events))
+            self.assertNotIn('seeded-secret',json.dumps(events))
+        finally:server.close()
 
 
 if __name__ == '__main__':

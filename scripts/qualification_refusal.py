@@ -1,5 +1,6 @@
 """Closed owning refusal evidence; never native payload or cleanup authority."""
 import ast
+from storage_observation import StorageRefusal,validate as storage_record,stage_record
 from container_identity_observer import Refusal
 from auth_operation import AuthRefusal, REASONS as AUTH_REASONS, SHAPE_CLASSES
 from pathlib import Path
@@ -44,6 +45,19 @@ def project(error,stage):
     if type(native_error) is NativeFailure:
         native_evidence=native_record(native_error.record) or {}
         if native_evidence:reason="native_"+native_evidence["reason"]
+    storage_evidence={}
+    candidate=error;seen=set()
+    for _ in range(16):
+        if type(candidate) is StorageRefusal:
+            storage_evidence=storage_record(candidate.storage_observation) or {}
+            if storage_evidence:reason='storage_'+storage_evidence['reason']
+            break
+        if id(candidate) in seen:break
+        seen.add(id(candidate));candidate=getattr(candidate,'__cause__',None)
+        if candidate is None:break
+    preserved=stage_record(error)
+    if preserved:
+        storage_evidence=preserved;reason='storage_'+preserved['reason']
     route_evidence={}
     if type(error) is RouteObservationRefusal and error.reason in ROUTE_REASONS:
         reason='route_observation_'+error.reason
@@ -71,7 +85,7 @@ def project(error,stage):
         if getattr(error,'auth_window',None) in ('pre','post'):auth_evidence['window']=error.auth_window
         if type(getattr(error,'auth_capture_available',None)) is bool:auth_evidence['capture_available']=error.auth_capture_available
         if type(getattr(error,'publication_unavailable',None)) is bool:auth_evidence['publication_unavailable']=error.publication_unavailable
-    return {'native_failure':native_evidence,'route_observation':route_evidence,'auth_evidence':auth_evidence,'protocol_shape':shape,'schema':'underlay.qualification.refusal.v1','stage':stage,'reason_id':reason,
+    return {'storage_observation':storage_evidence,'native_failure':native_evidence,'route_observation':route_evidence,'auth_evidence':auth_evidence,'protocol_shape':shape,'schema':'underlay.qualification.refusal.v1','stage':stage,'reason_id':reason,
             'exception_type':type(error).__name__[:64],'capture_available':type(evidence) is dict,
             'capture':fields,'settlement':getattr(error,'settlement_observation','unknown') if getattr(error,'settlement_observation','unknown') in ('unknown','leader_reaped') else 'unknown',
             'nonce_cleanup':getattr(error,'nonce_cleanup_observation','unknown') if getattr(error,'nonce_cleanup_observation','unknown') in ('unknown','verified') else 'unknown',

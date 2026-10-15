@@ -221,3 +221,7 @@ run_in = "host"
 [tasks."proof:dev-profiles:startup-journal-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/startup_journal_test.py JournalVolumeControls"
 run_in = "host"
+
+[tasks."proof:dev-profiles:storage-http-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/storage_observation_test.py"
+run_in = "host"

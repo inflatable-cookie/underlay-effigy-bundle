@@ -20,12 +20,12 @@ EMIT = None
 FACT_KEYS=frozenset(('status_observed','headers_complete','body_complete','header_bytes','body_bytes','publication_available',
  'native_exit','stdout_bytes','stderr_bytes','stdout_eof','stderr_eof','envelope_valid','status_schema_valid','route_count',
  'route_index','row_is_dict','keys_known','missing_key_count','extra_key_count','field_id','observed_type','field_nullable','expected_class_match','field_value_valid','count_matches','inventory_within_limit','domains_unique','ca_available','verification_required','name_verification','tls_verified','tls_verify_code',
- 'connection_established','request_sent','status_line_valid','http_status','header_count','content_type_class',
+ 'connection_established','request_sent','transport_eof','dispatch_started','status_line_valid','http_status','header_count','content_type_class',
  'accept_matches','duplicate_framing','ambiguous_length','transfer_supported','body_over_limit','declared_body_bytes',
  'trailers_present','extra_bytes_present','wire_over_limit','transport_error','external_error','state_available',
  'route_present','target_matches','certificate_ready','json_valid','origin_schema_valid','event_origin_matches',
  'request_origin_matches','path_matches','query_matches','encoding_supported','utf8_valid','token_match_count',
- 'body_limit_bytes','header_limit_bytes','header_limit_count','token_present','gateway_port_advertised','wss_advertised','context_matches','generation_matches'))
+ 'body_bytes_lower_bound','body_limit_bytes','header_limit_bytes','header_limit_count','token_present','gateway_port_advertised','wss_advertised','context_matches','generation_matches'))
 ENVELOPE_KEYS=frozenset(('schema','schema_version','ok','binary','command','result','error'))
 STATUS_KEYS=frozenset(('schema','schema_version','ok','running','pid','binary_version','current_binary_version','dns_addr',
  'proxy_addr','https_addr','client_ca_file','private','gateway_dir','tls','route_table_trust','route_table_trust_reason',
@@ -217,6 +217,7 @@ class Wire:
         try:b=self.sock.recv(8192)
         except (TimeoutError,socket.timeout):self.o.fail('deadline')
         except (OSError,ssl.SSLError):self.o.fail('body_eof' if self.o.facts['headers_complete'] else 'header_eof',transport_error=True)
+        if not b:self.o.facts['transport_eof']=True
         self.wire_bytes+=len(b)
         if self.wire_bytes>BODY_CAP*2+HEADER_CAP:self.o.fail('body_cap',wire_over_limit=True)
         self.buffer.extend(b);return bool(b)
@@ -230,16 +231,18 @@ class Wire:
         if not self.o.facts['headers_complete']:self.o.facts['header_bytes']+=at+2
         return line
     def exact(self,n,body=False):
+        base=self.o.facts['body_bytes']
         while len(self.buffer)<n:
-            if not self.recv():self.o.fail('body_eof',body_complete=False,body_bytes=self.o.facts['body_bytes']+(min(len(self.buffer),n) if body else 0))
+            if body:self.o.facts['body_bytes']=base+min(len(self.buffer),n)
+            if not self.recv():self.o.fail('body_eof',body_complete=False,body_bytes=base+(min(len(self.buffer),n) if body else 0))
         data=bytes(self.buffer[:n]);del self.buffer[:n]
-        if body:self.o.facts['body_bytes']+=n
+        if body:self.o.facts['body_bytes']=base+n
         return data
 
 
-def exchange(host,port,context,path,headers=None,*,role=None,operation='https',body_cap=BODY_CAP,websocket=False,token='',observation=None):
+def exchange(host,port,context,path,headers=None,*,role=None,operation='https',body_cap=BODY_CAP,websocket=False,token='',observation=None,method='GET',request_body=b'',plain=False):
     o=observation or Observation(role,operation)
-    o.gate(context.verify_mode==ssl.CERT_REQUIRED and context.check_hostname,'ca_context',verification_required=context.verify_mode==ssl.CERT_REQUIRED,name_verification=context.check_hostname)
+    if not plain:o.gate(context.verify_mode==ssl.CERT_REQUIRED and context.check_hostname,'ca_context',verification_required=context.verify_mode==ssl.CERT_REQUIRED,name_verification=context.check_hostname)
     o.gate(type(body_cap) is int and 0<body_cap<=BODY_CAP,'body_cap')
     o.facts['body_limit_bytes']=body_cap
     raw=None;sock=None
@@ -247,12 +250,16 @@ def exchange(host,port,context,path,headers=None,*,role=None,operation='https',b
         try:raw=socket.create_connection(('127.0.0.1',port),timeout=o.remaining())
         except (TimeoutError,socket.timeout):o.fail('deadline')
         except OSError:o.fail('connect',connection_established=False)
-        try:
-            raw.settimeout(o.remaining());sock=context.wrap_socket(raw,server_hostname=host)
-        except ssl.SSLCertVerificationError as error:o.fail('tls_verify',tls_verified=False,tls_verify_code=error.verify_code)
-        except (TimeoutError,socket.timeout):o.fail('deadline')
-        except (OSError,ssl.SSLError):o.fail('tls',tls_verified=False)
-        o.facts['tls_verified']=True
+        if plain:
+            o.gate(context is None and host=='127.0.0.1','ca_context')
+            sock=raw
+        else:
+            try:
+                raw.settimeout(o.remaining());sock=context.wrap_socket(raw,server_hostname=host)
+            except ssl.SSLCertVerificationError as error:o.fail('tls_verify',tls_verified=False,tls_verify_code=error.verify_code)
+            except (TimeoutError,socket.timeout):o.fail('deadline')
+            except (OSError,ssl.SSLError):o.fail('tls',tls_verified=False)
+            o.facts['tls_verified']=True
         request_headers=dict(headers or {})
         request_headers.setdefault('Host',f'{host}:{port}')
         key=''
@@ -264,10 +271,13 @@ def exchange(host,port,context,path,headers=None,*,role=None,operation='https',b
                 'Sec-WebSocket-Version':'13','Sec-WebSocket-Protocol':'vite-hmr'})
         else:request_headers.setdefault('Connection','close')
         if any('\r' in str(x) or '\n' in str(x) for x in [path,*request_headers,*request_headers.values()]):o.fail('header_shape')
-        request=('GET '+path+' HTTP/1.1\r\n'+''.join(k+': '+v+'\r\n' for k,v in request_headers.items())+'\r\n').encode('ascii')
-        try:sock.settimeout(o.remaining());sock.sendall(request)
+        if method not in ('GET','PUT','DELETE','OPTIONS','POST'):o.fail('header_shape')
+        if request_body or method in ('PUT','POST'):request_headers.setdefault('Content-Length',str(len(request_body)))
+        request=(method+' '+path+' HTTP/1.1\r\n'+''.join(k+': '+v+'\r\n' for k,v in request_headers.items())+'\r\n').encode('ascii')+request_body
+        o.facts['dispatch_started']=True
+        try:sock.settimeout(o.remaining());sock.sendall(request);o.facts['request_sent']=True;o.publish('send')
         except (TimeoutError,socket.timeout):o.fail('deadline')
-        except OSError:o.fail('send',request_sent=False)
+        except OSError:o.fail('send',request_sent=None)
         wire=Wire(sock,o);first=wire.line(HEADER_CAP,'header_cap');used=len(first)+2
         match=re.fullmatch(rb'HTTP/1\.[01] ([1-5][0-9]{2})(?: [^\r\n]*)?',first)
         o.gate(match is not None,'header_shape',status_line_valid=match is not None)
@@ -411,6 +421,11 @@ def outer_refusals(stderr):
         except (ValueError,TypeError):omitted+=1;continue
         if type(value) is not dict or value.get('schema')!='underlay.qualification.refusal.v1':
             omitted+=1;continue
+        from storage_observation import validate as storage_record
+        storage=storage_record(value.get('storage_observation'))
+        if storage and value.get('reason_id')=='storage_'+storage['reason']:
+            records.append({'schema':'underlay.qualification.refusal.v1','reason_id':value['reason_id'],'storage_observation':storage})
+            continue
         from dev.startup_evidence import validate as native_record
         native=native_record(value.get('native_failure'))
         if native and value.get('reason_id')=='native_'+native['reason']:

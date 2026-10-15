@@ -23,6 +23,7 @@ import time
 from urllib.parse import urlsplit
 from datetime import datetime
 
+import storage_observation as storage
 from qualification_runtime import require_effigy_binary
 from reference_compile_capture import capture as capture_compile
 import reference_api_preparation
@@ -70,6 +71,7 @@ RETAINED_LIFECYCLE_TASK = "b3ae8bae-190d-42f4-8132-430253bb02fe"
 ACTIVE_DIAGNOSTICS = None
 
 
+@storage.boundary('selector')
 def selector(checkout: Path, name: str, env: dict[str, str], timeout: int = 5400) -> subprocess.CompletedProcess[str]:
     if ACTIVE_DIAGNOSTICS is not None:
         ACTIVE_DIAGNOSTICS.assert_admitted()
@@ -1213,6 +1215,7 @@ def _capture_lifecycle_probe_domain(checkout: Path, env: dict[str, str],
     return prefix + "." + domains["api"]
 
 
+@storage.boundary('_run_interruptible_profile_start',preserve=(UncertainProfileOwnership,))
 def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagnostics: StorageDiagnosticJournal,
                                      foreign: list[tuple[Path, dict[str, dict]]], gateway_root: Path,
                                      gateway_port: int, before_states: dict[str, dict]) -> dict[str, dict]:
@@ -1397,6 +1400,7 @@ def _run_interruptible_profile_start(checkout: Path, env: dict[str, str], diagno
             (checkout / "effigy.toml").write_bytes(original_manifest)
 
 
+@storage.boundary('_run_profile_collision',preserve=(UncertainProfileOwnership,))
 def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_states: dict[str, dict],
                            env: dict[str, str], diagnostics: StorageDiagnosticJournal,
                            before_states: dict[str, dict]) -> dict[str, dict]:
@@ -1542,6 +1546,13 @@ def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_state
     return recovered
 
 
+@storage.boundary('observe_silo_storage')
+def observe_silo_storage(checkout,env,port,origin,diagnostics=None):
+    return RUNTIME.prove_silo(checkout,env,port,origin,container='hybrid_services',service='silo',
+                              client_service='silo_client',bucket_name='acme-media',cleanup_bucket=False,diagnostics=diagnostics)
+
+
+@storage.boundary('verify_profile_runtime')
 def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backend_admission: FreshBackend, storage_only: bool,
                             diagnostics: StorageDiagnosticJournal | None = None,
                             auth_patch_receipt: dict | None = None,
@@ -1670,22 +1681,23 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
             gateway_port = int(record["gateway_port"])
             if not remaining_lifecycle:
                 RUNTIME.observe_routes(checkout, gateway_root, env, states, gateway_port)
-                RUNTIME.prove_silo(checkout, env, int(record["ports"]["silo"]),
-                                    f"https://{record['domains']['front']}:{gateway_port}",
-                                    container="hybrid_services", service="silo", client_service="silo_client",
-                                    bucket_name="acme-media", cleanup_bucket=False)
+                observe_silo_storage(checkout,env,int(record['ports']['silo']),
+                                     f"https://{record['domains']['front']}:{gateway_port}",diagnostics)
                 silo_route = RUNTIME.prove_silo_gateway_route(checkout, gateway_root, record["domains"], gateway_port)
                 if silo_route.get("status") != "passed":
                     raise RuntimeError(f"profile Silo HTTPS/SNI route did not pass: {silo_route}")
                 record["silo_gateway"] = silo_route
                 for role, path in (("silo", "/"), ("dbgate", "/"), ("mailpit", "/")):
+                    service_observation=storage.Operation('gateway_service','gateway_'+role)
                     route = next((item for item in RUNTIME.REFERENCE.private_gateway_status(checkout, gateway_root).get("routes", [])
                                   if item.get("domain") == record["domains"][role]), None)
+                    service_observation.check(bool(route) and route.get('tls') is True and route.get('cert_ready') is True,'route_certificate')
                     if not route or route.get("tls") is not True or route.get("cert_ready") is not True:
                         raise RuntimeError(f"profile {role} service route is not privately TLS-ready")
                     ca_context = ssl.create_default_context(cafile=str(gateway_root / "ca/rootCA.pem"))
-                    code, _, _ = REFERENCE.gateway_request(record["domains"][role], gateway_port, ca_context, path,
-                                                           {"Host": f"{record['domains'][role]}:{gateway_port}"})
+                    code, _, _ = __import__('route_observation').exchange(record["domains"][role], gateway_port, ca_context, path,
+                                                           {"Host": f"{record['domains'][role]}:{gateway_port}"},observation=service_observation)
+                    service_observation.check(code<500,'status');service_observation.finish()
                     if code >= 500:
                         raise RuntimeError(f"profile service HTTPS route {role} returned HTTP {code}")
             if checkout == checkouts[0] and not remaining_lifecycle:
@@ -1995,6 +2007,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
 
 
 
+@storage.boundary('verify_disposable_action')
 def verify_disposable_action(checkout, env, foreign, service_observer):
     import service_baseline_handoff as services
     import tempfile
@@ -2040,7 +2053,7 @@ def verify_disposable_action(checkout, env, foreign, service_observer):
     qualification_cleanup.require_product_cleanup(proof)
     proof['action_exit']=None if action_unknown else result.returncode
     proof['qualification_sources']={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','reference_compile_capture.py','reference_api_preparation.py','route_observation.py','dev/startup_evidence.py','dev/owned_capture.py','dev/host_identity.py','dev/profile_launcher.py','dev/silo_client.py','dev/storage_launcher.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
+                                   for name in ('qualification_cleanup.py','qualification_cleanup_action.py','qualify-reference-optin.py','reference_compile_capture.py','reference_api_preparation.py','route_observation.py','storage_observation.py','dev/startup_evidence.py','dev/owned_capture.py','dev/host_identity.py','dev/profile_launcher.py','dev/silo_client.py','dev/storage_launcher.py','pending_start_identity.py','listener_snapshot.py','qualify-reference-runtime.py','service_baseline_handoff.py')}
     qualification_cleanup.write_private(root/'absence.json',root,proof)
     if action_unknown:raise qualification_cleanup.CleanupUnknown('configured_action_unknown')
     if result.returncode!=0:raise qualification_cleanup.CleanupUnknown('configured_action_failed')
@@ -2049,6 +2062,7 @@ def verify_disposable_action(checkout, env, foreign, service_observer):
         raise qualification_cleanup.CleanupUnknown('action_completion_unknown')
     return proof
 
+@storage.boundary('_verify_live')
 def _verify_live(checkout: Path, states: dict[str, dict], env: dict[str, str]) -> None:
     root, port, gateway = gateway_context(checkout, env)
     if not gateway.get("running"):
@@ -2073,6 +2087,7 @@ def _verify_live(checkout: Path, states: dict[str, dict], env: dict[str, str]) -
             raise RuntimeError(f"foreign production profile HTTPS route {name} returned {status}")
 
 
+@storage.boundary('_verify_stopped')
 def _verify_stopped(checkout: Path, states: dict[str, dict], env: dict[str, str]) -> None:
     host_status = effigy_json(checkout, env, "container", "hybrid_services", "status", "--json")
     active = host_status.get("managed_host_listeners", [])
@@ -2092,6 +2107,7 @@ def _verify_stopped(checkout: Path, states: dict[str, dict], env: dict[str, str]
         raise RuntimeError("hybrid profile down left a private gateway or routes active")
 
 
+@storage.boundary('main')
 def main() -> int:
     global EFFIGY, ACTIVE_DIAGNOSTICS
     private_env,private_env_receipt=private_environment(os.environ)
@@ -2137,13 +2153,14 @@ def main() -> int:
     RUNTIME.COMMAND_DIAGNOSTICS = diagnostics
     import route_observation
     route_observation.configure(diagnostics.append)
+    storage.configure(diagnostics.append)
     listener_snapshot.configure(diagnostics.append if diagnostics is not None else None)
     transition_snapshot.configure(diagnostics.append if diagnostics is not None else None, fixture_root)
     if diagnostics is not None:
         diagnostics.append("attempt_started", fixture_root=str(fixture_root),
                            reference_source=str(source),
                            cleanup_sources={name:hashlib.sha256((SCRIPTS/name).read_bytes()).hexdigest()
-                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","reference_api_preparation.py","route_observation.py","dev/startup_evidence.py","dev/owned_capture.py","dev/host_identity.py","dev/profile_launcher.py","dev/silo_client.py","dev/storage_launcher.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
+                                            for name in ("qualification_cleanup.py","qualification_cleanup_action.py","container_identity_observer.py","fresh_backend_admission.py","original_container_route.py","service_baseline_handoff.py","qualification_batch.py","private_caller_environment.py","reference_compile_capture.py","reference_api_preparation.py","route_observation.py","storage_observation.py","dev/startup_evidence.py","dev/owned_capture.py","dev/host_identity.py","dev/profile_launcher.py","dev/silo_client.py","dev/storage_launcher.py","generated_profile.py","qualification_refusal.py","private_cargo_cache.py")},
                            effigy_source="bd2597693f7c4c9ad786896a9448a7e746ff13a8",
                            effigy_binary=str(Path(EFFIGY).resolve()),
                            effigy_binary_sha256="2d72c3df0d61c05a150d5d86c39b2ea931eca9549b794b559fa39d95dc002a59",

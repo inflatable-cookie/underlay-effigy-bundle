@@ -315,6 +315,7 @@ def observed_auth_request(checkout, domain, port, ca, operation, payload, origin
     return result
 
 
+@__import__('storage_observation').boundary('prove_reference_upload')
 def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway_port, minio_port,
                            *, service_container="hybrid", diagnostics: StorageDiagnosticJournal | None = None,
                            diagnostic_context: dict | None = None):
@@ -329,46 +330,13 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
 
     def request(domain, method, path, body=None, headers=None, require_cors=False,
                 *, operation, path_template):
-        connection = runtime.REFERENCE.GatewayHTTPSConnection(domain, gateway_port, context)
-        op_id = diagnostics.begin(operation, method, path_template, public_name=domain,
-                                  connect_address=f"127.0.0.1:{gateway_port}") if diagnostics else None
-        phase = "before_request"
-        response = None
-        status = None
-        try:
-            connection.request(method, path, body=body, headers=headers or {})
-            phase = "request_sent"
-            if diagnostics:
-                diagnostics.phase(op_id, operation, method, path_template, phase)
-            phase = "before_response_headers"
-            if diagnostics:
-                diagnostics.phase(op_id, operation, method, path_template, phase)
-            response = connection.getresponse()
-            status = response.status
-            phase = "response_headers_received"
-            if diagnostics:
-                diagnostics.phase(op_id, operation, method, path_template, phase, status=status,
-                                  framing=framing_metadata(response))
-            if require_cors and response.getheader("Access-Control-Allow-Origin") != origin:
-                raise RuntimeError("Reference browser upload response did not allow its fixed admin origin")
-            phase = "before_response_body"
-            if diagnostics:
-                diagnostics.phase(op_id, operation, method, path_template, phase, status=status)
-            data = response.read(1024 * 1024 + 1)
-            phase = "response_body_received"
-            if diagnostics:
-                diagnostics.phase(op_id, operation, method, path_template, phase, status=status,
-                                  body_bytes=len(data), body_bytes_over_limit=len(data) > 1024 * 1024)
-            if len(data) > 1024 * 1024:
-                raise RuntimeError("Reference storage response exceeded the bounded probe limit")
-            return response.status, data, op_id
-        except BaseException as error:
-            if diagnostics and op_id:
-                diagnostics.exception(op_id, operation, method, path_template, phase, error,
-                                      status=status)
-            raise
-        finally:
-            connection.close()
+        import storage_observation as storage
+        (status,response_headers,data),o=storage.request('http_request',operation,domain,gateway_port,path,
+             method=method,body=body or b'',headers=headers,context=context,
+             emit=diagnostics.append if diagnostics is not None else None)
+        if require_cors:o.check(response_headers.get('access-control-allow-origin')==origin,'cors_origin',origin_matches=response_headers.get('access-control-allow-origin')==origin)
+        o.finish()
+        return status,data,o.operation_id
 
     def api(operation, method, path, path_template, payload=None):
         headers = {"Host": f"{api_domain}:{gateway_port}", "Origin": origin,
@@ -382,6 +350,7 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
                                       connect_address=f"127.0.0.1:{gateway_port}")
             def emit(event, **fields):
                 diagnostics.append("auth_" + event, operation=operation, operation_id=op_id, **fields)
+            __import__('storage_observation').mark('prove_reference_upload',operation)
             result=observed_auth_request(checkout,api_domain,gateway_port,gateway_root / "ca/rootCA.pem",
                                          operation,payload,origin,emit)
             outcomes.append({"operation":operation, "method":method, "status":200,
@@ -391,6 +360,7 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
                                       json.dumps(payload).encode() if payload is not None else None, headers,
                                       operation=operation, path_template=path_template)
         outcomes.append({"operation": operation, "method": method, "status": status})
+        __import__('storage_observation').CURRENT.get().check(200<=status<300,'status')
         if not 200 <= status < 300:
             if diagnostics:
                 diagnostics.append("operation_exception", operation_id=op_id, operation=operation,
@@ -400,8 +370,10 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
             # Never echo the body, token or presigned URL on a failed probe.
             raise RuntimeError(f"Reference storage {operation} returned HTTP {status}")
         try:
-            result = json.loads(body) if body else {}
+            result = __import__('storage_observation').decode_api(body,__import__('storage_observation').CURRENT.get())
         except BaseException as error:
+            if type(error) is __import__('storage_observation').StorageRefusal:raise
+            __import__('storage_observation').CURRENT.get().fail('response_json',json_valid=False)
             if diagnostics:
                 diagnostics.append("operation_exception", operation_id=op_id,
                                    operation=operation, method=method,
@@ -409,8 +381,7 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
                                    exception_type=type(error).__name__, status=status)
             raise
         if diagnostics:
-            diagnostics.phase(op_id, operation, method, path_template,
-                              "response_json_decoded", status=status)
+            __import__('storage_observation').CURRENT.get().finish()
         return result
 
     email = "silo-qualification@example.invalid"
@@ -420,6 +391,7 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
     # Grant only this newly registered account in this fresh fixture database.
     # Existing seed credentials and operator auth are not used.
     sql = "UPDATE auth.users SET role='admin' WHERE email='silo-qualification@example.invalid';"
+    __import__('storage_observation').mark('prove_reference_upload','fixture_admin_role_grant')
     if diagnostics:
         diagnostics.append("service_setup_started", operation="fixture_admin_role_grant", service="postgres")
     try:
@@ -466,6 +438,7 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
     status, _, upload_operation_id = request(
         s3_domain, "PUT", upload.path + "?" + upload.query, payload, headers,
         require_cors=True, operation="presigned_put", path_template="/acme-media/<object-key>")
+    __import__('storage_observation').CURRENT.get().check(status in (200,201),'put_status')
     if status not in (200, 201):
         if diagnostics:
             diagnostics.append("operation_exception", operation_id=upload_operation_id,
@@ -479,6 +452,7 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
                     "/v1/admin/media/<media-id>/versions/<version-id>/finalise-upload",
                    {"sha256": hashlib.sha256(payload).hexdigest(), "content_type": "image/png"})
     version = finalised["version"]
+    __import__('storage_observation').CURRENT.get().check(version.get('state')=='ready','media_state')
     if version["state"] != "ready":
         if diagnostics:
             diagnostics.append("operation_exception", operation="upload_finalise", method="POST",
@@ -491,6 +465,7 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
         minio_port, "GET", object_path, diagnostics=diagnostics,
         diagnostic_operation="signed_s3_get", diagnostic_path_template="/acme-media/<object-key>",
     )
+    __import__('storage_observation').CURRENT.get().check(get_status==200 and received==payload,'object_equal',bytes_equal=received==payload)
     if get_status != 200 or received != payload:
         if diagnostics:
             diagnostics.append("operation_exception", operation="signed_s3_get", method="GET",
@@ -502,6 +477,7 @@ def prove_reference_upload(runtime, checkout, env, states, gateway_root, gateway
         minio_port, "DELETE", object_path, diagnostics=diagnostics,
         diagnostic_operation="signed_s3_delete", diagnostic_path_template="/acme-media/<object-key>",
     )
+    __import__('storage_observation').CURRENT.get().check(delete_status in (200,204),'delete_status')
     if delete_status not in (200, 204):
         if diagnostics:
             diagnostics.append("operation_exception", operation="signed_s3_delete", method="DELETE",

@@ -422,3 +422,9 @@ current listener target, TLS and ready certificate. Unknown fields, duplicate
 domains, mismatched counts and invalid field types refuse qualification. Schema
 failures retain only the route index, known field identifier, type/nullability
 and closed predicate results; route values remain in memory.
+
+Private storage qualification uses the shared bounded HTTP reader for signed
+Silo requests, CORS, anonymous reads and media transport. Each request has one
+absolute eight-second budget (auth retains its separate policy), bounded
+headers/body and closed operation/phase/predicate evidence. A lost response
+after dispatch leaves the operation uncertain and never triggers a write retry.
