@@ -213,7 +213,7 @@ class FreshBackend:
             publish_refusal(error,'profile_binding',getattr(self,'refusal_emit',None))
             raise
 
-    def _bind_generated_profile(self):
+    def _bind_generated_profile(self, *, read_only=False):
         self.guard()
         if self.start_record is None or self.profile_binding is not None:raise Refusal('original_start_required')
         directory=self.paths['LIMA_HOME']/INSTANCE;colima=self.paths['COLIMA_HOME']/PROFILE
@@ -221,7 +221,10 @@ class FreshBackend:
         binding={'config_dir':str(directory),'colima_dir':str(colima),'config':str(config),'colima_config':str(colima_config),'identities':{}}
         for key in ('config_dir','colima_dir'):binding['identities'][key]=self._profile_dir(binding[key])
         for key in ('config','colima_config'):
-            identity(binding[key]);os.chmod(binding[key],0o600) # only new intent-owned generated files
+            identity(binding[key])
+            if read_only:
+                if stat.S_IMODE(Path(binding[key]).stat().st_mode)!=0o600:raise Refusal('profile_config_permissions')
+            else:os.chmod(binding[key],0o600) # fresh intent-owned generated files only
             binding['identities'][key]=identity(binding[key]);binding[key+'_sha256']=file_sha(binding[key],1048576)
         raw=read_small(config)
         private_mount(raw, self.root)
@@ -231,6 +234,8 @@ class FreshBackend:
         self.profile_binding=binding
         self.profile_binding_sha256=hashlib.sha256(json.dumps(binding,sort_keys=True).encode()).hexdigest()
         self.guard()
+        from backend_checkpoint import save
+        save(self,'profile_bound',epoch='prospective' if read_only else 'creation')
 
     def route_context(self):
         if not self.profile_binding:raise Refusal('original_profile_config_missing')
@@ -261,6 +266,8 @@ class FreshBackend:
             for key in ('namespace','address','binary_sha256','config_state','config_sha256','help_sha256'):
                 if observed[key]!=self.original_route[key]:raise Refusal('original_route_changed')
         if self.original_route is None:self.original_route=copy.deepcopy(observed)
+        from backend_checkpoint import save
+        save(self,'route_bound',epoch=getattr(self,'checkpoint_epoch','creation'))
         return copy.deepcopy(observed)
 
     def observer_for(self, checkout, env, container='default', foreign_scopes=(), *, foreign_fixture=None):
@@ -306,6 +313,20 @@ class FreshBackend:
         reader=Observer(context,env,self.root,{k:copy.deepcopy(v) for k,v in context.items() if k!='schema'})
         reader.original_admission=self
         return reader
+
+    @classmethod
+    def prospective_from_metadata_hold(cls, authorization, inherited):
+        from backend_checkpoint import prospective
+        return prospective(cls,authorization,inherited)
+
+    @classmethod
+    def restore_checkpoint(cls, reference, inherited):
+        from backend_checkpoint import restore
+        return restore(cls,reference,inherited)
+
+    def save_checkpoint(self, phase, **kwargs):
+        from backend_checkpoint import save
+        return save(self,phase,epoch=getattr(self,'checkpoint_epoch','creation'),**kwargs)
 
     def consume_instance_projection(self, raw):
         from container_identity_observer import strict_json

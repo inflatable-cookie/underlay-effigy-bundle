@@ -1546,6 +1546,15 @@ def _run_profile_collision(checkout: Path, foreign_checkout: Path, foreign_state
     return recovered
 
 
+CHECKPOINT_LEDGER=None
+
+def checkpoint_event(stage,checkout,state,mutating):
+    if CHECKPOINT_LEDGER is not None:
+        member=Path(checkout).name
+        if member not in ('main','first','second'):raise UncertainProfileOwnership('checkpoint checkout member refused')
+        CHECKPOINT_LEDGER.event(stage,member,state,mutating=mutating)
+
+
 @storage.boundary('observe_silo_storage')
 def observe_silo_storage(checkout,env,port,origin,diagnostics=None):
     return RUNTIME.prove_silo(checkout,env,port,origin,container='hybrid_services',service='silo',
@@ -1575,8 +1584,12 @@ def observe_silo_profile(checkout,env,port,gateway_root,gateway_port,domains,sta
         routes.context_gate(gateway,root,current_port,states,current)
     except BaseException as error:
         raise UncertainProfileOwnership('current browser context ownership is uncertain') from error
+    checkpoint_event('policy_readback',checkout,'dispatch',False)
     policy=RUNTIME.observe_silo_policy(checkout,env,'hybrid_services','acme-media',origins,diagnostics)
+    checkpoint_event('policy_readback',checkout,'completed',False)
+    checkpoint_event('storage',checkout,'dispatch',True)
     result=observe_silo_storage(checkout,env,port,origins[0],diagnostics)
+    checkpoint_event('storage',checkout,'completed',True)
     storage.mark('observe_silo_profile','browser_context')
     try:
         after_root,after_port,after_gateway=gateway_context(checkout,env)
@@ -1599,7 +1612,8 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                             diagnostics: StorageDiagnosticJournal | None = None,
                             auth_patch_receipt: dict | None = None,
                             remaining_lifecycle: bool = False,
-                            retained_inputs: dict | None = None) -> dict:
+                            retained_inputs: dict | None = None,
+                            resume_main: bool = False) -> dict:
     service_records: dict[Path, dict] = {}
     app_records: dict[Path, dict[str, dict]] = {}
     api_build_identity: dict | None = None
@@ -1615,7 +1629,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
     if floor_template not in (ROOT / "export.toml").read_text(encoding="utf-8"):
         raise RuntimeError("profile input must raise the manifest floor only to 0.14.1")
     try:
-        if not remaining_lifecycle:
+        if not remaining_lifecycle and not resume_main:
             for checkout in checkouts:
                 config = RUNTIME.run([EFFIGY, "--repo", str(checkout), "config", "--inspect"],
                                      cwd=checkout, env=env, timeout=120, print_output=False).stdout
@@ -1648,7 +1662,10 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                     raise RuntimeError('api_preparation_missing_before_launch')
                 reference_api_preparation.admit_launch(preparation, checkout, env, auth_patch_receipt,
                     lambda event, **fields: diagnostics.append(event, **fields))
-            selector(checkout, "dev:hybrid", env, timeout=1800)
+            if not (resume_main and checkout==checkouts[0]):
+                checkpoint_event('profile_start',checkout,'dispatch',True)
+                selector(checkout, "dev:hybrid", env, timeout=1800)
+                checkpoint_event('profile_start',checkout,'completed',True)
             if auth_patch_receipt is not None:
                 # Cargo may relink for a different checkout in the private shared target.
                 # Bind its current result; do not label the original artifact immutable.
@@ -1658,7 +1675,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
             if checkout == checkouts[0] and auth_patch_receipt is not None:
                 api_build_identity = record_reference_auth_build_identity(
                     checkout, env, diagnostics, auth_patch_receipt)
-            receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid", "exit": 0})
+            receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid", "exit": 0, "retained_original75_start":bool(resume_main and checkout==checkouts[0])})
             status = effigy_json(checkout, env, "container", "hybrid_services", "status", "--json")
             service_records[checkout] = status
             services = {str(item.get("name")): str(item.get("status")) for item in status.get("services", [])}
@@ -1714,7 +1731,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                 record["occupied_bind_probes"] = prove_owned_bind_exclusion(states)
             selector(checkout, "dev:hybrid:status", env)
             receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid:status", "exit": 0})
-            if checkout == checkouts[0] and not remaining_lifecycle:
+            if checkout == checkouts[0] and not remaining_lifecycle and not resume_main:
                 selector(checkout, "dev:hybrid", env, timeout=900)
                 receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid", "exit": 0,
                                                         "idempotent_existing_profile": True})
@@ -1774,10 +1791,12 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                             "silo_client_image": CLIENT_IMAGE,
                         },
                     }
+                checkpoint_event('auth_media',checkout,'dispatch',True)
                 storage_receipt = RUNTIME.prove_reference_upload(
                     RUNTIME, checkout, env, states, gateway_root, gateway_port, upload_port,
                     service_container="hybrid_services", diagnostics=diagnostics,
                     diagnostic_context=diagnostic_context)
+                checkpoint_event('auth_media',checkout,'completed',True)
                 receipts["reference_storage"] = storage_receipt
                 if diagnostics is not None:
                     diagnostics.append(
@@ -1807,6 +1826,7 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
         receipts["distinct_postgres_ports"] = ports
 
         if not storage_only and len(checkouts) == 3:
+            checkpoint_event('lifecycle',checkouts[0],'dispatch',True)
             main, before = checkouts[0], app_records[checkouts[0]]
             retained_restart = (retained_inputs or {}).get("restart")
             if retained_restart:
@@ -1980,11 +2000,17 @@ def verify_profile_runtime(checkouts: list[Path], env: dict[str, str], *, backen
                 receipts["production_selectors"].append({"checkout": str(checkout), "selector": "dev:hybrid:down", "exit": 0})
                 _verify_stopped(checkout, app_records[checkout], env)
 
+            checkpoint_event('lifecycle',checkouts[0],'completed',True)
 
         return receipts
     except UncertainProfileOwnership:
         held_for_uncertain_owner=True
         receipts.setdefault('owner_uncertainty',{'stage':'current_browser_context','reason':'current listener/gateway context unverified'})
+        raise
+    except BaseException:
+        if resume_main:
+            held_for_uncertain_owner=True
+            receipts['owner_uncertainty']={'stage':'resumed_stage','reason':'resumed operation requires explicit effect disposition'}
         raise
     finally:
         original_failure=sys.exc_info()[1]

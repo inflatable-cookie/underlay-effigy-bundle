@@ -435,3 +435,9 @@ preflights before object writes. The default container path shares those policy
 and HTTP checks. Policy values remain in memory; closed predicates and framing
 facts survive refusal. A separate diagnostic result does not establish full
 profile readiness or independent cleanup.
+
+Qualification resume uses bounded private, versioned checkpoints with exclusive
+consumption and source/file identity checks. Prospective admission is distinct
+from historical startup evidence; it cannot retroactively certify missing
+identities or cleanup. Unresolved ownership or a pending mutation leaves the
+scope held instead of restarting it.

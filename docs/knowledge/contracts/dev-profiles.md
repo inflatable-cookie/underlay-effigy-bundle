@@ -1838,3 +1838,23 @@ the private gateway port. Qualification checks that metadata against the route
 hostname, derives the browser origin with the independently observed gateway
 port, and verifies actual app origin responses. Metadata lacking a private port
 must not be interpreted as evidence that the browser uses port 443.
+
+Durable qualification checkpoints retain typed input associations rather than
+Python objects, environment values or credentials. Original creation intents
+remain immutable. A separately authorized prospective epoch can validate the
+current generated profile, actual rooted route and mounted-directory nonce,
+then capture a strictly classified current service-ID baseline. Such an epoch
+never establishes historical route values, startup container IDs or cleanup.
+
+Fresh backend admission publishes generated-profile and route checkpoints before
+later dependent dispatch. Restore verifies source and file identities, hashes,
+private roots, tools, policies and current config guards across process exits.
+A continuation-ready record also binds private build/input references, known
+host facts, the prospective service inventory, the original operation clock and
+the first unperformed stage. Exclusive consumption precedes continuation;
+pending or unknown mutation and failed checkpoint publication refuse replay.
+Metadata-hold continuation skips the completed primary start, idempotency,
+bootstrap and check/build steps. Other scopes remain excluded.
+The resume interface requires passing covering controls and an actual positive
+current admission before use; implementation controls alone certify neither
+live ownership nor product completion.

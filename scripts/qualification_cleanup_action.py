@@ -31,10 +31,10 @@ class ListenerObserver:
         if type(gateway.get('routes')) is not list or type(gateway.get('running')) is not bool:
             raise cleanup.CleanupUnknown('gateway_observation_unknown')
         routes=gateway['routes']
-        if any(type(x) is not dict or not isinstance(x.get('domain'),str) or not isinstance(x.get('target'),str) for x in routes):
-            raise cleanup.CleanupUnknown('gateway_route_schema')
-        if len({x['domain'] for x in routes})!=len(routes):
-            raise cleanup.CleanupUnknown('gateway_route_duplicate')
+        # The qualified mixed dashboard permits null HTTP targets for DNS/TCP
+        # aliases. Exact app target equality is checked by route_matches below.
+        import route_observation
+        route_observation.validate_routes(routes,gateway.get('route_count'),route_observation.Observation(operation='gateway_status'))
         return routes
     def route_matches(self,state):
         routes=self.routes();matches=[x for x in routes if x.get('domain')==state['route_domain']]

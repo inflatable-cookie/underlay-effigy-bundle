@@ -13,7 +13,7 @@ STAGES=frozenset(('profile_binding','route_admission','route_transport','route_c
 # No exception message, dynamic argument or external repository text is admitted.
 def reasons():
     values=set()
-    for name in ('generated_profile.py','fresh_backend_admission.py','original_container_route.py','container_identity_observer.py'):
+    for name in ('generated_profile.py','fresh_backend_admission.py','original_container_route.py','container_identity_observer.py','backend_checkpoint.py','profile_resume.py'):
         tree=ast.parse(Path(__file__).with_name(name).read_text())
         for node in ast.walk(tree):
             if isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and node.func.id=='Refusal' and node.args and isinstance(node.args[0],ast.Constant) and type(node.args[0].value) is str:

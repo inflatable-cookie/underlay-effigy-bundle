@@ -233,3 +233,11 @@ run_in = "host"
 [tasks."proof:dev-profiles:silo-cors-contract"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/silo_cors_contract.py"
 run_in = "host"
+
+[tasks."proof:dev-profiles:checkpoint-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/backend_checkpoint_test.py CheckpointControls.test_complete_backend_roundtrip_in_another_process_and_actual_guard CheckpointControls.test_source_root_tool_config_schema_epoch_and_content_fail_closed CheckpointControls.test_exclusive_publication_capacity_partial_identity_and_pending_effect CheckpointControls.test_read_only_binding_does_not_repair_permissions_or_mount CheckpointControls.test_actual_prospective_epoch_nonce_inventory_and_foreign_refusal CheckpointControls.test_dispatch_pending_or_publication_failure_never_replays CheckpointControls.test_ready_checkpoint_complete_payload_single_consumption_and_false_stage CheckpointControls.test_actual_host_gate_rejects_original_generation_and_kernel_start_changes"
+run_in = "host"
+
+[tasks."proof:dev-profiles:resume-current"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/profile_resume.py"
+run_in = "host"
