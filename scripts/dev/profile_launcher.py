@@ -81,7 +81,7 @@ def _git(source: Path, *args: str) -> str:
                 ('rev-parse','HEAD^{tree}'):'source_git_tree',('status','--porcelain'):'source_git_status'}
         try:return startup_evidence.capture_command(['git','-C',str(source),*args],env=dict(os.environ),timeout=10).stdout.strip()
         except startup_evidence.NativeFailure as error:
-            error.record['source_reason']=labels.get(args)
+            if error.record['reason']!='journal_refused':error.record['source_reason']=labels.get(args)
             raise
     try:
         result = subprocess.run(
@@ -1064,6 +1064,7 @@ def _silo_journal(repo: Path, container: str, filename="silo-bootstrap.jsonl"):
                 if info.st_size+len(data)>131072:raise ProfileError('Silo bootstrap journal bound refused')
                 if os.write(fd,data)!=len(data):raise ProfileError('Silo bootstrap journal write refused')
             finally:os.close(fd)
+    startup_evidence.register_local_errors(Journal)
     return Journal()
 
 
@@ -1557,7 +1558,7 @@ def main(argv: list[str] | None = None) -> int:
 
     env = os.environ.copy()
     try:startup_evidence.configure(env,Path(args.repo),args.action,args.container)
-    except Exception:startup_evidence.refuse('source_refused')
+    except Exception as error:raise startup_evidence.failure(error,'source_refused') from None
     identity = verify_binary(
         env.get("UNDERLAY_PROFILE_EFFIGY_SOURCE"),
         env.get("UNDERLAY_PROFILE_EFFIGY_BIN"),
@@ -1582,6 +1583,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(context, separators=(",", ":"), sort_keys=True))
     return 0
 
+
+startup_evidence.register_local_errors(sys.modules[__name__])
 
 if __name__ == "__main__":
     try:

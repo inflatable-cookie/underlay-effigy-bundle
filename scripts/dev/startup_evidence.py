@@ -17,6 +17,9 @@ import sys
 import time
 from . import owned_capture, silo_client
 
+STARTUP_FILE_CAP=524288
+STARTUP_CLEANUP_RESERVE=24576
+STARTUP_ORDINARY_LIMIT=STARTUP_FILE_CAP-STARTUP_CLEANUP_RESERVE
 SCHEMA='underlay.profile.native-failure.v1'
 MARKER='UNDERLAY_PROFILE_FAILURE '
 STAGES=frozenset(('command','source_gate','original_context','private_root','gateway_setup',
@@ -55,8 +58,85 @@ def base(reason='unknown',stage=None):
         'error_class':None,'source_reason':None,'exit':None,'capture':None,'callers':[],'native':None,'effect_state':'unknown',
         'publication_unavailable':False,'cleanup_unavailable':False,'deadline_exceeded':False}
 
+JOURNAL_REASONS=frozenset(('startup_journal_capacity','startup_journal_sticky','startup_intent_changed',
+ 'startup_journal_identity','startup_journal_permissions','startup_journal_link','startup_journal_write',
+ 'startup_journal_encoding','startup_journal_content','startup_record_refused','startup_event_refused','startup_elapsed_refused',
+ 'startup_host_identity_refused','startup_file_refused','startup_file_changed','startup_journal_sequence',
+ 'startup_journal_deadline','startup_journal_external'))
+SOURCE_REASONS=SOURCE_REASONS|JOURNAL_REASONS|frozenset(('startup_binding_refused','startup_symlink_refused','startup_root_refused','startup_intent_refused','startup_source_binding_refused','startup_controls_changed','startup_scope_refused'))
+
+JOURNAL_SOURCE_MAP={
+ 'Silo bootstrap journal boundary refused':'bootstrap_journal_identity',
+ 'Silo bootstrap journal bound refused':'bootstrap_journal_capacity',
+ 'Silo bootstrap journal write refused':'bootstrap_journal_write',
+ 'profile journal name refused':'bootstrap_journal_name',
+ 'profile journal path refused':'bootstrap_journal_path',
+ 'diagnostic_capacity_refused':'main_journal_capacity',
+ 'diagnostic_typed_fields_limit':'main_journal_record',
+ 'diagnostic_journal_identity_refused':'main_journal_identity',
+ 'diagnostic_journal_write_refused':'main_journal_write'}
+SOURCE_REASONS=SOURCE_REASONS|frozenset(JOURNAL_SOURCE_MAP.values())
+
+def owned_journal_reason(error):
+    trace=getattr(error,'__traceback__',None)
+    while trace is not None and trace.tb_next is not None:trace=trace.tb_next
+    args=getattr(error,'args',())
+    if (ERROR_CLASSES.get(type(error)) in ('ValueError','RuntimeError','ProfileError')
+        and trace is not None and trace.tb_frame.f_code in OWNING_CODES
+        and len(args)==1 and type(args[0]) is str):return JOURNAL_SOURCE_MAP.get(args[0])
+    return None
+
+class JournalRefusal(ValueError):
+    def __init__(self,observation):
+        self.observation=observation
+        super().__init__('startup_journal_refused')
+
+def valid_journal(value):
+    keys={'schema','reason','error_class','bytes_used','bytes_requested','ordinary_limit','total_cap',
+          'cleanup_reserve','limit','counts_available','secondary_reasons'}
+    if type(value) is not dict or set(value)!=keys or value['schema']!='underlay.startup-journal-refusal.v1':return False
+    if value['reason'] not in JOURNAL_REASONS or value['error_class'] not in ('ValueError','RuntimeError','OSError','FileNotFoundError','PermissionError','TypeError','TimeoutExpired','KeyboardInterrupt','ProfileError','other'):return False
+    if type(value['counts_available']) is not bool:return False
+    if type(value['secondary_reasons']) is not list or len(value['secondary_reasons'])>len(JOURNAL_REASONS) or any(x not in JOURNAL_REASONS for x in value['secondary_reasons']):return False
+    for key in ('bytes_used','bytes_requested','ordinary_limit','total_cap','cleanup_reserve','limit'):
+        if value[key] is not None and (type(value[key]) is not int or not 0<=value[key]<=2**64-1):return False
+    if value['total_cap']!=STARTUP_FILE_CAP or value['cleanup_reserve']!=STARTUP_CLEANUP_RESERVE or value['ordinary_limit']!=STARTUP_ORDINARY_LIMIT:return False
+    if value['counts_available'] and any(value[k] is None for k in ('bytes_used','bytes_requested','limit')):return False
+    return True
+
+def preflight(used,requested,limit):
+    if used+requested>limit:
+        raise JournalRefusal({'schema':'underlay.startup-journal-refusal.v1',
+            'reason':'startup_journal_capacity','error_class':'ValueError','bytes_used':used,
+            'bytes_requested':requested,'ordinary_limit':STARTUP_ORDINARY_LIMIT,
+            'total_cap':STARTUP_FILE_CAP,'cleanup_reserve':STARTUP_CLEANUP_RESERVE,
+            'limit':limit,'counts_available':True,'secondary_reasons':[]})
+
+def journal_failure(error,record=None):
+    record=validate(record) or base('journal_refused')
+    if type(error) is JournalRefusal and valid_journal(error.observation):
+        observation=json.loads(json.dumps(error.observation))
+    else:
+        observation={'schema':'underlay.startup-journal-refusal.v1','reason':'startup_journal_external',
+          'error_class':ERROR_CLASSES.get(type(error),'other'),'bytes_used':None,'bytes_requested':None,
+          'ordinary_limit':STARTUP_ORDINARY_LIMIT,'total_cap':STARTUP_FILE_CAP,
+          'cleanup_reserve':STARTUP_CLEANUP_RESERVE,'limit':None,'counts_available':False,'secondary_reasons':[]}
+    if 'journal_failure' in record:
+        original=record['journal_failure']
+        if observation['reason'] not in original['secondary_reasons']:original['secondary_reasons'].append(observation['reason'])
+    else:record['journal_failure']=observation
+    if record['reason'] in ('unknown','journal_refused'):
+        record['reason']='journal_refused';record['source_reason']=record['journal_failure']['reason']
+        record['error_class']=record['journal_failure']['error_class']
+    source=owned_journal_reason(error)
+    if source and record['reason']=='journal_refused':
+        record['source_reason']=source;record['error_class']=ERROR_CLASSES.get(type(error),'other')
+    record['publication_unavailable']=True
+    return NativeFailure(record)
+
 def _validate(value):
-    if type(value) is not dict or set(value)!=set(base()):return None
+    if type(value) is not dict or set(value) not in (set(base()),set(base())|{'journal_failure'}):return None
+    if 'journal_failure' in value and not valid_journal(value['journal_failure']):return None
     if value['schema']!=SCHEMA or value['stage'] not in STAGES or value['reason'] not in REASONS:return None
     for key,size in (('binding',64),('nonce',32),('call_id',32)):
         if value[key] is not None and (type(value[key]) is not str or re.fullmatch('[0-9a-f]{'+str(size)+'}',value[key]) is None):return None
@@ -143,13 +223,23 @@ def marker_record(stderr,*,binding=None,nonce=None):
 
 def register_local_errors(module):
     for function in vars(module).values():
+        if isinstance(function,type) and function.__module__==module.__name__:
+            for method in vars(function).values():
+                method=method.__func__ if isinstance(method,(staticmethod,classmethod)) else method
+                code=getattr(method,'__code__',None)
+                if code is not None:OWNING_CODES[code]=True
         code=getattr(function,'__code__',None)
         if code is not None:OWNING_CODES[code]=True
 
 def failure(error,reason='unknown'):
     if type(error) is NativeFailure:return error
+    if type(error) is JournalRefusal:return journal_failure(error)
     record=base(reason)
     record['error_class']=ERROR_CLASSES.get(type(error),'other')
+    source=owned_journal_reason(error)
+    if source:
+        record['reason']='journal_refused';record['source_reason']=source
+        return NativeFailure(record)
     trace=getattr(error,'__traceback__',None)
     while trace is not None and trace.tb_next is not None:trace=trace.tb_next
     args=getattr(error,'args',())
@@ -171,15 +261,15 @@ def stage(name):
             role_token=ROLE.set(ROLE.get())
             try:
                 try:session.emit(name,'entered')
-                except BaseException:raise NativeFailure(base('journal_refused')) from None
+                except BaseException as error:raise journal_failure(error) from None
                 try:result=function(*args,**kwargs)
                 except BaseException as error:
                     primary=failure(error)
                     try:session.emit(name,'refused',primary.record)
-                    except BaseException:primary.record['publication_unavailable']=True
+                    except BaseException as secondary:primary=journal_failure(secondary,primary.record)
                     raise primary from None
                 try:session.emit(name,'completed')
-                except BaseException:raise NativeFailure(base('journal_refused')) from None
+                except BaseException as error:raise journal_failure(error) from None
                 return result
             finally:CURRENT.reset(token);ROLE.reset(role_token)
         return call
@@ -209,7 +299,7 @@ class Session:
         if any(type(value[k]) is not str or re.fullmatch('[0-9a-f]{40}' if k=='head' else '[0-9a-f]{64}',value[k]) is None for k in ('head','controls_sha256')):raise ValueError('startup_source_binding_refused')
         if hashlib.sha256(self.read(self.root/'controls.json',65536)).hexdigest()!=value['controls_sha256']:raise ValueError('startup_controls_changed')
         self.deadline=value['deadline_at'];self.sticky=False;self.sequence=0
-        self.bytes=0
+        self.bytes=0;self.content_digest=hashlib.sha256()
         if action not in ('start','status','down','test','context') or profile not in ('hybrid','disposable_test','container'):raise ValueError('startup_scope_refused')
         self.action=action;self.profile=profile
         self.path=self.root/('startup-'+self.nonce+'-'+self.call_id+'.jsonl')
@@ -218,6 +308,7 @@ class Session:
         self.emit('original_context','entered')
     @staticmethod
     def read(path,cap):
+        if type(cap) is not int or not 0<cap<=STARTUP_FILE_CAP:raise ValueError('startup_file_refused')
         fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
         try:
             before=os.fstat(fd)
@@ -228,12 +319,36 @@ class Session:
             return raw
         finally:os.close(fd)
     def emit(self,name,state,record=None,role=None,original_host_identity=None,elapsed_ms=None):
-        if self.sticky:raise ValueError('startup_journal_sticky')
+        self.requested=None;self.limit=STARTUP_FILE_CAP if name in ('cleanup','down') else STARTUP_ORDINARY_LIMIT
+        try:
+            if self.sticky:raise ValueError('startup_journal_sticky')
+            return self._emit(name,state,record,role,original_host_identity,elapsed_ms)
+        except BaseException as error:
+            self.sticky=True
+            trace=getattr(error,'__traceback__',None)
+            while trace is not None and trace.tb_next is not None:trace=trace.tb_next
+            args=getattr(error,'args',())
+            if type(error) is JournalRefusal and valid_journal(error.observation):raise
+            reason=(args[0] if type(error) is ValueError and trace is not None
+                    and trace.tb_frame.f_code in OWNING_CODES and len(args)==1
+                    and type(args[0]) is str and args[0] in JOURNAL_REASONS else 'startup_journal_external')
+            observation={'schema':'underlay.startup-journal-refusal.v1','reason':reason,
+                'error_class':ERROR_CLASSES.get(type(error),'other'),'bytes_used':self.bytes,
+                'bytes_requested':self.requested,'ordinary_limit':STARTUP_ORDINARY_LIMIT,
+                'total_cap':STARTUP_FILE_CAP,'cleanup_reserve':STARTUP_CLEANUP_RESERVE,
+                'limit':self.limit,'counts_available':self.requested is not None,'secondary_reasons':[]}
+            raise JournalRefusal(observation) from None
+    def _emit(self,name,state,record=None,role=None,original_host_identity=None,elapsed_ms=None):
         try:
             if role not in (None,'api','front','admin') or name not in STAGES or state not in ('entered','completed','refused'):raise ValueError('startup_event_refused')
             if hashlib.sha256(self.read(self.intent_path,65536)).hexdigest()!=self.binding:raise ValueError('startup_intent_changed')
             info=os.fstat(self.fd);live=self.path.lstat()
-            if (info.st_dev,info.st_ino)!=(self.identity.st_dev,self.identity.st_ino) or info.st_size!=self.bytes or (info.st_dev,info.st_ino)!=(live.st_dev,live.st_ino) or info.st_nlink!=1 or info.st_uid!=os.geteuid() or stat.S_IMODE(info.st_mode)!=0o600:raise ValueError('startup_journal_changed')
+            if stat.S_IMODE(info.st_mode)!=0o600 or info.st_uid!=os.geteuid():raise ValueError('startup_journal_permissions')
+            if info.st_nlink!=1 or live.st_nlink!=1:raise ValueError('startup_journal_link')
+            if not stat.S_ISREG(live.st_mode) or (info.st_dev,info.st_ino)!=(self.identity.st_dev,self.identity.st_ino) or info.st_size!=self.bytes or (info.st_dev,info.st_ino)!=(live.st_dev,live.st_ino):raise ValueError('startup_journal_identity')
+            if hashlib.sha256(self.read(self.path,STARTUP_FILE_CAP)).digest()!=self.content_digest.digest():raise ValueError('startup_journal_content')
+            if type(self.sequence) is not int or self.sequence<0:raise ValueError('startup_journal_sequence')
+            if time.time()>=self.deadline:raise ValueError('startup_journal_deadline')
             self.sequence+=1
             if elapsed_ms is not None and (type(elapsed_ms) is not int or not 0<=elapsed_ms<=7200000):raise ValueError('startup_elapsed_refused')
             if original_host_identity is not None:
@@ -248,13 +363,51 @@ class Session:
                 'effect_state':'unknown','observation':validate(record) if record is not None else None,
                 'original_host_identity':original_host_identity,'elapsed_ms':elapsed_ms}
             if record is not None and value['observation'] is None:raise ValueError('startup_record_refused')
-            raw=(json.dumps(value,separators=(',',':'))+'\n').encode()
-            cap=131072 if name in ('cleanup','down') else 131072-24576
-            if info.st_size+len(raw)>cap:raise ValueError('startup_journal_capacity')
-            if os.write(self.fd,raw)!=len(raw):raise ValueError('startup_journal_write')
-            self.bytes+=len(raw)
+            try:raw=(json.dumps(value,separators=(',',':'))+'\n').encode()
+            except (ValueError,TypeError,UnicodeError):raise ValueError('startup_journal_encoding') from None
+            self.requested=len(raw)
+            preflight(info.st_size,len(raw),self.limit)
+            try:written=os.write(self.fd,raw)
+            except OSError as error:
+                raise JournalRefusal({'schema':'underlay.startup-journal-refusal.v1',
+                    'reason':'startup_journal_write','error_class':ERROR_CLASSES.get(type(error),'OSError'),
+                    'bytes_used':self.bytes,'bytes_requested':len(raw),'ordinary_limit':STARTUP_ORDINARY_LIMIT,
+                    'total_cap':STARTUP_FILE_CAP,'cleanup_reserve':STARTUP_CLEANUP_RESERVE,
+                    'limit':self.limit,'counts_available':True,'secondary_reasons':[]}) from None
+            if written!=len(raw):raise ValueError('startup_journal_write')
+            self.bytes+=len(raw);self.content_digest.update(raw)
         except BaseException:self.sticky=True;raise
     def close(self):os.close(self.fd)
+
+def read_stages(path,*,binding,nonce,call_id):
+    raw=Session.read(path,STARTUP_FILE_CAP)
+    if raw and not raw.endswith(b'\n'):raise ValueError('startup_record_refused')
+    rows=[]
+    keys={'schema','binding','nonce','call_id','action','profile','role','service','sequence',
+          'stage','state','effect_state','observation','original_host_identity','elapsed_ms'}
+    for number,line in enumerate(raw.splitlines(),1):
+        row=silo_client.strict_json(line)
+        if (type(row) is not dict or set(row)!=keys or row['schema']!='underlay.profile.startup-stage.v1'
+            or row['binding']!=binding or row['nonce']!=nonce or row['call_id']!=call_id
+            or type(row['sequence']) is not int or row['sequence']!=number
+            or row['stage'] not in STAGES or row['state'] not in ('entered','completed','refused')
+            or row['action'] not in ('start','status','down','test','context')
+            or row['profile'] not in ('hybrid','disposable_test','container')
+            or row['role'] not in (None,'api','front','admin') or row['service'] not in (None,'silo','silo_client')
+            or row['effect_state']!='unknown'
+            or row['observation'] is not None and validate(row['observation']) is None):raise ValueError('startup_record_refused')
+        elapsed=row['elapsed_ms']
+        if elapsed is not None and (type(elapsed) is not int or not 0<=elapsed<=7200000):raise ValueError('startup_elapsed_refused')
+        host=row['original_host_identity']
+        if host is not None:
+            if type(host) is not dict or set(host)!={'pid','ppid','pgid','uid','boot_identity','start_identity'}:raise ValueError('startup_host_identity_refused')
+            if any(type(host[k]) is not int or not 0<=host[k]<2**32 for k in ('pid','ppid','pgid','uid')):raise ValueError('startup_host_identity_refused')
+            if type(host['boot_identity']) is not str or re.fullmatch('[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}',host['boot_identity']) is None:raise ValueError('startup_host_identity_refused')
+            start=host['start_identity']
+            if type(start) is not dict or set(start)!={'platform','start_seconds','start_microseconds'} or start['platform']!='macos' or any(type(start[k]) is not int or start[k]<0 for k in ('start_seconds','start_microseconds')):raise ValueError('startup_host_identity_refused')
+        rows.append(row)
+    return rows
+
 
 def configure(env,repo,action,profile):
     if not env.get('UNDERLAY_PROFILE_BATCH_INTENT'):return None
@@ -303,9 +456,9 @@ def capture_command(args,*,cwd=None,env,timeout,expected=0,emit=None):
     if emit is not None:
         try:emit('qualification_native_capture',observation=validate(record),completed=not failed,
                  original_host_identity=captured['original_child_identity'],elapsed_ms=captured['elapsed_ms'])
-        except BaseException:
-            record['publication_unavailable']=True
-            if not failed:record['reason']='journal_refused';failed=True
+        except BaseException as error:
+            record=journal_failure(error,record if failed else dict(record,reason='journal_refused')).record
+            failed=True
     if time.monotonic()-started>=deadline:
         record['deadline_exceeded']=True
         if not failed:record['reason']='deadline'
@@ -332,5 +485,7 @@ def cli_failure(error):
     session=ACTIVE.get()
     if session is not None:
         try:session.emit(primary.record['stage'],'refused',primary.record)
-        except BaseException:primary.record['publication_unavailable']=True
+        except BaseException as secondary:primary=journal_failure(secondary,primary.record)
     print(MARKER+json.dumps(primary.record,separators=(',',':')),file=sys.stderr,flush=True)
+
+register_local_errors(sys.modules[__name__])

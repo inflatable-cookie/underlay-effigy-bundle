@@ -1751,3 +1751,14 @@ configured-task and private fake-backend controls qualify this evidence path;
 they provide no application startup, runtime acceptance or independent cleanup
 credit. Existing production readiness deadlines and acceptance predicates are
 unchanged.
+
+Each private qualification startup JSONL file has a fixed 524288-byte physical
+budget and a 24576-byte cleanup reserve (499712 bytes for ordinary stages).
+The writer preflights the complete next record before writing. A capacity,
+identity, permission, link, intent, schema, encoding, deadline or write refusal
+is sticky. A closed failure observation carries the original reason and class,
+used/requested bytes and limits where available; later publication failures
+remain secondary. Partial writes never supply complete-prefix success. These
+records remain private typed data, without native output or exception text.
+The main journal's 131072-byte physical, 256KiB record and 4MiB decoded bounds,
+port/bootstrap journals, native capture limits and all deadlines are unchanged.

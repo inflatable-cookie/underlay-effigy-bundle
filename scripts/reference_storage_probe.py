@@ -34,6 +34,8 @@ class StorageDiagnosticJournal:
     """Append-only, private, redacted phase evidence outside the disposable fixture."""
 
     def __init__(self, path: Path, fixture_root: Path):
+        from dev import startup_evidence
+        startup_evidence.register_local_errors(type(self))
         requested = path.expanduser()
         if requested.name != "storage-diagnostics.jsonl":
             raise ValueError("storage diagnostics must use the fixed journal filename")

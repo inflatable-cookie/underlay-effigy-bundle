@@ -407,3 +407,10 @@ through its outer privacy filter, including a primary failure followed by
 publication or cleanup uncertainty. Raw command output stays in bounded memory;
 unknown external errors stay unknown. These source controls do not qualify a
 product runtime or establish resource cleanup.
+
+Private qualification startup journals have a fixed 512KiB limit per launcher
+call, including a 24KiB cleanup reserve. Their closed refusal marker preserves
+capacity, identity and write failures even when another journal append is
+unavailable. The main qualification journal remains 128KiB; native stream and
+time limits are unchanged. Journal completion supplies no runtime or cleanup
+credit.

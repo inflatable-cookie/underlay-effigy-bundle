@@ -217,3 +217,7 @@ run_in = "host"
 [tasks."proof:dev-profiles:startup-carrier-deadline-controls"]
 run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/original_container_route_test.py CarrierDeadlineControls"
 run_in = "host"
+
+[tasks."proof:dev-profiles:startup-journal-controls"]
+run = "PYTHONDONTWRITEBYTECODE=1 python3 scripts/startup_journal_test.py JournalVolumeControls"
+run_in = "host"

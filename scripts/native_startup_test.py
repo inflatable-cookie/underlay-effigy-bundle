@@ -202,7 +202,7 @@ class NativeControls(unittest.TestCase):
         self.assertEqual(record['effect_state'],'unknown')
         journals=list(self.root.glob('startup-*.jsonl'));self.assertTrue(journals)
         for path in journals:
-            text=path.read_text();self.assertNotIn('PRIVATE',text);self.assertEqual(path.stat().st_mode&0o777,0o600)
+            text=native.Session.read(path,native.STARTUP_FILE_CAP).decode();self.assertNotIn('PRIVATE',text);self.assertEqual(path.stat().st_mode&0o777,0o600)
         return record
     def test_actual_configured_launcher_start_and_status_success(self):
         self.assertEqual(self.pipeline(mode='ok').returncode,0)
@@ -377,7 +377,7 @@ raise AssertionError('bounded refusal falsely accepted')
         block=record['native']['bounded']['refusal_observations']
         self.assertEqual(block['stdout']['state'],'overflow')
         self.assertGreater(block['stdout']['read_bytes']['bytes'],65536)
-        rows=[json.loads(line) for p in self.root.glob('startup-*.jsonl') for line in p.read_text().splitlines()]
+        rows=[json.loads(line) for p in self.root.glob('startup-*.jsonl') for line in native.Session.read(p,native.STARTUP_FILE_CAP).decode().splitlines()]
         originals=[r['observation']['native'] for r in rows if r.get('observation') and r['observation']['native'] and r['observation']['native']['bounded']]
         self.assertTrue(originals)
         self.assertTrue(all(value==record['native'] for value in originals))
