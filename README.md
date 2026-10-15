@@ -44,6 +44,33 @@ sibling checkouts in the bundle inputs:
 siblings = false
 ```
 
+## Host development profiles (opt-in)
+
+Run the API, front and admin on the host while services stay in containers:
+
+```toml
+[bundle.profiles]
+enabled = true
+test_task = "acme-api/test"   # what dev:test runs
+test_timeout_secs = 900
+```
+
+- `effigy dev:hybrid` starts the `hybrid` services and host listeners behind
+  the gateway on the usual app hostnames. `dev:hybrid:status`,
+  `dev:hybrid:logs` and `dev:hybrid:down` operate it. Use it instead of `dev`,
+  not alongside it.
+- `effigy dev:test` starts a fresh `test.<host>` environment, runs
+  `test_task` once, and tears it down, even on failure or timeout.
+- Linked worktrees get their own scoped hostnames, ports and data
+  automatically.
+
+Needs Effigy `main` at or after `e91cd4c` (2026-10-15), installed with
+`effigy bootstrap:local`; restart a running shared gateway after installing. The app reads its public host,
+CORS origins, cookie domain, database and SMTP settings from the environment
+the bundle supplies; object-store settings still come from the app's own
+config. See [development profiles](docs/knowledge/contracts/dev-profiles.md#opt-in-profiles)
+for the full contract and adoption limits.
+
 ## Development profile qualification
 
 The bundle owns opt-in Rust/Vite managed-listener adapters and a SvelteKit
@@ -53,6 +80,10 @@ hook validates a configured HTTPS origin and keeps SvelteKit's event/request
 URLs coherent behind the private HTTPS gateway. Consumer default selectors
 remain container-based; this change supplies qualification machinery and
 explicit disposable consumer overrides.
+
+The selectors below are the retained task-004 qualification tooling. They
+still pin the older private Effigy build they qualified and are not needed to
+use the profiles above.
 
 Use the approved private Effigy source and binary:
 

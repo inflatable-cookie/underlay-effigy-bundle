@@ -229,6 +229,135 @@ concurrent = [
   { role = "lifecycle", start = 1, tab = 6 },
 ]
 
+{% if inputs.profiles.enabled %}
+# Opt-in host profiles. Services stay in containers; the API, front and
+# admin run on the host as Effigy managed listeners behind the gateway.
+# Effigy scopes names, ports and aliases per checkout; profile_env.py maps
+# its `container hosts` report onto the app environment. `dev:hybrid` uses
+# the declared names; `dev:test` uses a `test.` prefix so both can run at once.
+{% set raw_project = inputs.project_name or resolved_project_name %}
+{% set media_bucket = (raw_project[:-4] if raw_project[-4:] == "-dev" else raw_project) ~ "-media" %}
+{% for profile in [("hybrid", inputs.host, "hybrid"), ("test", "test." ~ inputs.host, "test")] %}
+{% set container = profile[0] %}
+{% set profile_host = profile[1] %}
+{% set api_domain = route_domain(profile_host, inputs.routes.api, "api") %}
+{% set front_domain = route_domain(profile_host, inputs.routes.front, "") %}
+{% set admin_domain = route_domain(profile_host, inputs.routes.admin, "admin") %}
+{% set s3_domain = route_domain(profile_host, inputs.routes.s3, "s3") %}
+{% set profile_env %}EFFIGY_PROFILE_DATABASE = "{{ inputs.databases|first }}", EFFIGY_PROFILE_BUCKET = "{{ media_bucket }}", EFFIGY_PROFILE_API_DECLARED = "{{ api_domain }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ front_domain }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ admin_domain }}", EFFIGY_PROFILE_S3_DECLARED = "{{ s3_domain }}"{% endset %}
+
+[containers.{{ container }}]
+startup = "detached"
+project_name = "{{ resolved_project_name }}-{{ profile[2] }}"
+primary_service = "postgres"
+working_dir = "/tmp"
+
+[containers.{{ container }}.services.postgres]
+catalog = "postgres"
+database = "{{ inputs.databases|first }}"
+databases = [{% for database in inputs.databases %}"{{ database }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+
+[containers.{{ container }}.services.dbgate]
+catalog = "dbgate"
+database_host = "postgres"
+database = "{{ inputs.databases|first }}"
+connection_label = "{{ resolved_project_name }} {{ container }}"
+
+[containers.{{ container }}.services.mailpit]
+catalog = "mailpit"
+
+[containers.{{ container }}.services.minio]
+catalog = "silo"
+
+[containers.{{ container }}.dns]
+routes = [
+  { domain = "{{ s3_domain }}", tls = true, port = 9000, service = "minio" },
+  { domain = "dbgate.{{ profile_host }}", tls = true, port = 3000, service = "dbgate" },
+  { domain = "mailpit.{{ profile_host }}", tls = true, port = 8025, service = "mailpit" },
+  { domain = "minio.{{ profile_host }}", tls = true, port = 9001, service = "minio" },
+]
+
+[[containers.{{ container }}.host_processes]]
+name = "api"
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec {{ container }} -- python3 "{{ bundle.root }}/scripts/dev/managed-rust-listener.py" -- effigy profile:api'
+cwd = "."
+restart = "on-failure"
+env = { {{ profile_env }} }
+
+[containers.{{ container }}.host_processes.listener]
+bind = "127.0.0.1:0"
+
+[containers.{{ container }}.host_processes.listener.readiness]
+path = "/v1/health"
+status = 200
+timeout_secs = 600
+
+[containers.{{ container }}.host_processes.listener.route]
+domain = "{{ api_domain }}"
+tls = true
+{% for app in [("front", inputs.dirs.front or "app-front", front_domain), ("admin", inputs.dirs.admin or "app-admin", admin_domain)] %}
+
+[[containers.{{ container }}.host_processes]]
+name = "{{ app[0] }}"
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec --self {{ app[0] }} {{ container }} -- bun "{{ bundle.root }}/scripts/dev/managed-vite-listener.mjs"'
+cwd = "{{ app[1] }}"
+restart = "on-failure"
+depends_on = ["api"]
+env = { {{ profile_env }} }
+
+[containers.{{ container }}.host_processes.listener]
+bind = "127.0.0.1:0"
+
+[containers.{{ container }}.host_processes.listener.readiness]
+path = "/"
+status = 200
+timeout_secs = 300
+
+[containers.{{ container }}.host_processes.listener.route]
+domain = "{{ app[2] }}"
+tls = true
+{% endfor %}
+{% endfor %}
+{% set hybrid_env %}EFFIGY_PROFILE_DATABASE = "{{ inputs.databases|first }}", EFFIGY_PROFILE_BUCKET = "{{ media_bucket }}", EFFIGY_PROFILE_API_DECLARED = "{{ route_domain(inputs.host, inputs.routes.api, 'api') }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ route_domain(inputs.host, inputs.routes.front, '') }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}", EFFIGY_PROFILE_S3_DECLARED = "{{ route_domain(inputs.host, inputs.routes.s3, 's3') }}"{% endset %}
+{% set test_host = "test." ~ inputs.host %}
+{% set test_env %}EFFIGY_PROFILE_DATABASE = "{{ inputs.databases|first }}", EFFIGY_PROFILE_BUCKET = "{{ media_bucket }}", EFFIGY_PROFILE_API_DECLARED = "{{ route_domain(test_host, inputs.routes.api, 'api') }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ route_domain(test_host, inputs.routes.front, '') }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ route_domain(test_host, inputs.routes.admin, 'admin') }}", EFFIGY_PROFILE_S3_DECLARED = "{{ route_domain(test_host, inputs.routes.s3, 's3') }}"{% endset %}
+
+# Host processes carry no vault secrets of their own, and task secrets do
+# not reach composed child tasks; run the API as a nested command instead.
+[tasks."profile:api"]
+run = "effigy {{ sel_api }}/api"
+run_in = "host"
+secrets = "required"
+
+[tasks."dev:hybrid"]
+run = [
+  { task = "container hybrid up --detach" },
+  "python3 \"{{ bundle.root }}/scripts/dev/profile_env.py\" bootstrap hybrid",
+]
+run_in = "host"
+secrets = "required"
+env = { {{ hybrid_env }} }
+
+[tasks."dev:hybrid:status"]
+run = [{ task = "container hybrid status" }]
+run_in = "host"
+
+[tasks."dev:hybrid:logs"]
+run = [{ task = "container hybrid logs --follow" }]
+run_in = "host"
+
+[tasks."dev:hybrid:down"]
+run = [{ task = "container hybrid down" }]
+run_in = "host"
+
+# Fresh data, one configured selector, then teardown. Never implies qa.
+[tasks."dev:test"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" test test --task "{{ inputs.profiles.test_task }}" --timeout {{ inputs.profiles.test_timeout_secs }}'
+run_in = "host"
+secrets = "required"
+env = { {{ test_env }} }
+{% endif %}
+
 [bootstrap]
 run = [
   { task = "secrets init" },

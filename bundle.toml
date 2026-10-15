@@ -210,3 +210,22 @@ type = "string"
 description = "Optional Chromium system-library layer for the workspace image. `none` leaves the ordinary Rust/Bun image unchanged; `chromium` installs Debian Bookworm runtime libraries and a basic font set at image build. Changing this value requires an image rebuild, and the consuming repo owns its matching browser download (Playwright/Node stay consumer-owned; the image ships no browser binary)."
 default = "none"
 example = "chromium"
+
+[[inputs]]
+name = "profiles.enabled"
+type = "bool"
+description = "Opt in to the host `dev:hybrid` and short-lived `dev:test` profiles: services stay in containers while the API, front and admin run on the host as Effigy managed listeners. Needs an Effigy build with managed host listeners (current `main`). Omitted or false leaves the container-only stack unchanged."
+default = false
+
+[[inputs]]
+name = "profiles.test_task"
+type = "string"
+description = "Effigy selector `dev:test` runs once its isolated environment is ready. Empty makes `dev:test` refuse before starting anything; full `qa` is never implied."
+default = ""
+example = "acme-api/test"
+
+[[inputs]]
+name = "profiles.test_timeout_secs"
+type = "integer"
+description = "Maximum run time in seconds for the `dev:test` selector before it is stopped and the environment torn down."
+default = 900
