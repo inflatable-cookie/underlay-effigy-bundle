@@ -64,8 +64,8 @@ test_timeout_secs = 900
 - Linked worktrees get their own scoped hostnames, ports and data
   automatically.
 
-Needs an Effigy build whose managed host listeners publish to the shared
-gateway (Effigy `main` from 2026-10-15, installed with `effigy bootstrap:local`). The app reads its public host,
+Needs Effigy `main` at or after `e91cd4c` (2026-10-15), installed with
+`effigy bootstrap:local`; restart a running shared gateway after installing. The app reads its public host,
 CORS origins, cookie domain, database and SMTP settings from the environment
 the bundle supplies; object-store settings still come from the app's own
 config. See [development profiles](docs/knowledge/contracts/dev-profiles.md#opt-in-profiles)

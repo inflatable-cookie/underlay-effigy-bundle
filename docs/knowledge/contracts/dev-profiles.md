@@ -135,10 +135,11 @@ false renders the existing container stack unchanged.
 
 Operator ruling, 2026-10-15: profiles run on the operator's installed Effigy,
 built from Effigy `main` with `effigy bootstrap:local`. There is no pinned
-source or binary-checksum gate. Profiles need an Effigy build that publishes
-managed listener routes to the shared gateway and accepts nerdctl compose
-bindings (Effigy PRs from 2026-10-15); older builds refuse the profile
-manifest or the listener routes. Add a released `minimum_effigy_version` when
+source or binary-checksum gate. Profiles need Effigy `main` at or after
+`e91cd4c` (2026-10-15): it publishes managed listener routes to the shared
+gateway (#283), accepts nerdctl compose bindings (#282) and lets a root-owned
+shared gateway verify user listeners (#285). Older builds refuse the profile
+manifest, time out activation on Colima, or answer listener routes with 503. Add a released `minimum_effigy_version` when
 Effigy next releases. This replaces the earlier exact-source admission.
 
 ### What the bundle does and does not own
@@ -189,8 +190,12 @@ granted CORS to the front origin and refused a foreign one, the front's HMR
 WebSocket upgraded with 101, the S3 route answered, and `dev:hybrid:down`
 withdrew every route and stopped every process and container. `dev:test`
 reset, started `test.*`, bootstrapped its bucket, ran `acme-api/check`,
-exited 0 and left no containers. Shared-gateway publication is covered by
-Effigy unit tests, not yet by a live run.
+exited 0 and left no containers.
+
+The same clone then ran `dev:hybrid` on the operator's root-owned shared
+gateway with Effigy `e91cd4c`. Through system DNS, system-trusted TLS and port
+443, api, front, admin and s3 returned 200; CORS and HMR (client port 443,
+upgrade 101) behaved as above; `dev:hybrid:down` withdrew every managed route.
 
 ### Published Silo qualification ruling
 
