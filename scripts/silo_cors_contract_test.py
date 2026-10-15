@@ -66,7 +66,7 @@ class Controls(unittest.TestCase):
    caller=load_runtime();caller.RUNTIME.EFFIGY=__import__("os").environ["UNDERLAY_PROFILE_EFFIGY_BIN"]
    gateway=fixture/'gateway';gateway.mkdir(mode=0o700)
    domains={'front':'front.example.test','admin':'admin.example.test','api':'api.example.test'}
-   states={role:dict(route_domain=domain,public_url='https://'+domain+':54321',generation='a'*32,
+   states={role:dict(route_domain=domain,public_url='https://'+domain,generation='a'*32,
                     runtime_generation='b'*32,address='127.0.0.1:12345',route_owner={'generation':'a'*32}) for role,domain in domains.items()}
    status=dict(private=True,gateway_dir=str(gateway),client_ca_file=str(gateway/'ca/rootCA.pem'),https_addr='127.0.0.1:54321')
    def native_run(args,**kw):
@@ -81,6 +81,10 @@ class Controls(unittest.TestCase):
          patch.object(caller.RUNTIME,'run',side_effect=native_run):
      storage.configure(journal.append)
      bad={r:dict(v,public_url='https://PRIVATE_SECRET') for r,v in states.items()}
+     with patch.object(caller,'listener_state',side_effect=lambda c,r,e:(fixture,bad[r])):
+      with self.assertRaises(caller.UncertainProfileOwnership):caller.observe_silo_profile(fixture,{},server.port,gateway,54321,domains,states,journal)
+     self.assertEqual(len(server.requests),0)
+     bad={r:dict(v,public_url=v['public_url']+':54321') for r,v in states.items()}
      with patch.object(caller,'listener_state',side_effect=lambda c,r,e:(fixture,bad[r])):
       with self.assertRaises(caller.UncertainProfileOwnership):caller.observe_silo_profile(fixture,{},server.port,gateway,54321,domains,states,journal)
      self.assertEqual(len(server.requests),0)

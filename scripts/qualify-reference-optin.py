@@ -1564,8 +1564,14 @@ def observe_silo_profile(checkout,env,port,gateway_root,gateway_port,domains,sta
         matches=root==gateway_root and current_port==gateway_port and all(
             current_domains[role]==domains[role]==current[role]['route_domain'] for role in ('api','front','admin'))
         origins=[routes.public_origin(current[role]['route_domain'],current_port) for role in ('front','admin')]
-        matches=matches and all(routes.public_origin(urlsplit(current[role]['public_url']).hostname,urlsplit(current[role]['public_url']).port or 443)==origins[index] for index,role in enumerate(('front','admin')))
-        o.check(matches,'cors_context',browser_context_matches=matches);o.finish()
+        # Qualified core public_url records HTTPS route identity, without the
+        # private gateway port. Browser origins use the separately observed
+        # gateway port; actual app origin responses were checked before entry.
+        urls_match=all(urlsplit(current[role]['public_url']).scheme=='https'
+            and urlsplit(current[role]['public_url']).hostname==current_domains[role]
+            and urlsplit(current[role]['public_url']).port is None for role in ('front','admin'))
+        matches=matches and urls_match
+        o.check(matches,'cors_context',browser_context_matches=matches,browser_listener_urls_match=urls_match);o.finish()
         routes.context_gate(gateway,root,current_port,states,current)
     except BaseException as error:
         raise UncertainProfileOwnership('current browser context ownership is uncertain') from error
@@ -1576,10 +1582,11 @@ def observe_silo_profile(checkout,env,port,gateway_root,gateway_port,domains,sta
         after_root,after_port,after_gateway=gateway_context(checkout,env)
         after={role:listener_state(checkout,role,env)[1] for role in ('api','front','admin')}
         o=storage.Operation('observe_silo_profile','browser_context',emit=diagnostics.append)
-        matches=after_root==root and after_port==current_port and all(
-            routes.public_origin(urlsplit(after[role]['public_url']).hostname,urlsplit(after[role]['public_url']).port or 443)==origins[index]
-            for index,role in enumerate(('front','admin')))
-        o.check(matches,'cors_context',browser_context_matches=matches);o.finish()
+        urls_match=all(urlsplit(after[role]['public_url']).scheme=='https'
+            and urlsplit(after[role]['public_url']).hostname==current_domains[role]
+            and urlsplit(after[role]['public_url']).port is None for role in ('front','admin'))
+        matches=after_root==root and after_port==current_port and urls_match
+        o.check(matches,'cors_context',browser_context_matches=matches,browser_listener_urls_match=urls_match);o.finish()
         routes.context_gate(after_gateway,root,current_port,current,after)
     except BaseException as error:
         raise UncertainProfileOwnership('current browser context changed during storage proof') from error

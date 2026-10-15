@@ -1832,3 +1832,9 @@ helpers. Optional formatter-source and image-help acquisition is excluded from
 this acceptance path; source-qualified routing, pinned-image verification and
 production guards remain in force. Separate operation clocks retain their
 authenticated binding time and cannot borrow or renew a prior window.
+
+Qualified managed-listener `public_url` records the HTTPS route identity without
+the private gateway port. Qualification checks that metadata against the route
+hostname, derives the browser origin with the independently observed gateway
+port, and verifies actual app origin responses. Metadata lacking a private port
+must not be interpreted as evidence that the browser uses port 443.

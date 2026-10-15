@@ -25,7 +25,7 @@ ERRORS=frozenset(('none','timeout','os','tls','value','external'))
 S3_CODES=frozenset(('AccessDenied','SignatureDoesNotMatch','InvalidAccessKeyId','NoSuchKey','NoSuchBucket',
  'InvalidRequest','SlowDown','AuthorizationHeaderMalformed','RequestTimeTooSkewed','InternalError','unknown','none'))
 EXTRA=frozenset(('dispatch_started','response_received','origin_matches','method_allowed','headers_allowed',
- 'policy_schema_valid','policy_origin_matches','policy_methods_match','policy_headers_match','policy_foreign_ungranted','browser_context_matches','bytes_equal','foreign_origin_absent','expected_negative','predicate_matches'))
+ 'policy_schema_valid','policy_origin_matches','policy_methods_match','policy_headers_match','policy_foreign_ungranted','browser_context_matches','browser_listener_urls_match','bytes_equal','foreign_origin_absent','expected_negative','predicate_matches'))
 CORS_ORIGIN_STATES=frozenset(('absent','present_equal','present_unequal'))
 
 def configure(emit):
