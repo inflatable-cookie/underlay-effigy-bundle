@@ -8,10 +8,10 @@ on the host. `dev:container` retains the Linux whole-stack path. `dev:test`
 provides a short-lived, worktree-isolated host and service environment without
 automatically running full QA.
 
-These are intended profiles, not a claim that the current bundle implements
-them. Existing defaults remain container-based. New profile additions must be
-opt-in and backward-compatible; switching a consumer's `dev` default requires
-an explicit migration after qualification. Container-only use remains valid.
+The bundle delivers `dev:hybrid` and `dev:test` behind the opt-in
+`profiles.enabled` input; see [Opt-in profiles](#opt-in-profiles). Defaults
+remain container-based. Switching a consumer's `dev` default requires an
+explicit migration. Container-only use remains valid.
 
 ## Ownership
 
@@ -116,93 +116,57 @@ alias or global gateway changes. Proof clients verify the fixture CA, actual
 registered certificate/SAN, explicit SNI/name resolution and reported HTTPS
 port.
 
+## Opt-in profiles
+
+`profiles.enabled = true` adds two containers and their selectors. Omitted or
+false renders the existing container stack unchanged.
+
+- `hybrid`: Postgres, Mailpit, DbGate and Silo in containers; the API, front
+  and admin run on the host as Effigy managed listeners behind the gateway, on
+  the declared app hostnames. `dev:hybrid` starts it and bootstraps the media
+  bucket; `dev:hybrid:status`, `dev:hybrid:logs` and `dev:hybrid:down` operate
+  it.
+- `test`: the same shape under `test.<host>`, so it can run beside
+  `dev:hybrid`. `dev:test` resets its data, starts it, bootstraps the bucket,
+  runs the one `profiles.test_task` selector under `profiles.test_timeout_secs`,
+  and always stops the stack afterwards. It never implies `qa`.
+
+### Admission
+
+Operator ruling, 2026-10-15: profiles run on the operator's installed Effigy,
+built from Effigy `main` with `effigy bootstrap:local`. There is no pinned
+source or binary-checksum gate and no private gateway; profiles use the normal
+gateway. An Effigy build without managed host listeners refuses the profile
+manifest. Add a released `minimum_effigy_version` when Effigy next releases.
+This replaces the earlier exact-source admission.
+
+### What the bundle does and does not own
+
+Effigy scopes hostnames, ports and loopback aliases per checkout, supervises
+the listeners, proves readiness before publishing routes, and tears down. The
+bundle adds no supervisor, allocator or cleanup of its own.
+
+`scripts/dev/profile_env.py` reads `effigy container <name> hosts --json` and
+sets the variables Underlay apps already read: `PUBLIC_HOST`, `PUBLIC_SCHEME`,
+`PUBLIC_PORT`, `CORS_ORIGINS`, `COOKIE_DOMAIN`, `DATABASE_URL`, `SMTP_HOST`
+and `SMTP_PORT`, plus the public URLs the Vite adapter needs. Effigy currently
+takes a container's alias base from its first DNS route, so profile aliases
+read `postgres.s3.<host>`; the helper uses the reported names and derives the
+cookie domain from the app hosts.
+
+### Consumer adoption limits
+
+- Object-store settings are app-prefixed (Reference: `ACME_S3_*`), so the
+  bundle does not set them. On the primary checkout the app's config overlay
+  already names `s3.<host>`. Worktrees and `dev:test` need the app to take its
+  S3 endpoint and public URL from the environment.
+- WebAuthn relying-party settings are not set.
+- Run `dev` or `dev:hybrid` in a checkout, not both: they claim the same app
+  hostnames, and the gateway refuses the second.
+- SvelteKit sees HTTP behind the HTTPS gateway exactly as in container mode.
+  The public-origin hook stays a consumer opt-in.
+
 ## Reference pilot assurance and limits
-
-### Opt-in admission before a released capability
-
-The operator authorized bounded implementation within this agreed profile
-direction: "You have blanket approval,you don't need to keep asking". This
-covers the opt-in bundle implementation, its independent review and closeout.
-It does not authorize release/tag changes, global binary replacement, shared
-catalog publication or adoption, consumer default migration, or live settings
-changes. Reference remains the disposable pilot and Acowtancy remains excluded.
-
-The qualified opt-in Effigy source is
-`8ecd64b37963cd6832a2b6ffa528034c56828504`. Its trusted private macOS arm64
-binary has SHA256
-`03d10d8e58601896949ff042eb1b179f8cebddcb176d95c48d5573494b4ab324`.
-This source includes the independently qualified managed-listener checkout
-hostname mapping and passed exact-source milestone assurance.
-Published `v0.14.1` does not contain the private gateway and managed-listener
-primitives used by these profiles. A version string is not capability proof:
-Effigy's minimum-version check accepts any `+local.*` build, including older
-local builds.
-
-Until a qualified release is available, an explicit opt-in must verify trusted
-source provenance and the selected platform binary's checksum before its first
-runtime effect. Unknown, older or unsupported binaries must refuse with
-actionable guidance. Child execution must retain that verified binary identity;
-falling back to the executable on `PATH` is not allowed. The qualified macOS
-binary does not establish a Linux consumer-host binary checksum or assurance.
-
-Managed listener `route_domain` in runtime state is already the effective
-checkout hostname. Qualification must use it directly, without applying the
-host map again. The declared name is exposed as `declared_route_domain` by
-`container up`; `container hosts` inventories declared and effective listener
-names. The canonical scoped form is `api.acme-w<hostkey>.test` for
-`api.acme.test`. Effective names govern readiness Host, TLS certificates,
-route publication, public URLs and dependent public URLs across restart.
-Primary and explicitly shared runtime identity preserve declared names.
-
-New managed-listener/private-gateway fragments must stay outside default
-composition. Consumers omitting the opt-in retain their existing container
-configuration and effective version requirements. A released minimum can be
-added only after its actual immutable release is qualified, and remains
-supplemental to the local-build admission guard.
-
-Silo is the default object store; see [Silo default](#silo-default).
-
-Underlay Reference is the designated disposable pilot. Its operator checkout
-and live stack remain untouched. Acowtancy testing or adoption is excluded
-until qualification and a later explicit adoption ruling. No consumer default
-switch is delivered here.
-
-The executable runtime proof uses a clean Reference source checkout (qualified
-commit `fa6a5e89ad83db460a5506b7fa3f915fa767d72a`), a private main clone and two
-private worktrees. It assembles this bundle branch with
-`sources.siblings = false`. Fixture-only app/config overrides exercise actual
-Reference Rust API and front/admin Vite/SvelteKit applications. The hybrid
-fixture excludes the workspace image and keeps host/Linux artifacts separate.
-
-The retained pre-Silo runtime proof establishes nine simultaneous distinct ready application listeners
-and routes across those three identities. All three reach real isolated
-Postgres, Mailpit and MinIO over loopback. Verified private HTTPS route probes
-return the configured public origin in both SvelteKit URL surfaces, preserving
-path/query; front and admin HMR WebSockets upgrade with 101. An owned ready API
-restart changes endpoint/generation and route target, and restarts both
-dependents with the current API URL. Occupied-port launch fails strictly before
-publication while another instance's listener/route survives. A controlled
-startup interruption records owned readiness 503, reconciles through exact
-scope down, and recovers without signaling uncertain process identities.
-Teardown of one worktree withdraws its sockets/routes while both other
-instances continue serving.
-
-Those lifecycle receipts use the earlier upstream source-image override. The
-focused published-Silo proof covers changed storage inputs; the earlier
-receipts are not presented as Silo artifact or upload assurance.
-
-A published-Silo three-instance execution also observed an unrelated worktree
-admin child recycle under the same supervisor during another checkout's
-interruption/reconciliation window. Its API and front remained unchanged.
-That execution stopped before collision and isolated teardown; cleanup settled.
-The child exit/dependency-change cause is unestablished, so earlier passing
-receipts do not establish repeatable lifecycle isolation for this case.
-The harness rejects stale survivor identities before mutation and any changed
-owner, generation, address or process identity afterward. It retains timed
-before/after identity evidence and the interruption/reconciliation receipt even
-when that check fails. A recycled child is never accepted merely because its
-supervisor or replacement route survives. Consumer profile readiness remains
-unclaimed pending independent lifecycle qualification.
 
 ### Published Silo qualification ruling
 
