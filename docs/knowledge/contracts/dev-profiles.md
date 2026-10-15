@@ -47,8 +47,13 @@ remain explicit.
 Underlay Reference is the designated pilot for profile qualification and later
 opt-in implementation and adoption proof. Use disposable owned checkouts,
 worktrees and instances of `underlay-reference`; preserve its operator checkout
-and live stack. Acowtancy is excluded from testing, mutation and rollout until
-the solution is qualified and explicit later adoption is arranged.
+and live stack.
+
+Operator ruling, 2026-10-15: Acowtancy adopts the hybrid profile ("Yes"),
+lifting its earlier exclusion from profile testing and rollout. Its adoption
+follows the same proof as Reference and compli-me (see
+[Opt-in profiles](#opt-in-profiles)); its deployments, live data and volumes
+stay outside development-profile work.
 
 Use those private disposable consumer fixtures and isolated owned resources. Cover
 two worktrees and a main-checkout identity starting simultaneously, occupied
@@ -299,8 +304,8 @@ preserving `workspace-rust-bun`, default 41001/41002/41003 inputs and
 unavailable in gathered evidence (`insufficient_scope`). This candidate does
 not repair it or certify unchanged published defaults. A shared catalog image,
 client/health/bootstrap change and any consumer migration require separate
-owner work after independent qualification review. Acow remains excluded; no
-live volumes or migration are exercised.
+owner work after independent qualification review. Acowtancy was outside this
+evidence; no live volumes or migration were exercised.
 
 Cleanup stops/reconciles each exact host/container scope and verifies recorded
 process identities, socket closure and route withdrawal while the runtime
