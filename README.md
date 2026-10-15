@@ -95,9 +95,26 @@ with verified owned cleanup. An earlier registration-response timeout remains
 historical evidence with an unestablished cause; the later pass does not explain
 that timeout or establish a runtime fix. See the owning development-profile
 contract above for the qualification boundary.
-The original published default MinIO image pull remains
-unqualified (`insufficient_scope`); Silo does not repair that registry access.
 No hybrid/dev:test consumer migration or default switch is delivered.
+
+## Object storage
+
+The default object store is PGSTY Silo, a maintained MinIO fork, from the
+Effigy catalog's `silo` service. Upstream `minio/minio` images are no longer
+pullable (`insufficient_scope`). The Compose service keeps the name `minio`, so
+in-container endpoints such as `http://minio:9000`, the `s3` loopback alias,
+the `s3.<host>` and `minio.<host>` routes, and the existing data volume are
+unchanged.
+
+The `silo` service needs Effigy catalog pack 1.2.0 or later. Until that pack
+is published, install it from a catalog-pack checkout:
+
+```sh
+effigy service pack install --path ../effigy-catalog-pack/pack
+```
+
+Without it, `effigy container up` fails with an unknown `silo` catalog
+service. `effigy service pack rollback` returns to the previous catalog.
 
 ## Browser runtime (`browser_runtime`)
 

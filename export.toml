@@ -99,8 +99,12 @@ connection_label = "{{ resolved_project_name }}"
 [containers.{{ inputs.container_name }}.services.mailpit]
 catalog = "mailpit"
 
+# The object store is PGSTY Silo, a maintained MinIO fork; upstream MinIO
+# images are no longer pullable. The service keeps the name `minio` so
+# in-container endpoints (`http://minio:9000`) and the existing data volume
+# carry over unchanged.
 [containers.{{ inputs.container_name }}.services.minio]
-catalog = "minio"
+catalog = "silo"
 
 [containers.{{ inputs.container_name }}.dns]
 routes = [
