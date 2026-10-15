@@ -1811,3 +1811,12 @@ header from a present equal or unequal header, without retaining its value.
 Silo's pinned bucket CORS handler evaluates origin, method and requested headers
 before returning a preflight response; its global CORS policy is a separate
 fallback. Successful `mc cors set` alone does not prove browser permission.
+
+`proof:dev-profiles:silo-cors-contract` is a separately admitted service-only
+diagnostic. It starts no application listeners and compiles no application.
+It invokes production bootstrap once, reads bounded `mc cors get` XML in memory,
+and compares the installed rules with one browser preflight. Policy facts and
+HTTP observations remain separate; a pure rule match does not observe server
+execution. A diagnostic result does not qualify a complete development profile.
+The original backend reader does not establish VM kernel/agent ownership;
+private paths alone do not authorize suspending a diagnostic backend.
