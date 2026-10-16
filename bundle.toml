@@ -269,5 +269,5 @@ example = "acme-api/test"
 [[inputs]]
 name = "profiles.test_timeout_secs"
 type = "integer"
-description = "Maximum run time in seconds for the `dev:test` selector before it is stopped and the environment torn down."
+description = "Maximum run time in seconds for the `dev:test` selector before it is stopped (exit 124) and the environment torn down. Raise it, or point `profiles.test_task` at a bounded selector, when the suite runs longer."
 default = 900

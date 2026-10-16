@@ -135,7 +135,10 @@ false renders the existing container stack unchanged.
 - `test`: the same shape under `test.<host>`, so it can run beside
   `dev:hybrid`. `dev:test` resets its data, starts it, bootstraps the bucket,
   runs the one `profiles.test_task` selector under `profiles.test_timeout_secs`,
-  and always stops the stack afterwards. It never implies `qa`.
+  and always stops the stack afterwards. It never implies `qa`. A run that
+  hits the timeout exits 124. The 900s default fits a bounded suite; when the
+  full suite takes longer, raise the timeout or point `test_task` at a
+  bounded selector.
 
 The API listener is ready when `profiles.api_health_path` (default
 `/v1/health`) returns 200, and front/admin when `profiles.front_health_path`
