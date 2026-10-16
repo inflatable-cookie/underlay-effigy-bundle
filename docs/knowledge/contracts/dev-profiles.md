@@ -168,7 +168,10 @@ bundle adds no supervisor, allocator or cleanup of its own.
 `status --json` and sets the variables Underlay apps already read:
 `PUBLIC_HOST`, `PUBLIC_SCHEME`, `PUBLIC_PORT`, `CORS_ORIGINS`, `COOKIE_DOMAIN`,
 `DATABASE_URL`, `SMTP_HOST` and `SMTP_PORT`, plus `EFFIGY_PROFILE_S3_ENDPOINT`
-and the public URLs the Vite adapter needs. Public names come from the
+and the public URLs the Vite adapter needs. It also sets `NODE_EXTRA_CA_CERTS`
+to the gateway's CA (the private gateway's `ca/rootCA.pem`, else mkcert's
+root) unless already set, so host Node/Bun servers can call their API through
+the gateway; the workspace image installs that CA for container apps. Public names come from the
 effective host map; service connections use the published loopback ports, so
 host processes need no gateway DNS. The cookie domain is derived from the app
 hosts, because Effigy's reported cookie domain follows the first service route.

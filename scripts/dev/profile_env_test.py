@@ -131,6 +131,28 @@ class ServiceWaitTest(unittest.TestCase):
             )
 
 
+class GatewayCaTest(unittest.TestCase):
+    def test_private_gateway_ca_comes_from_its_state_root(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "ca").mkdir()
+            (Path(root) / "ca" / "rootCA.pem").write_text("pem")
+            self.assertEqual(
+                profile_env.gateway_ca_file({"EFFIGY_GATEWAY_PRIVATE_STATE_ROOT": root}),
+                str(Path(root) / "ca" / "rootCA.pem"),
+            )
+
+    def test_shared_gateway_uses_the_mkcert_root(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as caroot:
+            (Path(caroot) / "rootCA.pem").write_text("pem")
+            self.assertEqual(
+                profile_env.gateway_ca_file({}, mkcert_caroot=caroot),
+                str(Path(caroot) / "rootCA.pem"),
+            )
+            self.assertIsNone(profile_env.gateway_ca_file({}, mkcert_caroot=caroot + "-missing"))
+
+
 class BootstrapTest(unittest.TestCase):
     def test_cors_grants_exactly_the_given_origins(self) -> None:
         script = profile_env.bootstrap_script("acme-media", ["https://acme-wx.test", "https://admin.acme-wx.test"])

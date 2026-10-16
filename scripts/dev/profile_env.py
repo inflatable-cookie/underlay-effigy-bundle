@@ -255,6 +255,30 @@ def app_environment(report: dict, status: dict, declared: dict[str, str], databa
     }
 
 
+def gateway_ca_file(env: dict[str, str], mkcert_caroot=None) -> str | None:
+    """CA that signs the gateway's certificates, for host-side HTTPS clients.
+
+    The workspace image installs it for container apps; host Node/Bun
+    processes need it via NODE_EXTRA_CA_CERTS to call their own API through
+    the gateway. A private gateway keeps its CA in its state root; the shared
+    gateway uses mkcert's root.
+    """
+    private_root = env.get("EFFIGY_GATEWAY_PRIVATE_STATE_ROOT")
+    if private_root:
+        candidate = Path(private_root) / "ca" / "rootCA.pem"
+        return str(candidate) if candidate.is_file() else None
+    if mkcert_caroot is None:
+        try:
+            result = subprocess.run(
+                ["mkcert", "-CAROOT"], capture_output=True, text=True, timeout=10, check=False
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        mkcert_caroot = result.stdout.strip() if result.returncode == 0 else ""
+    candidate = Path(mkcert_caroot) / "rootCA.pem" if mkcert_caroot else None
+    return str(candidate) if candidate is not None and candidate.is_file() else None
+
+
 def resolved_environment(
     repo: Path, container: str, env: dict[str, str], wait: bool = False
 ) -> dict[str, str]:
@@ -264,7 +288,12 @@ def resolved_environment(
     status = status_report(repo, container)
     if wait:
         wait_for_services(status)
-    return app_environment(hosts_report(repo, container), status, declared_domains(env), database)
+    values = app_environment(hosts_report(repo, container), status, declared_domains(env), database)
+    if not env.get("NODE_EXTRA_CA_CERTS"):
+        ca = gateway_ca_file(env)
+        if ca:
+            values["NODE_EXTRA_CA_CERTS"] = ca
+    return values
 
 
 def cors_document(origins: list[str]) -> str:
