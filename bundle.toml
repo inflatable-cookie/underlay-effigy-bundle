@@ -246,6 +246,20 @@ default = "/"
 example = "/login"
 
 [[inputs]]
+name = "profiles.api_task"
+type = "string"
+description = "Effigy selector the host profiles run as the API process. Empty uses `<api catalog>/api`. Set it to a host-only task when the API catalog's tasks default into a workspace container."
+default = ""
+example = "farmyard/api:host"
+
+[[inputs]]
+name = "profiles.jobs_task"
+type = "string"
+description = "Effigy selector the host profiles run as the jobs worker. Empty uses `<api catalog>/jobs`. Set it to a host-only task when the API catalog's tasks default into a workspace container."
+default = ""
+example = "farmyard/jobs:host"
+
+[[inputs]]
 name = "profiles.test_task"
 type = "string"
 description = "Effigy selector `dev:test` runs once its isolated environment is ready. Empty makes `dev:test` refuse before starting anything; full `qa` is never implied."

@@ -174,7 +174,10 @@ host processes need no gateway DNS. The cookie domain is derived from the app
 hosts, because Effigy's reported cookie domain follows the first service route.
 
 The API and jobs worker run through the `profile:api` and `profile:jobs`
-tasks, which request vault secrets:
+tasks, which invoke `profiles.api_task` and `profiles.jobs_task` (default
+`<api catalog>/api` and `/jobs`). Those selectors must run on the host; a
+consumer whose API catalog defaults into a workspace container names
+host-only tasks there instead. The profile tasks request vault secrets:
 host processes carry none of their own, and task secrets do not reach composed
 child tasks.
 

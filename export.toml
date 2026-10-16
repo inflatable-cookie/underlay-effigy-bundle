@@ -337,12 +337,12 @@ tls = true
 # Host processes carry no vault secrets of their own, and task secrets do
 # not reach composed child tasks; run the API as a nested command instead.
 [tasks."profile:api"]
-run = "effigy {{ sel_api }}/api"
+run = "effigy {{ inputs.profiles.api_task or (sel_api ~ '/api') }}"
 run_in = "host"
 secrets = "required"
 
 [tasks."profile:jobs"]
-run = "effigy {{ sel_api }}/jobs"
+run = "effigy {{ inputs.profiles.jobs_task or (sel_api ~ '/jobs') }}"
 run_in = "host"
 secrets = "required"
 
