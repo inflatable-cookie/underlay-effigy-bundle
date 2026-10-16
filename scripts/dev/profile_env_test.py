@@ -195,5 +195,73 @@ class DevTestCycleTest(unittest.TestCase):
         self.assertEqual(effigy.call_args_list[-1].args[1:], ("container", "test", "down"))
 
 
+class DevSessionTest(unittest.TestCase):
+    def test_quitting_the_tui_always_stops_the_stack(self) -> None:
+        tui = mock.Mock(**{"wait.return_value": 3})
+        with mock.patch.object(profile_env.subprocess, "Popen", return_value=tui) as popen, \
+             mock.patch.object(profile_env.signal, "signal"), \
+             mock.patch.object(profile_env.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+            self.assertEqual(profile_env.run_dev(Path("/repo"), "hybrid", "dev:hybrid:tui"), 3)
+        self.assertEqual(popen.call_args.args[0][:2], ["effigy", "dev:hybrid:tui"])
+        self.assertEqual(run.call_args.args[0][:4], ["effigy", "container", "hybrid", "down"])
+
+    def test_interrupt_during_the_tui_still_stops_the_stack(self) -> None:
+        tui = mock.Mock(**{"wait.side_effect": [KeyboardInterrupt, 0]})
+        with mock.patch.object(profile_env.subprocess, "Popen", return_value=tui), \
+             mock.patch.object(profile_env.signal, "signal"), \
+             mock.patch.object(profile_env.subprocess, "run", return_value=mock.Mock(returncode=1)) as run:
+            self.assertEqual(profile_env.run_dev(Path("/repo"), "hybrid", "dev:hybrid:tui"), 1)
+        run.assert_called_once()
+
+    def test_failed_start_keeps_the_services_tab_open(self) -> None:
+        class Quit(Exception):
+            pass
+
+        def idle():
+            raise Quit
+
+        with mock.patch.object(profile_env.subprocess, "run", return_value=mock.Mock(returncode=2)), \
+             mock.patch.object(profile_env, "effigy") as effigy, \
+             mock.patch.object(profile_env.signal, "signal"):
+            with self.assertRaises(Quit):
+                profile_env.run_session(Path("/repo"), "hybrid", "dev:hybrid", idle=idle)
+            effigy.assert_not_called()
+
+
+class FollowLogTest(unittest.TestCase):
+    def test_streams_only_output_written_after_the_tab_opens(self) -> None:
+        import io
+        import tempfile
+
+        class Stop(Exception):
+            pass
+
+        with tempfile.TemporaryDirectory() as repo:
+            log = Path(repo, ".effigy/runtime/host-processes/hybrid/effigy/api.log")
+            log.parent.mkdir(parents=True)
+            log.write_text("previous run\n")
+            out = io.StringIO()
+            appends = iter(["   Compiling api\n"])
+
+            def sleep(_):
+                try:
+                    with log.open("a") as handle:
+                        handle.write(next(appends))
+                except StopIteration:
+                    raise Stop
+
+            with self.assertRaises(Stop):
+                profile_env.follow_log(Path(repo), "hybrid", "api", out=out, sleep=sleep)
+            self.assertEqual(out.getvalue(), "   Compiling api\n")
+
+    def test_waits_for_a_process_that_has_not_started(self) -> None:
+        import io
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            out = io.StringIO()
+            profile_env.follow_log(Path(repo), "hybrid", "jobs", out=out, forever=False)
+            self.assertIn("waiting for `jobs`", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

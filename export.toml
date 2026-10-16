@@ -375,9 +375,27 @@ run_in = "host"
 secrets = "required"
 env = { {{ hybrid_env }} }
 
+# The hybrid TUI: a services tab that starts the profile, and one tab per
+# host process following its log. `dev:hybrid:session` wraps it so quitting
+# always stops the stack.
+[tasks."dev:hybrid:tui"]
+mode = "tui"
+run_in = "host"
+concurrent = [
+  { name = "services", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" session hybrid --start dev:hybrid', start = 1, tab = 5 },
+  { name = "front", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" follow hybrid front', start = 2, tab = 1 },
+  { name = "admin", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" follow hybrid admin', start = 3, tab = 2 },
+  { name = "api", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" follow hybrid api', start = 4, tab = 3 },
+  { name = "jobs", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" follow hybrid jobs', start = 5, tab = 4 },
+]
+
+[tasks."dev:hybrid:session"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" dev hybrid --tui dev:hybrid:tui'
+run_in = "host"
+
 {% if hybrid_default %}
 [tasks.dev]
-run = [{ task = "dev:hybrid" }]
+run = [{ task = "dev:hybrid:session" }]
 run_in = "host"
 
 [tasks."dev:down"]

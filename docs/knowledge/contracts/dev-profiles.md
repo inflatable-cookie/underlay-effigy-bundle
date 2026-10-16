@@ -146,8 +146,16 @@ and `profiles.admin_health_path` (default `/`) do. Each must return 200 without
 a session or rate limiting; use a public page such as `/login` when `/`
 redirects.
 
-`profiles.dev = "hybrid"` makes `effigy dev` start the hybrid profile (and
-`dev:down` stop it); the container session stays available as
+`dev:hybrid:session` is the interactive form: a managed TUI with a
+`services` tab that runs `dev:hybrid` and shows the effective hosts, and one
+tab each for `front`, `admin`, `api` and `jobs` following that host process's
+log (the API tab shows the Rust build). Quitting the TUI always runs
+`container hybrid down` in the foreground; the TUI's own shutdown grace is too
+short for a stack teardown. `dev:hybrid` stays the detached form for scripts
+and agents.
+
+`profiles.dev = "hybrid"` makes `effigy dev` run `dev:hybrid:session` (and
+`dev:down` stop the profile); the container session stays available as
 `dev:container`. The default, `container`, leaves `dev` unchanged.
 
 ### Admission
