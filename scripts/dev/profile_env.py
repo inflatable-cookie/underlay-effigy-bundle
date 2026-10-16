@@ -10,6 +10,9 @@ profile's object store, and runs the bounded `dev:test` cycle.
     profile_env.py exec <container> [--self ROLE] -- COMMAND...
     profile_env.py bootstrap <container>
     profile_env.py test <container> --task SELECTOR --timeout SECS
+    profile_env.py dev <container> --tui SELECTOR
+    profile_env.py session <container> --start SELECTOR
+    profile_env.py follow <container> <process>
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -366,6 +370,82 @@ def run_test(repo: Path, container: str, task: str, timeout: int, env: dict[str,
             print(f"dev:test: teardown needs attention:\n{down.stderr.strip()}", file=sys.stderr)
 
 
+def run_dev(repo: Path, container: str, tui: str) -> int:
+    """Run the TUI, then always stop the profile in the foreground.
+
+    The TUI gives its children a short grace period on quit, too short for a
+    stack teardown, so the stop belongs to the caller once the TUI is gone.
+    A closed terminal (SIGHUP) or SIGTERM still reaches the stop, silently.
+    """
+    hung_up = []
+    for number in (signal.SIGHUP, signal.SIGTERM):
+        signal.signal(number, lambda *_: hung_up.append(True))
+    child = subprocess.Popen(["effigy", tui, "--repo", str(repo)], env=nested_environment())
+    while True:
+        try:
+            code = child.wait()
+            break
+        except KeyboardInterrupt:
+            continue
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if hung_up else {}
+    if not hung_up:
+        print(f"[dev] stopping `{container}`...", flush=True)
+    down = subprocess.run(
+        ["effigy", "container", container, "down", "--repo", str(repo)],
+        env=nested_environment(), check=False, **quiet,
+    )
+    return code or down.returncode
+
+
+def run_session(repo: Path, container: str, start: str, idle=signal.pause) -> int:
+    """The TUI's services tab: start the profile, show its hosts, then idle.
+
+    It never stops the stack; `run_dev` does that after the TUI exits. A
+    failed start stays on screen until the operator quits.
+    """
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    result = subprocess.run(["effigy", start, "--repo", str(repo)], env=nested_environment(), check=False)
+    if result.returncode == 0:
+        hosts = effigy(repo, "container", container, "hosts")
+        print(hosts.stdout.rstrip(), flush=True)
+        print("\n[dev] ready; quit the TUI to stop the stack", flush=True)
+    else:
+        print(f"\n[dev] `{start}` failed (exit {result.returncode}); quit to stop what started", flush=True)
+    while True:
+        idle()
+
+
+def host_process_log(repo: Path, container: str, process: str) -> Path | None:
+    root = repo / ".effigy" / "runtime" / "host-processes" / container
+    logs = sorted(root.glob(f"**/{process}.log"), key=lambda path: path.stat().st_mtime)
+    return logs[-1] if logs else None
+
+
+def follow_log(repo: Path, container: str, process: str, out=sys.stdout, sleep=time.sleep, forever=True) -> None:
+    """Stream one host process's output from the moment the tab opens."""
+    log = host_process_log(repo, container, process)
+    offset = log.stat().st_size if log else 0
+    if not log:
+        print(f"[dev] waiting for `{process}` to start...", file=out, flush=True)
+    while True:
+        log = host_process_log(repo, container, process) or log
+        if log and log.exists():
+            size = log.stat().st_size
+            if size < offset:
+                offset = 0
+            if size > offset:
+                with log.open("rb") as handle:
+                    handle.seek(offset)
+                    chunk = handle.read(size - offset)
+                offset = size
+                out.write(chunk.decode("utf-8", errors="replace"))
+                out.flush()
+        if not forever:
+            return
+        sleep(0.25)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -379,6 +459,15 @@ def main(argv: list[str]) -> int:
     test.add_argument("container")
     test.add_argument("--task", default="")
     test.add_argument("--timeout", type=int, required=True)
+    dev = commands.add_parser("dev")
+    dev.add_argument("container")
+    dev.add_argument("--tui", required=True)
+    session = commands.add_parser("session")
+    session.add_argument("container")
+    session.add_argument("--start", required=True)
+    follow = commands.add_parser("follow")
+    follow.add_argument("container")
+    follow.add_argument("process")
     args = parser.parse_args(argv)
 
     env = dict(os.environ)
@@ -388,6 +477,13 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "test":
         return run_test(repo, args.container, args.task, args.timeout, env)
+    if args.command == "dev":
+        return run_dev(repo, args.container, args.tui)
+    if args.command == "session":
+        return run_session(repo, args.container, args.start)
+    if args.command == "follow":
+        follow_log(repo, args.container, args.process)
+        return 0
 
     command = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
     if not command:

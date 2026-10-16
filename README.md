@@ -56,9 +56,11 @@ test_task = "acme-api/test"   # what dev:test runs
 test_timeout_secs = 900
 ```
 
-With `dev = "hybrid"`, `effigy dev` starts the hybrid profile and returns once
-it is ready; `effigy dev:down` stops it. The whole-stack container session
-remains available as `dev:container`.
+With `dev = "hybrid"`, `effigy dev` opens the hybrid TUI: a `services` tab
+plus live `front`, `admin`, `api` and `jobs` log tabs. Quitting it stops the
+stack. `effigy dev:hybrid` starts the same stack detached, and
+`effigy dev:down` stops it. The whole-stack container session remains
+available as `dev:container`.
 
 - `effigy dev:hybrid` starts the `hybrid` services, the API, front and admin
   listeners and the background `jobs` worker; the listeners are served behind
