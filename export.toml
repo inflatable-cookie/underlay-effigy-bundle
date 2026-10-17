@@ -301,7 +301,9 @@ timeout_secs = 600
 [containers.{{ container }}.host_processes.listener.route]
 domain = "{{ api_domain }}"
 tls = true
-# Background jobs: a supervised host process with no listener or route.
+{% if container == "hybrid" %}
+# Background jobs: a supervised host process with no listener or route. Not
+# in `test`: a live worker would claim the jobs the test suite seeds.
 [[containers.{{ container }}.host_processes]]
 name = "jobs"
 run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec {{ container }} -- effigy profile:jobs'
@@ -309,6 +311,7 @@ cwd = "."
 restart = "on-failure"
 depends_on = ["api"]
 env = { {{ profile_env }} }
+{% endif %}
 
 {% for app in [("front", inputs.dirs.front or "app-front", front_domain, inputs.profiles.front_health_path), ("admin", inputs.dirs.admin or "app-admin", admin_domain, inputs.profiles.admin_health_path)] %}
 

@@ -142,8 +142,8 @@ false renders the existing container stack unchanged.
   process with no route. `dev:hybrid` starts it and bootstraps the media
   bucket; `dev:hybrid:status`, `dev:hybrid:logs` and `dev:hybrid:down` operate
   it.
-- `test`: the same shape under `test.<host>`, so it can run beside
-  `dev:hybrid`. `dev:test` resets its data, starts it, bootstraps the bucket,
+- `test`: the same shape under `test.<host>`, minus the `jobs` worker (it
+  would claim jobs the suite seeds), so it can run beside `dev:hybrid`. `dev:test` resets its data, starts it, bootstraps the bucket,
   runs the one `profiles.test_task` selector under `profiles.test_timeout_secs`,
   and always stops the stack afterwards. It never implies `qa`. A run that
   hits the timeout exits 124. The 900s default fits a bounded suite; when the
