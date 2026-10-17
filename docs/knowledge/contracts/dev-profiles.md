@@ -18,9 +18,10 @@ admin) to the host. Postgres, Silo, Mailpit and DbGate stay the same services
 on the same volumes as the container profile, so switching between `dev`
 (hybrid) and `dev:container` keeps one database and one bucket per checkout.
 Linked worktrees keep their own scoped data. `dev:test` stays fresh and
-disposable. Not yet delivered: today `hybrid` is its own Compose project with
-its own volumes, and Effigy refuses two environments with the same
-`project_name`, so sharing needs an Effigy data-identity capability.
+disposable. The bundle declares `data_from = "<container profile>"` on
+`hybrid` (Effigy #193): starting either profile stops the other's data
+services, and resetting or retiring `hybrid` never deletes the container
+profile's volumes.
 
 ## Ownership
 

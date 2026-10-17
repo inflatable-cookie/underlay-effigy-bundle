@@ -254,7 +254,10 @@ startup = "detached"
 project_name = "{{ resolved_project_name }}-{{ profile[2] }}"
 primary_service = "postgres"
 working_dir = "/tmp"
-
+{% if container == "hybrid" %}# Same database, bucket and mail as the container profile (operator ruling
+# 2026-10-16); `test` keeps its own fresh data.
+data_from = "{{ inputs.container_name }}"
+{% endif %}
 [containers.{{ container }}.services.postgres]
 catalog = "postgres"
 database = "{{ inputs.databases|first }}"
