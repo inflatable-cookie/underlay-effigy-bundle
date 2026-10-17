@@ -51,7 +51,8 @@ async function main() {
     timeout: 120_000,
   });
   if (generated.error || generated.status !== 0) {
-    throw new Error(`Reference public API config generation failed (status ${generated.status ?? "spawn"})`);
+    const detail = (generated.stderr || generated.stdout || generated.error?.message || "").trim().split("\n").slice(-20).join("\n");
+    throw new Error(`Reference public API config generation failed (status ${generated.status ?? "spawn"})${detail ? `:\n${detail}` : ""}`);
   }
 
   const publicConfigPath = resolve(
