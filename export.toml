@@ -247,7 +247,7 @@ concurrent = [
 {% set front_domain = route_domain(profile_host, inputs.routes.front, "") %}
 {% set admin_domain = route_domain(profile_host, inputs.routes.admin, "admin") %}
 {% set s3_domain = route_domain(profile_host, inputs.routes.s3, "s3") %}
-{% set profile_env %}EFFIGY_PROFILE_DATABASE = "{{ inputs.databases|first }}", EFFIGY_PROFILE_BUCKET = "{{ media_bucket }}", EFFIGY_PROFILE_API_DECLARED = "{{ api_domain }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ front_domain }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ admin_domain }}", EFFIGY_PROFILE_S3_DECLARED = "{{ s3_domain }}"{% endset %}
+{% set profile_env %}ENVIRONMENT = "effigy", EFFIGY_PROFILE_DATABASE = "{{ inputs.databases|first }}", EFFIGY_PROFILE_BUCKET = "{{ media_bucket }}", EFFIGY_PROFILE_API_DECLARED = "{{ api_domain }}", EFFIGY_PROFILE_FRONT_DECLARED = "{{ front_domain }}", EFFIGY_PROFILE_ADMIN_DECLARED = "{{ admin_domain }}", EFFIGY_PROFILE_S3_DECLARED = "{{ s3_domain }}"{% endset %}
 
 [containers.{{ container }}]
 startup = "detached"
