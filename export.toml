@@ -122,8 +122,6 @@ backend = "effigy-vault"
 
 [secrets.vault]
 path = ".effigy/secrets/local.vault"
-identity = "passphrase"
-unlock = "passphrase"
 generate = { rhai = "{{ bundle.root }}/scripts/generate-dev-secrets.rhai", run_in = "host" }
 
 [secrets.keys.auth_jwt_private_key]
