@@ -232,15 +232,35 @@ concurrent = [
   { role = "lifecycle", start = 1, tab = 6 },
 ]
 
+# The container session with front and admin served from production builds
+# inside the workspace container: no Vite dev server, no HMR. Saves rebuild
+# the production bundle; refresh to see them. The release server ships in
+# this bundle; the container reaches it through the repo's bundle cache.
+[tasks."dev:container:release"]
+mode = "tui"
+container_lifecycle = true
+secrets = "required"
+gateway = true
+health_wait = true
+concurrent = [
+{% for app in [("front", inputs.dirs.front or "app-front", inputs.front_port, 6, 1), ("admin", inputs.dirs.admin or "app-admin", inputs.admin_port, 5, 2)] %}  { name = "{{ app[0] }}", run = 'cd {repo} && s=$(ls -t .effigy/cache/bundles/*/*/*/scripts/dev/release-server.mjs 2>/dev/null | head -1) && [ -n "$s" ] || { echo "release-server.mjs is not in .effigy/cache/bundles; container release needs a git or OCI bundle source" >&2; exit 1; }; cd {repo}/{{ app[1] }} && exec env ENVIRONMENT=effigy bun "{repo}/$s" --host 0.0.0.0 --port {{ app[2] }}', setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = {{ app[3] }}, tab = {{ app[4] }} },
+{% endfor %}  { name = "api", task = "{{ sel_api }}/api", start = 4, tab = 3 },
+  { name = "jobs", task = "{{ sel_api }}/jobs", start = 3, tab = 4, start_after_ms = 1500 },
+  { role = "shell", service = "{{ inputs.workspace_service_name }}", start = 2, tab = 5 },
+  { role = "lifecycle", start = 1, tab = 6 },
+]
+
 {% if inputs.profiles.enabled %}
 # Opt-in host profiles. Services stay in containers; the API, front and
 # admin run on the host as Effigy managed listeners behind the gateway.
 # Effigy scopes names, ports and aliases per checkout; profile_env.py maps
 # its `container hosts` report onto the app environment. `dev:hybrid` uses
 # the declared names; `dev:test` uses a `test.` prefix so both can run at once.
+# `hybrid-release` is `hybrid` with front and admin served from production
+# builds (scripts/dev/release-server.mjs) instead of the Vite dev server.
 {% set raw_project = inputs.project_name or resolved_project_name %}
 {% set media_bucket = (raw_project[:-4] if raw_project[-4:] == "-dev" else raw_project) ~ "-media" %}
-{% for profile in [("hybrid", inputs.host, "hybrid"), ("test", "test." ~ inputs.host, "test")] %}
+{% for profile in [("hybrid", inputs.host, "hybrid"), ("hybrid-release", inputs.host, "hybrid-release"), ("test", "test." ~ inputs.host, "test")] %}
 {% set container = profile[0] %}
 {% set profile_host = profile[1] %}
 {% set api_domain = route_domain(profile_host, inputs.routes.api, "api") %}
@@ -254,7 +274,7 @@ startup = "detached"
 project_name = "{{ resolved_project_name }}-{{ profile[2] }}"
 primary_service = "postgres"
 working_dir = "/tmp"
-{% if container == "hybrid" %}# Same database, bucket and mail as the container profile (operator ruling
+{% if container != "test" %}# Same database, bucket and mail as the container profile (operator ruling
 # 2026-10-16); `test` keeps its own fresh data.
 data_from = "{{ inputs.container_name }}"
 {% endif %}
@@ -301,7 +321,7 @@ timeout_secs = 600
 [containers.{{ container }}.host_processes.listener.route]
 domain = "{{ api_domain }}"
 tls = true
-{% if container == "hybrid" %}
+{% if container != "test" %}
 # Background jobs: a supervised host process with no listener or route. Not
 # in `test`: a live worker would claim the jobs the test suite seeds.
 [[containers.{{ container }}.host_processes]]
@@ -317,7 +337,7 @@ env = { {{ profile_env }} }
 
 [[containers.{{ container }}.host_processes]]
 name = "{{ app[0] }}"
-run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec --self {{ app[0] }} {{ container }} -- bun "{{ bundle.root }}/scripts/dev/managed-vite-listener.mjs"'
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec --self {{ app[0] }} {{ container }} -- bun "{{ bundle.root }}/scripts/dev/{% if container == "hybrid-release" %}release-server.mjs{% else %}managed-vite-listener.mjs{% endif %}"'
 cwd = "{{ app[1] }}"
 restart = "on-failure"
 depends_on = ["api"]
@@ -329,7 +349,8 @@ bind = "127.0.0.1:0"
 [containers.{{ container }}.host_processes.listener.readiness]
 path = "{{ app[3] }}"
 status = 200
-timeout_secs = 300
+# A first production build takes longer than starting the Vite dev server.
+timeout_secs = {% if container == "hybrid-release" %}900{% else %}300{% endif %}
 
 [containers.{{ container }}.host_processes.listener.route]
 domain = "{{ app[2] }}"
@@ -397,6 +418,45 @@ concurrent = [
 
 [tasks."dev:hybrid:session"]
 run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" dev hybrid --tui dev:hybrid:tui'
+run_in = "host"
+
+# Hybrid with front and admin served from production builds: no Vite dev
+# server, no HMR. Saves rebuild the production bundle; refresh to see them.
+# Shares the container profile's data like `hybrid`, and takes over from it.
+[tasks."dev:hybrid:release"]
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" dev hybrid-release --tui dev:hybrid:release:tui'
+run_in = "host"
+
+[tasks."dev:hybrid:release:tui"]
+mode = "tui"
+run_in = "host"
+concurrent = [
+  { name = "services", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" session hybrid-release --start dev:hybrid:release:up', start = 1, tab = 5 },
+  { name = "front", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" follow hybrid-release front', start = 2, tab = 1 },
+  { name = "admin", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" follow hybrid-release admin', start = 3, tab = 2 },
+  { name = "api", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" follow hybrid-release api', start = 4, tab = 3 },
+  { name = "jobs", run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" follow hybrid-release jobs', start = 5, tab = 4 },
+]
+
+[tasks."dev:hybrid:release:up"]
+run = [
+  { task = "container hybrid-release up --detach" },
+  "python3 \"{{ bundle.root }}/scripts/dev/profile_env.py\" bootstrap hybrid-release",
+]
+run_in = "host"
+secrets = "required"
+env = { {{ hybrid_env }} }
+
+[tasks."dev:hybrid:release:status"]
+run = [{ task = "container hybrid-release status" }]
+run_in = "host"
+
+[tasks."dev:hybrid:release:logs"]
+run = [{ task = "container hybrid-release logs --follow" }]
+run_in = "host"
+
+[tasks."dev:hybrid:release:down"]
+run = [{ task = "container hybrid-release down" }]
 run_in = "host"
 
 {% if hybrid_default %}

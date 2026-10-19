@@ -133,8 +133,8 @@ port.
 
 ## Opt-in profiles
 
-`profiles.enabled = true` adds two containers and their selectors. Omitted or
-false renders the existing container stack unchanged.
+`profiles.enabled = true` adds three containers and their selectors. Omitted
+or false renders the existing container stack unchanged.
 
 - `hybrid`: Postgres, Mailpit, DbGate and Silo in containers; the API, front
   and admin run on the host as Effigy managed listeners behind the gateway, on
@@ -167,6 +167,35 @@ and agents.
 `profiles.dev = "hybrid"` makes `effigy dev` run `dev:hybrid:session` (and
 `dev:down` stop the profile); the container session stays available as
 `dev:container`. The default, `container`, leaves `dev` unchanged.
+
+### Release modes
+
+Operator ruling (2026-10-19): two release twins test the Svelte front and
+admin without the Vite dev server in the request path. The Rust API and jobs
+run as in their dev twins.
+
+- `hybrid-release` (`dev:hybrid:release`): `hybrid` with front and admin
+  served by `scripts/dev/release-server.mjs`. It shares the container
+  profile's data through `data_from` and the same hostnames, so `up` of any
+  one of `stack`, `hybrid` and `hybrid-release` hands over from the others.
+  `dev:hybrid:release` is the TUI (quitting stops the profile);
+  `dev:hybrid:release:up`, `:status`, `:logs` and `:down` operate it detached.
+- `dev:container:release`: the container session with front and admin running
+  the release server inside the workspace container on the usual ports. The
+  container reaches the script through the repo's bundle cache, so it needs a
+  git or OCI bundle source, not a local path bundle.
+
+The release server builds with `vite build` in watch mode, waits for the
+SvelteKit adapter to finish writing, then serves the output with no Vite
+middleware, no HMR and no dev-mode SSR. adapter-static apps are served from
+`build/` with the app's SPA fallback and immutable caching for
+`/_app/immutable/`. adapter-node apps run `build/index.js` as a child behind
+the server and restart after each rebuild; the child trusts the gateway's
+`X-Forwarded-Host` and `X-Forwarded-Proto` (or `ORIGIN` on the host), so form
+actions keep production CSRF checks. A save rebuilds the production bundle;
+refresh the browser to see it. A failed rebuild keeps serving the previous
+build. The first build makes readiness slower than Vite, so release listeners
+allow 900s.
 
 ### Admission
 

@@ -62,6 +62,11 @@ stack. `effigy dev:hybrid` starts the same stack detached, and
 `effigy dev:down` stops it. The whole-stack container session remains
 available as `dev:container`.
 
+`effigy dev:hybrid:release` and `effigy dev:container:release` are the same
+modes with front and admin served from production builds instead of the Vite
+dev server: no HMR, and a save rebuilds the bundle (refresh to see it). The
+Rust API and jobs are unchanged, and the data is shared with the dev modes.
+
 - `effigy dev:hybrid` starts the `hybrid` services, the API, front and admin
   listeners and the background `jobs` worker; the listeners are served behind
   the gateway on the usual app hostnames. `dev:hybrid:status`,
