@@ -1,84 +1,22 @@
 #!/usr/bin/env node
 
 import { createRequire } from "node:module";
-import { spawnSync } from "node:child_process";
-import { open, readFile, rename } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-function required(name) {
-  const value = process.env[name];
-  if (!value) throw new Error(`Effigy did not provide ${name}`);
-  return value;
-}
-
-function parseBind(raw) {
-  const match = /^127\.0\.0\.1:(\d+)$/.exec(raw);
-  if (!match) throw new Error(`managed Vite listener requires an IPv4 loopback bind, got ${raw}`);
-  const port = Number(match[1]);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    throw new Error(`invalid managed listener port in ${raw}`);
-  }
-  return { host: "127.0.0.1", port };
-}
+import {
+  generatePublicConfig,
+  managedContext,
+  scopePublicConfig,
+  writeListenerReport,
+} from "./managed-listener.mjs";
 
 async function main() {
-  const { host, port } = parseBind(required("EFFIGY_MANAGED_HOST_LISTENER_BIND"));
-  const reportPath = resolve(required("EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE"));
-  const generation = required("EFFIGY_MANAGED_HOST_LISTENER_GENERATION");
-  const publicUrl = new URL(required("EFFIGY_PROFILE_PUBLIC_URL"));
-  const apiUrl = new URL(required("EFFIGY_MANAGED_HOST_API_PUBLIC_URL"));
-  const frontUrl = new URL(required("EFFIGY_PROFILE_FRONT_PUBLIC_URL"));
-  const adminUrl = new URL(required("EFFIGY_PROFILE_ADMIN_PUBLIC_URL"));
-  const hmrPort = Number(required("EFFIGY_PROFILE_GATEWAY_HTTPS_PORT"));
-  if (!Number.isInteger(hmrPort) || hmrPort < 1 || hmrPort > 65535) {
-    throw new Error("EFFIGY_PROFILE_GATEWAY_HTTPS_PORT must be the gateway's actual HTTPS port");
-  }
-  for (const url of [publicUrl, apiUrl, frontUrl, adminUrl]) {
-    if (!url.port && hmrPort !== 443) url.port = String(hmrPort);
-    if (url.protocol !== "https:") throw new Error(`profile route must use HTTPS: ${url}`);
-  }
+  const context = managedContext();
+  const { host, port, gatewayPort, publicUrl } = context;
   const cwd = process.cwd();
-  const generator = process.env.EFFIGY_PROFILE_PUBLIC_CONFIG_GENERATOR || "scripts/generate-public-config.ts";
-  const generatorPath = resolve(cwd, generator);
-  if (generatorPath !== cwd && !generatorPath.startsWith(`${cwd}/`)) {
-    throw new Error("Reference public API config generator must stay within the disposable app checkout");
-  }
-  const generated = spawnSync("bun", [generatorPath], {
-    cwd,
-    env: process.env,
-    encoding: "utf8",
-    timeout: 120_000,
-  });
-  if (generated.error || generated.status !== 0) {
-    const detail = (generated.stderr || generated.stdout || generated.error?.message || "").trim().split("\n").slice(-20).join("\n");
-    throw new Error(`Reference public API config generation failed (status ${generated.status ?? "spawn"})${detail ? `:\n${detail}` : ""}`);
-  }
-
-  const publicConfigPath = resolve(
-    process.env.EFFIGY_PROFILE_PUBLIC_CONFIG_FILE || "src/lib/config/public-api.generated.ts",
-  );
-  const existingConfig = await readFile(publicConfigPath, "utf8");
-  const configMatch = existingConfig.match(/export const publicApiConfig = (\{[\s\S]*?\}) as const;/);
-  if (!configMatch) throw new Error(`could not read existing public API config at ${publicConfigPath}`);
-  const publicConfig = JSON.parse(configMatch[1]);
-  if (typeof publicConfig.apiVersion !== "string") {
-    throw new Error(`public API config has no apiVersion: ${publicConfigPath}`);
-  }
-  publicConfig.baseUrl = apiUrl.origin;
-  publicConfig.frontUrl = frontUrl.origin;
-  publicConfig.adminUrl = adminUrl.origin;
-  const configTemporary = `${publicConfigPath}.${process.pid}.tmp`;
-  const configHandle = await open(configTemporary, "wx", 0o600);
-  try {
-    await configHandle.writeFile(
-      `export const publicApiConfig = ${JSON.stringify(publicConfig, null, 2)} as const;\n`,
-    );
-    await configHandle.sync();
-  } finally {
-    await configHandle.close();
-  }
-  await rename(configTemporary, publicConfigPath);
+  generatePublicConfig(cwd);
+  await scopePublicConfig(context);
 
   const requireFromConsumer = createRequire(pathToFileURL(join(cwd, "package.json")));
   const viteEntry = requireFromConsumer.resolve("vite");
@@ -99,7 +37,7 @@ async function main() {
       hmr: {
         protocol: publicUrl.protocol === "https:" ? "wss" : "ws",
         host: publicUrl.hostname,
-        clientPort: hmrPort,
+        clientPort: gatewayPort,
       },
     },
   });
@@ -110,21 +48,7 @@ async function main() {
     await server.close();
     throw new Error("Vite did not bind the requested IPv4 loopback socket");
   }
-
-  const report = {
-    schema: "effigy.managed.host-listener-report.v1",
-    generation,
-    address: `${address.address}:${address.port}`,
-  };
-  const temporary = `${reportPath}.${process.pid}.tmp`;
-  const handle = await open(temporary, "wx", 0o600);
-  try {
-    await handle.writeFile(JSON.stringify(report));
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await rename(temporary, reportPath);
+  await writeListenerReport(context, address);
 
   server.printUrls();
   await new Promise((resolveClose) => {
