@@ -3,7 +3,7 @@
 ## Direction
 
 The intended consumer development default is hybrid: isolated service
-containers for Postgres, MinIO, Mailpit and DbGate, with Rust and Bun processes
+containers for Postgres, Silo, Mailpit and DbGate, with Rust and Bun processes
 on the host. `dev:container` retains the Linux whole-stack path. `dev:test`
 provides a short-lived, worktree-isolated host and service environment without
 automatically running full QA.
@@ -295,11 +295,15 @@ Operator ruling, 2026-10-13: Silo replaces MinIO as the bundle's default
 object store. Ruling, 2026-10-15: local development object data is disposable.
 
 The shared catalog owns the `silo` service (catalog pack 1.2.0). The bundle
-selects it with `catalog = "silo"` under the existing Compose service name
-`minio`. The name is compatibility, not identity: it keeps in-container
-endpoints, routes, the loopback alias and the data volume stable for every
-consumer. Report the store as Silo. Bucket and CORS bootstrap run `mc` inside
-the server container; no client sidecar is needed.
+runs it as the Compose service `silo` (operator ruling, 2026-10-21: Silo
+replaces MinIO by name too). Apps reach it through `s3.<host>`, or
+`http://silo:9000` inside the stack; the console is `silo.<host>`, and
+`silo:reconcile` re-applies the bucket and CORS setup. The rename moved the
+data volume to `<project>-silo-data`; the old `-minio-data` volume is not
+migrated, because local object data is disposable. The catalog's default
+credentials (`minioadmin`) and Silo's `/minio/health/*` API paths are Silo's
+own and keep their names. Report the store as Silo. Bucket and CORS bootstrap
+run `mc` inside the server container; no client sidecar is needed.
 
 ### Published artifact and runtime evidence
 

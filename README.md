@@ -149,11 +149,16 @@ summarised in [development profile ownership](docs/knowledge/contracts/dev-profi
 ## Object storage
 
 The default object store is PGSTY Silo, a maintained MinIO fork, from the
-Effigy catalog's `silo` service. Upstream `minio/minio` images are no longer
-pullable (`insufficient_scope`). The Compose service keeps the name `minio`, so
-in-container endpoints such as `http://minio:9000`, the `s3` loopback alias,
-the `s3.<host>` and `minio.<host>` routes, and the existing data volume are
-unchanged.
+Effigy catalog's `silo` service, run as the Compose service `silo`. Apps reach
+it through `s3.<host>` (or `http://silo:9000` inside the stack), and its
+console is `silo.<host>`. `effigy silo:reconcile` re-applies the bucket and
+CORS setup against a running stack.
+
+The service was named `minio` until 2026-10-21. Its data lived in
+`<project>-minio-data`, which is not migrated: local objects are disposable,
+and a stack started after the rename gets a fresh, empty bucket. List the old
+volume with `effigy container volume list --dormant` and remove it with
+`effigy container volume prune --dormant`.
 
 The `silo` service needs Effigy catalog pack 1.2.0 or later. Until that pack
 is published, install it from a catalog-pack checkout:

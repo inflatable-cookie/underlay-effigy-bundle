@@ -99,11 +99,11 @@ connection_label = "{{ resolved_project_name }}"
 [containers.{{ inputs.container_name }}.services.mailpit]
 catalog = "mailpit"
 
-# The object store is PGSTY Silo, a maintained MinIO fork; upstream MinIO
-# images are no longer pullable. The service keeps the name `minio` so
-# in-container endpoints (`http://minio:9000`) and the existing data volume
-# carry over unchanged.
-[containers.{{ inputs.container_name }}.services.minio]
+# The object store is PGSTY Silo, from the Effigy catalog's `silo` service
+# (operator ruling 2026-10-21: Silo replaces MinIO by name too). Apps reach it
+# through `s3.<host>`, or `http://silo:9000` inside the stack; the console is
+# `silo.<host>`.
+[containers.{{ inputs.container_name }}.services.silo]
 catalog = "silo"
 
 [containers.{{ inputs.container_name }}.dns]
@@ -112,10 +112,10 @@ routes = [
   { domain = "{{ route_domain(inputs.host, inputs.routes.front, '') }}", tls = true, port = {{ inputs.front_port }}, service = "{{ inputs.workspace_service_name }}" },
   { domain = "{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}", tls = true, port = {{ inputs.admin_port }}, service = "{{ inputs.workspace_service_name }}" },
   { domain = "{{ route_domain(inputs.host, inputs.routes.api, 'api') }}", tls = true, port = {{ inputs.api_port }}, service = "{{ inputs.workspace_service_name }}" },
-  { domain = "{{ route_domain(inputs.host, inputs.routes.s3, 's3') }}", tls = true, port = 9000, service = "minio" },
+  { domain = "{{ route_domain(inputs.host, inputs.routes.s3, 's3') }}", tls = true, port = 9000, service = "silo" },
   { domain = "dbgate.{{ inputs.host }}", tls = true, port = 3000, service = "dbgate" },
   { domain = "mailpit.{{ inputs.host }}", tls = true, port = 8025, service = "mailpit" },
-  { domain = "minio.{{ inputs.host }}", tls = true, port = 9001, service = "minio" },
+  { domain = "silo.{{ inputs.host }}", tls = true, port = 9001, service = "silo" },
 ]
 
 [secrets]
@@ -190,8 +190,8 @@ run = [
 
 # Re-run the bucket and CORS bootstrap against a running stack. Shares the
 # bootstrap script so both paths name the same bucket.
-[tasks."minio:reconcile"]
-run = [{ rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" }]
+[tasks."silo:reconcile"]
+run = [{ rhai = "{{ bundle.root }}/scripts/bootstrap-silo.rhai" }]
 run_in = "host"
 
 [tasks.validate]
@@ -291,16 +291,16 @@ connection_label = "{{ resolved_project_name }} {{ container }}"
 [containers.{{ container }}.services.mailpit]
 catalog = "mailpit"
 
-[containers.{{ container }}.services.minio]
+[containers.{{ container }}.services.silo]
 catalog = "silo"
 
 [containers.{{ container }}.dns]
 base_domain = "{{ profile_host }}"
 routes = [
-  { domain = "{{ s3_domain }}", tls = true, port = 9000, service = "minio" },
+  { domain = "{{ s3_domain }}", tls = true, port = 9000, service = "silo" },
   { domain = "dbgate.{{ profile_host }}", tls = true, port = 3000, service = "dbgate" },
   { domain = "mailpit.{{ profile_host }}", tls = true, port = 8025, service = "mailpit" },
-  { domain = "minio.{{ profile_host }}", tls = true, port = 9001, service = "minio" },
+  { domain = "silo.{{ profile_host }}", tls = true, port = 9001, service = "silo" },
 ]
 
 [[containers.{{ container }}.host_processes]]
@@ -502,7 +502,7 @@ path = "{% if inputs.sources.poodle %}{{ inputs.sources.poodle }}{% else %}../po
 setup = [
   "secrets init",
   "container up --detach",
-  "minio:reconcile",
+  "silo:reconcile",
 {% if inputs.workspace.js_root %}  "workspace:js:prepare",
 {% elif inputs.sources.siblings %}  "deps:prepare",
 {% endif %}]

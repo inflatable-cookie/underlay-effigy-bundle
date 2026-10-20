@@ -1,13 +1,13 @@
 [bundle]
 name = "underlay"
-description = "Underlay-style Rust + Bun workspace stack with one long-running workspace container, bundled postgres/dbgate/mailpit/Silo (S3, service `minio`) services, gateway-published HTTPS app/S3/helper routes, and loopback alias discovery for db/smtp/s3."
+description = "Underlay-style Rust + Bun workspace stack with one long-running workspace container, bundled postgres/dbgate/mailpit/silo (S3) services, gateway-published HTTPS app/S3/helper routes, and loopback alias discovery for db/smtp/s3."
 defaults = "export.toml"
 
 [[inputs]]
 name = "host"
 type = "string"
 required = true
-description = "Primary local hostname for the front-end route; bundle defaults also publish `admin.<host>`, `api.<host>`, `s3.<host>`, `dbgate.<host>`, `mailpit.<host>`, and `minio.<host>`."
+description = "Primary local hostname for the front-end route; bundle defaults also publish `admin.<host>`, `api.<host>`, `s3.<host>`, `dbgate.<host>`, `mailpit.<host>`, and `silo.<host>`."
 example = "acme.test"
 
 [[inputs]]

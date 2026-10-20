@@ -12,7 +12,7 @@ fn optional_config_string(path, fallback) {
 fn bundle_host() {
     let host = optional_config_string("bundle.host", "");
     if host == "" {
-        throw "underlay minio bootstrap helper requires `[bundle].host`";
+        throw "underlay silo bootstrap helper requires `[bundle].host`";
     }
     return host;
 }
@@ -20,7 +20,7 @@ fn bundle_host() {
 fn project_name() {
     let name = optional_config_string("bundle.project_name", "");
     if name == "" {
-        throw "underlay minio bootstrap helper requires `[bundle].project_name`";
+        throw "underlay silo bootstrap helper requires `[bundle].project_name`";
     }
     return name;
 }
@@ -83,8 +83,8 @@ let shell_script = "set -eu\n"
 
 let result = exec::run(
     ["sh", "-lc", shell_script],
-    #{ run_in: "container", container: container_name, service: "minio", cwd: "/" },
+    #{ run_in: "container", container: container_name, service: "silo", cwd: "/" },
 );
 
-require_success(result, "failed to configure minio bucket and cors");
-log(`[ok] configured minio bucket ${bucket} with public-read and browser upload cors`);
+require_success(result, "failed to configure silo bucket and cors");
+log(`[ok] configured silo bucket ${bucket} with public-read and browser upload cors`);
