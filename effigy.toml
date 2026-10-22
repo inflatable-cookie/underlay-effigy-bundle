@@ -40,3 +40,9 @@ run = [
   "node --test --test-force-exit scripts/dev/release-server.test.mjs",
 ]
 run_in = "host"
+
+# Source, render and plan regression for the bootstrap setup and pinned
+# sources. Fixture-only: consumer checkouts are never read or written.
+[tasks."proof:bootstrap-sources"]
+run = "python3.11 scripts/bootstrap_sources_test.py"
+run_in = "host"

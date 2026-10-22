@@ -38,9 +38,17 @@ The ruling preserves the shared rollback below.
 - A consumer opting into a new input sees the documented effect.
 - A consumer with `sources.siblings = false` resolves bundle tasks without
   sibling catalogs or checkout paths.
+- A consumer with `sources.siblings = true` gets `[sources.underlay]` and
+  `[sources.poodle]` pinned to `sources.underlay_rev` and
+  `sources.poodle_rev`. `effigy bootstrap --plan` shows both with their
+  observed state, and the setup selectors resolve to ordinary tasks.
 
 ## Roll back
 
 Revert the merge on `main`. Consumers pick up the revert on their next run.
 Anything a consumer rebuilt, such as a workspace image, may need rebuilding
 again.
+
+A pin change rolls back the same way. A sibling checkout that a rolled-forward
+pin moved is never reset by the revert: bootstrap reports it as drift, and the
+consumer moves it deliberately.

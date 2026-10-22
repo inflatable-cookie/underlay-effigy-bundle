@@ -17,6 +17,9 @@ databases = ["acme", "acme_test"]
 When `project_name` is omitted, the bundle derives one from
 `<workspace_subdir>-underlay`, for example `acme-underlay`.
 
+The bundle requires Effigy `>= 0.15.0` (`minimum_effigy_version`). Older
+releases refuse it.
+
 ## Inputs
 
 See `bundle.toml` for the full input schema.
@@ -28,13 +31,13 @@ Key required inputs:
 
 Optional inputs:
 - `browser_runtime` — Workspace image browser layer (`"none"` by default,
-  `"chromium"` for the opt-in Chromium system libraries). Requires
-  Effigy `>= 0.13.1`; older releases reject this bundle revision on the
-  `minimum_effigy_version` floor instead of silently ignoring the setting.
+  `"chromium"` for the opt-in Chromium system libraries).
 - `sources.siblings` — `true` by default, preserving the sibling Underlay and
-  Poodle checkout workflow. Set it to `false` when using released packages;
-  the bundle then omits sibling catalogs, bootstrap children and dependency
-  sync, Underlay validation, and sibling hydration in the UI setup helper.
+  Poodle checkout workflow as pinned `[sources.*]` checkouts. Set it to
+  `false` when using released packages; the bundle then emits no sibling
+  source, sibling catalog, sibling validation, or `deps:prepare` setup step.
+- `sources.underlay_rev` and `sources.poodle_rev` — the commits those
+  checkouts are pinned to (see below).
 
 For consumers that use released Underlay and Poodle packages, opt out of
 sibling checkouts in the bundle inputs:
@@ -42,6 +45,48 @@ sibling checkouts in the bundle inputs:
 ```toml
 [bundle.sources]
 siblings = false
+```
+
+## Bootstrap and pinned sources
+
+`effigy bootstrap` clones the repo, materialises its pinned sources, runs its
+`setup` selectors in order, then runs `start`. The bundle sets:
+
+```toml
+[bootstrap]
+setup = ["secrets init", "container up --detach", "minio:reconcile", "deps:prepare"]
+start = "dev"
+```
+
+- `deps:prepare` replaces the retired `bootstrap deps sync`. It hydrates the
+  sibling checkouts, client, ui, front and admin with the same fingerprinted
+  helper the dev tabs use. It exists only when `sources.siblings = true` and
+  `workspace.js_root` is false. With `workspace.js_root = true`, setup runs
+  `workspace:js:prepare` (one frozen root install) instead.
+- A consumer `[bootstrap].setup` replaces the bundle list whole. Effigy never
+  concatenates the two. Write the full order you want, for example
+  `setup = ["secrets init", "bootstrap:state"]`.
+- `start` is inherited as `"dev"`. A consumer that sets no `start` keeps it.
+  `effigy bootstrap --no-start` runs setup and skips start.
+- With `sources.siblings = true`, `[sources.underlay]` and `[sources.poodle]`
+  clone at `sources.underlay_rev` and `sources.poodle_rev`. The defaults are
+  Underlay `v0.10.5` (`54975f3d87684c84ad1e9b99ec9577db4df7c675`) and Poodle
+  `v0.4.11` (`3fff871e6b21a0abdd08f766cd02a440d8871f91`). Pins never float:
+  `main` does not move the sibling checkouts.
+- Bootstrap never resets, fetches or cleans an existing checkout. A checkout
+  elsewhere, at another commit, or with local changes is reported as drift and
+  left alone. `effigy bootstrap --plan` lists each source and its state.
+- Use full 40-character commit SHAs. An empty pin refuses the config. Effigy
+  does not check SHA shape at render, so a malformed pin fails at checkout.
+
+Consumer override: another Underlay commit and a replacement setup list:
+
+```toml
+[bundle.sources]
+underlay_rev = "<40-character commit>"
+
+[bootstrap]
+setup = ["secrets init", "bootstrap:state"]
 ```
 
 ## Host development profiles (opt-in)
