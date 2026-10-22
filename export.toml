@@ -1,6 +1,6 @@
 [manifest]
-minimum_effigy_version = "0.13.1"
-extend = ["bootstrap.children", "secrets"]
+minimum_effigy_version = "0.15.0"
+extend = ["secrets"]
 
 {% set resolved_project_name = inputs.project_name or inputs.workspace_subdir ~ "-" ~ bundle.name %}
 
@@ -475,27 +475,36 @@ secrets = "required"
 env = { {{ test_env }} }
 {% endif %}
 
-[bootstrap]
-run = [
-  { task = "secrets init" },
-  { task = "container up --detach" },
-  { rhai = "{{ bundle.root }}/scripts/bootstrap-minio.rhai" },
-{% if inputs.workspace.js_root %}  { task = "workspace:js:prepare" },
-{% elif inputs.sources.siblings %}  { task = "bootstrap deps sync {% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}{% if inputs.dirs.api %} {{ inputs.dirs.api }}{% else %} app-api{% endif %}{% if inputs.dirs.client %} {{ inputs.dirs.client }}{% else %} app-client{% endif %}{% if inputs.dirs.ui %} {{ inputs.dirs.ui }}{% else %} app-ui{% endif %}{% if inputs.dirs.front %} {{ inputs.dirs.front }}{% else %} app-front{% endif %}{% if inputs.dirs.admin %} {{ inputs.dirs.admin }}{% else %} app-admin{% endif %}" },
-{% endif %}
-]
-start = "dev"
+{% if inputs.sources.siblings and not inputs.workspace.js_root %}# Bootstrap dependency preparation for the pinned sibling checkouts and the
+# front/admin packages. Same fingerprinted hydration the dev tabs use.
+[tasks."deps:prepare"]
+run = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }]
+run_in = "host"
 
-{% if inputs.sources.siblings %}[[bootstrap.children]]
+{% endif %}# Pinned sibling checkouts. `effigy bootstrap` clones each at its `rev` and
+# reports drift without touching an existing checkout that sits elsewhere or
+# has local changes. Moving a pin means changing the `sources.*_rev` input.
+{% if inputs.sources.siblings %}[sources.underlay]
+git = "git@github.com:inflatable-cookie/underlay.git"
+rev = "{{ inputs.sources.underlay_rev }}"
 path = "{% if inputs.sources.underlay %}{{ inputs.sources.underlay }}{% else %}../underlay{% endif %}"
-repo = "git@github.com:inflatable-cookie/underlay.git"
-branch = "main"
 
-[[bootstrap.children]]
+[sources.poodle]
+git = "git@github.com:inflatable-cookie/poodle.git"
+rev = "{{ inputs.sources.poodle_rev }}"
 path = "{% if inputs.sources.poodle %}{{ inputs.sources.poodle }}{% else %}../poodle{% endif %}"
-repo = "git@github.com:inflatable-cookie/poodle.git"
-branch = "main"
-{% endif %}
+
+{% endif %}# `setup` is ordered task selectors. A consumer `[bootstrap].setup` replaces
+# this list whole. `start` is inherited unless the consumer sets its own.
+[bootstrap]
+setup = [
+  "secrets init",
+  "container up --detach",
+  "minio:reconcile",
+{% if inputs.workspace.js_root %}  "workspace:js:prepare",
+{% elif inputs.sources.siblings %}  "deps:prepare",
+{% endif %}]
+start = "dev"
 
 [deploy.model.app]
 bundle = "{{ bundle.name }}"

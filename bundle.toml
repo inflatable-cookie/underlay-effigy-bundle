@@ -51,7 +51,7 @@ default = 41003
 [[inputs]]
 name = "dirs.api"
 type = "string"
-description = "API package directory for bootstrap env generation and dependency sync. When omitted, the bundle falls back to the shipped Underlay guesses."
+description = "API package directory for catalog selectors, container isolated dirs and deploy source roots. When omitted, the bundle falls back to the shipped Underlay guesses."
 example = "farmyard"
 
 [[inputs]]
@@ -69,21 +69,35 @@ example = "dairy"
 [[inputs]]
 name = "sources.underlay"
 type = "string"
-description = "Relative path from the consumer repo to the sibling underlay checkout used by bootstrap sync, bootstrap children, and the bundled UI setup helper when sources.siblings is true."
+description = "Relative path from the consumer repo to the sibling underlay checkout. It is the `[sources.underlay]` pinned bootstrap source, the catalog member, and the UI setup helper target when sources.siblings is true."
 default = "../underlay"
 example = "../../underlay"
 
 [[inputs]]
+name = "sources.underlay_rev"
+type = "string"
+description = "Full commit SHA `[sources.underlay]` is pinned to. Bootstrap clones exactly this commit and reports drift, without resetting, when an existing checkout differs. Moving the pin means changing this value; there is no floating branch."
+default = "54975f3d87684c84ad1e9b99ec9577db4df7c675"
+example = "<40-character commit>"
+
+[[inputs]]
 name = "sources.poodle"
 type = "string"
-description = "Relative path from the consumer repo to the sibling poodle checkout used by bootstrap children and the bundled UI setup helper when sources.siblings is true."
+description = "Relative path from the consumer repo to the sibling poodle checkout. It is the `[sources.poodle]` pinned bootstrap source, the catalog member, and the UI setup helper target when sources.siblings is true."
 default = "../poodle"
 example = "../../poodle"
 
 [[inputs]]
+name = "sources.poodle_rev"
+type = "string"
+description = "Full commit SHA `[sources.poodle]` is pinned to. Same rules as `sources.underlay_rev`."
+default = "3fff871e6b21a0abdd08f766cd02a440d8871f91"
+example = "<40-character commit>"
+
+[[inputs]]
 name = "sources.siblings"
 type = "bool"
-description = "Keep the sibling Underlay and Poodle checkouts enabled for catalogs, bootstrap, validation, and UI hydration. Set false when consuming released packages without sibling checkouts."
+description = "Keep the sibling Underlay and Poodle checkouts enabled for pinned bootstrap sources, catalogs, validation, and UI hydration. Set false when consuming released packages without sibling checkouts; the bundle then emits no sibling source, catalog member or `deps:prepare` setup step."
 default = true
 
 [[inputs]]
@@ -95,7 +109,7 @@ example = "froyo"
 [[inputs]]
 name = "dirs.ui"
 type = "string"
-description = "Optional UI package directory to include in bootstrap dependency sync and UI hydration. When omitted, the helper falls back to the shipped Underlay guesses."
+description = "Optional UI package directory to include in bootstrap dependency preparation (`deps:prepare`) and UI hydration. When omitted, the helper falls back to the shipped Underlay guesses."
 example = "app-ui"
 
 [[inputs]]

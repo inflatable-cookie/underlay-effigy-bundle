@@ -2,7 +2,8 @@
 //
 // Invoked by `tasks.dev` concurrent entries as a `setup = [{ rhai = ... }]`
 // step. Runs before the app's dev server starts and ensures bun dependencies
-// are installed on a fingerprint-controlled basis.
+// are installed on a fingerprint-controlled basis. The `deps:prepare` task
+// runs it as a plain bootstrap setup step with the same hydration, no dev tab.
 //
 // This is starter-owned helper glue, not Effigy runtime. It supports the
 // generic `app-*` layout and the Underlay reference `acme-*` layout by
@@ -372,15 +373,18 @@ if ui_dir != "" {
 
 shell += "fi\n";
 shell += "\n";
+let front_args = "\"" + app_front_dir + "\" \"" + acme_front_dir + "\" \"" + legacy_front_dir + "\"";
+if front_dir != "" {
+    front_args = "\"" + front_abs_dir + "\"";
+}
+let admin_args = "\"" + app_admin_dir + "\" \"" + acme_admin_dir + "\" \"" + legacy_admin_dir + "\"";
+if admin_dir != "" {
+    admin_args = "\"" + admin_abs_dir + "\"";
+}
+
 shell += "case \"$setup_task_name\" in\n";
 
-shell += "  front) selected_dir=$(resolve_first_package_dir";
-if front_dir != "" {
-    shell += " \"" + front_abs_dir + "\"";
-} else {
-    shell += " \"" + app_front_dir + "\" \"" + acme_front_dir + "\" \"" + legacy_front_dir + "\"";
-}
-shell += ")\n";
+shell += "  front) selected_dir=$(resolve_first_package_dir " + front_args + ")\n";
 shell += "    if [ -z \"$selected_dir\" ]; then\n";
 shell += "      printf '[warn] skipping front; none of these package dirs exist\\n'\n";
 shell += "    else\n";
@@ -388,19 +392,23 @@ shell += "      root_workspace_detected || ensure_bun_install \"$selected_dir\" 
 shell += "      ensure_svelte_sync_if_present \"$selected_dir\" \"front\"\n";
 shell += "    fi ;;\n";
 
-shell += "  admin) selected_dir=$(resolve_first_package_dir";
-if admin_dir != "" {
-    shell += " \"" + admin_abs_dir + "\"";
-} else {
-    shell += " \"" + app_admin_dir + "\" \"" + acme_admin_dir + "\" \"" + legacy_admin_dir + "\"";
-}
-shell += ")\n";
+shell += "  admin) selected_dir=$(resolve_first_package_dir " + admin_args + ")\n";
 shell += "    if [ -z \"$selected_dir\" ]; then\n";
 shell += "      printf '[warn] skipping admin; none of these package dirs exist\\n'\n";
 shell += "    else\n";
 shell += "      root_workspace_detected || ensure_bun_install \"$selected_dir\" \"admin\"\n";
 shell += "      ensure_svelte_sync_if_present \"$selected_dir\" \"admin\"\n";
 shell += "    fi ;;\n";
+
+// `deps:prepare` is the bootstrap setup target. The common section above has
+// already hydrated the siblings, client and ui; this adds front and admin
+// without the svelte sync that only the dev tabs need.
+shell += "  deps:prepare)\n";
+shell += "    root_workspace_detected && exit 0\n";
+shell += "    selected_dir=$(resolve_first_package_dir " + front_args + ") || selected_dir=\n";
+shell += "    if [ -n \"$selected_dir\" ]; then ensure_bun_install \"$selected_dir\" \"front\"; fi\n";
+shell += "    selected_dir=$(resolve_first_package_dir " + admin_args + ") || selected_dir=\n";
+shell += "    if [ -n \"$selected_dir\" ]; then ensure_bun_install \"$selected_dir\" \"admin\"; fi ;;\n";
 
 shell += "  *) printf '[error] unsupported ui setup target %s\\n' \"$setup_task_name\"; exit 1 ;;\n";
 shell += "esac\n";
