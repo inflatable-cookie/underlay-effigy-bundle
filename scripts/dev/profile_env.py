@@ -377,6 +377,9 @@ def run_dev(repo: Path, container: str, tui: str) -> int:
     stack teardown, so the stop belongs to the caller once the TUI is gone.
     A closed terminal (SIGHUP) or SIGTERM still reaches the stop, silently.
     """
+    unlocked = ensure_vault_unlocked(repo)
+    if unlocked != 0:
+        return unlocked
     hung_up = []
     for number in (signal.SIGHUP, signal.SIGTERM):
         signal.signal(number, lambda *_: hung_up.append(True))
@@ -396,6 +399,40 @@ def run_dev(repo: Path, container: str, tui: str) -> int:
         env=nested_environment(), check=False, **quiet,
     )
     return code or down.returncode
+
+def vault_status(repo: Path) -> str | None:
+    """`locked`, `unlocked`, or None when the doctor report can't say.
+
+    Detached from the terminal: on a TTY, `secrets doctor` asks for the
+    passphrase itself and then reports the vault as unlocked.
+    """
+    result = subprocess.run(
+        ["effigy", "--repo", str(repo), "--json", "secrets", "doctor"],
+        capture_output=True, text=True, timeout=120, check=False,
+        env=nested_environment(), stdin=subprocess.DEVNULL, start_new_session=True,
+    )
+    try:
+        return json.loads(result.stdout)["result"]["vault_state"]["status"]
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def ensure_vault_unlocked(repo: Path) -> int:
+    """Ask for the vault passphrase before the TUI, not inside a tab.
+
+    The TUI's services tab runs `dev:hybrid` as its own Effigy invocation,
+    and only a task named `dev` gets prompt-free local-dev access, so a
+    locked vault would prompt inside the tab. `secrets unlock` seals the
+    local credential nested runs use; it stays until `effigy secrets lock`.
+    """
+    if vault_status(repo) != "locked":
+        return 0
+    print("[dev] the vault is locked; unlocking it before the TUI opens"
+          " (`effigy secrets lock` locks it again)", flush=True)
+    return subprocess.run(
+        ["effigy", "--repo", str(repo), "secrets", "unlock"], env=nested_environment(), check=False,
+    ).returncode
+
 
 def run_session(repo: Path, container: str, start: str, idle=signal.pause) -> int:
     """The TUI's services tab: start the profile, show its hosts, then idle.

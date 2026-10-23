@@ -196,6 +196,11 @@ class DevTestCycleTest(unittest.TestCase):
 
 
 class DevSessionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = mock.patch.object(profile_env, "vault_status", return_value="unlocked")
+        self.addCleanup(patcher.stop)
+        patcher.start()
+
     def test_quitting_the_tui_always_stops_the_stack(self) -> None:
         tui = mock.Mock(**{"wait.return_value": 3})
         with mock.patch.object(profile_env.subprocess, "Popen", return_value=tui) as popen, \
@@ -229,6 +234,33 @@ class DevSessionTest(unittest.TestCase):
             with self.assertRaises(Quit):
                 profile_env.run_session(Path("/repo"), "hybrid", "dev:hybrid", idle=idle)
             effigy.assert_not_called()
+
+
+class VaultUnlockTest(unittest.TestCase):
+    def test_locked_vault_unlocks_before_the_tui(self) -> None:
+        order = []
+        tui = mock.Mock(**{"wait.return_value": 0})
+        with mock.patch.object(profile_env, "vault_status", return_value="locked"), \
+             mock.patch.object(profile_env.signal, "signal"), \
+             mock.patch.object(profile_env.subprocess, "Popen", side_effect=lambda *a, **k: order.append("tui") or tui), \
+             mock.patch.object(profile_env.subprocess, "run", side_effect=lambda argv, **k: order.append(argv[3:]) or mock.Mock(returncode=0)):
+            self.assertEqual(profile_env.run_dev(Path("/repo"), "hybrid", "dev:hybrid:tui"), 0)
+        self.assertEqual(order[0], ["secrets", "unlock"])
+        self.assertEqual(order[1], "tui")
+
+    def test_failed_unlock_never_opens_the_tui(self) -> None:
+        with mock.patch.object(profile_env, "vault_status", return_value="locked"), \
+             mock.patch.object(profile_env.subprocess, "Popen") as popen, \
+             mock.patch.object(profile_env.subprocess, "run", return_value=mock.Mock(returncode=1)):
+            self.assertEqual(profile_env.run_dev(Path("/repo"), "hybrid", "dev:hybrid:tui"), 1)
+        popen.assert_not_called()
+
+    def test_unlocked_or_unknown_vault_skips_unlock(self) -> None:
+        for state in ("unlocked", None):
+            with mock.patch.object(profile_env, "vault_status", return_value=state):
+                with mock.patch.object(profile_env.subprocess, "run") as run:
+                    self.assertEqual(profile_env.ensure_vault_unlocked(Path("/repo")), 0)
+                run.assert_not_called()
 
 
 class FollowLogTest(unittest.TestCase):
