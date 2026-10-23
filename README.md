@@ -129,62 +129,22 @@ the bundle supplies; object-store settings still come from the app's own
 config. See [development profiles](docs/knowledge/contracts/dev-profiles.md#opt-in-profiles)
 for the full contract and adoption limits.
 
-## Development profile qualification
+## Development profile tooling
 
-The bundle owns opt-in Rust/Vite managed-listener adapters and a SvelteKit
-development public-origin hook in `scripts/dev/`. They use Effigy's owned
-loopback binding, generation report, readiness and dependency interfaces. The
-hook validates a configured HTTPS origin and keeps SvelteKit's event/request
-URLs coherent behind the private HTTPS gateway. Consumer default selectors
-remain container-based; this change supplies qualification machinery and
-explicit disposable consumer overrides.
-
-The selectors below are the retained task-004 qualification tooling. They
-still pin the older private Effigy build they qualified and are not needed to
-use the profiles above.
-
-Use the approved private Effigy source and binary:
+`scripts/dev/` holds the bundle's profile adapters: the managed Rust and Vite
+listeners, the release server for the release modes, and the SvelteKit
+public-origin hook. They use Effigy's owned loopback binding, generation
+report, readiness and dependency interfaces. Their checks:
 
 ```sh
-export UNDERLAY_PROFILE_EFFIGY_SOURCE=/path/to/private/effigy
-export UNDERLAY_PROFILE_EFFIGY_BIN=/path/to/private/effigy/target/release/effigy
-export UNDERLAY_REFERENCE_SOURCE=~/Dev/projects/underlay-reference
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:public-origin
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-runtime
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-container
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:silo-contract-tests
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:silo-artifacts
-"$UNDERLAY_PROFILE_EFFIGY_BIN" --repo "$PWD" proof:dev-profiles:reference-storage
+effigy test:profiles                      # profile_env and release-server unit tests
+effigy proof:dev-profiles:public-origin   # public-origin hook security and chaining
+effigy proof:bootstrap-sources            # bootstrap render/plan regression (fixtures only)
+effigy proof:dns-base-domain              # DNS base-domain render regression
 ```
 
-The scripts verify Effigy source
-`2f7b1819fd0e72afff18a6053be424719ecf71fc` and private `effigy v0.14.1`
-binary SHA-256
-`2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc`.
-The runtime selectors pull approved digest-pinned PGSTY Silo and MC images,
-create fresh private Reference main/worktree instances and retain redacted
-receipts outside the repository. They use a private gateway/CA and isolated
-Colima runtime without installing system trust or changing the operator
-checkout. See [development profile ownership](docs/knowledge/contracts/dev-profiles.md)
-for interfaces, prerequisites and selector coverage.
-
-The retained Reference pilot proves three concurrent actual API/front/admin
-stacks, owned readiness before routes, public HTTPS origins/HMR,
-Postgres/SMTP connectivity, restart/dependent propagation, collision,
-interruption recovery and isolated teardown. Its former source-built upstream
-MinIO receipts are historical evidence. Current storage qualification uses
-published PGSTY Silo and MC through fixture-only overrides; Silo is a downstream
-fork, not unchanged upstream MinIO. Silo signed object operations,
-credentials/CORS controls and container-only build/start passed with that
-override. The covering Reference storage proof also passed registration,
-media creation, presigned upload, finalisation and signed retrieval/deletion,
-with verified owned cleanup. An earlier registration-response timeout remains
-historical evidence with an unestablished cause; the later pass does not explain
-that timeout or establish a runtime fix. See the owning development-profile
-contract above for the qualification boundary.
-No hybrid/dev:test consumer migration or default switch is delivered.
+The earlier private-Effigy qualification harness is retired; its evidence is
+summarised in [development profile ownership](docs/knowledge/contracts/dev-profiles.md).
 
 ## Object storage
 

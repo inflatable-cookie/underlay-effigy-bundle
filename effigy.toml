@@ -1,37 +1,5 @@
-[tasks."proof:dev-profiles"]
-run = "python3 scripts/qualify-dev-profiles.py"
-run_in = "host"
-
-[tasks."proof:dev-profiles:reference"]
-run = "python3 scripts/qualify-reference-profiles.py"
-run_in = "host"
-
 [tasks."proof:dev-profiles:public-origin"]
 run = "node --test --test-timeout=15000 --test-force-exit scripts/dev/sveltekit-public-origin.test.mjs"
-run_in = "host"
-
-[tasks."proof:dev-profiles:reference-runtime"]
-run = "python3 scripts/qualify-reference-runtime.py"
-run_in = "host"
-
-[tasks."proof:dev-profiles:lifecycle-contract-tests"]
-run = "python3 scripts/reference_lifecycle_test.py"
-run_in = "host"
-
-[tasks."proof:dev-profiles:reference-container"]
-run = "python3 scripts/qualify-reference-container.py"
-run_in = "host"
-
-[tasks."proof:dev-profiles:silo-artifacts"]
-run = "python3 scripts/qualify-silo-artifacts.py"
-run_in = "host"
-
-[tasks."proof:dev-profiles:reference-storage"]
-run = "UNDERLAY_PROFILE_STORAGE_ONLY=1 python3 scripts/qualify-reference-runtime.py"
-run_in = "host"
-
-[tasks."proof:dev-profiles:silo-contract-tests"]
-run = "python3 scripts/silo_fixture_test.py"
 run_in = "host"
 
 [tasks."test:profiles"]
