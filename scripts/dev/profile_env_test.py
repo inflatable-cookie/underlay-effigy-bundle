@@ -30,7 +30,7 @@ STATUS = {
     "services": [
         {"name": "dbgate", "ports": ["127.0.0.1:11930->3000/tcp"]},
         {"name": "postgres", "ports": ["127.0.0.1:11932->5432/tcp"]},
-        {"name": "minio", "ports": ["127.0.0.1:11940-11941->9000-9001/tcp"]},
+        {"name": "silo", "ports": ["127.0.0.1:11940-11941->9000-9001/tcp"]},
         {"name": "mailpit", "ports": ["127.0.0.1:11925->8025", "11926->1025/tcp"]},
     ]
 }
@@ -42,7 +42,7 @@ def report(scope: str = "") -> dict:
     return {
         "cookie_domain": f"s3.{apex}",
         "routes": [
-            route("http", "s3.acme.test", f"s3.{apex}", "minio"),
+            route("http", "s3.acme.test", f"s3.{apex}", "silo"),
             route("http", "dbgate.acme.test", f"dbgate.{apex}", "dbgate"),
             route("tcp", "smtp.s3.acme.test", f"smtp.s3.{apex}", "mailpit"),
             route("tcp", "postgres.s3.acme.test", f"postgres.s3.{apex}", "postgres"),
@@ -93,10 +93,10 @@ class AppEnvironmentTest(unittest.TestCase):
             profile_env.app_environment(report(), without_postgres, DECLARED, "acme")
 
     def test_published_port_handles_ranges_and_bare_mappings(self) -> None:
-        self.assertEqual(profile_env.published_port(STATUS, "minio", 9001), 11941)
+        self.assertEqual(profile_env.published_port(STATUS, "silo", 9001), 11941)
         self.assertEqual(profile_env.published_port(STATUS, "mailpit", 8025), 11925)
         with self.assertRaises(profile_env.ProfileError):
-            profile_env.published_port(STATUS, "minio", 9002)
+            profile_env.published_port(STATUS, "silo", 9002)
 
     def test_custom_front_label_still_finds_apex(self) -> None:
         self.assertEqual(profile_env.shared_apex(["api.acme.test", "www.acme.test", "admin.acme.test"]), "acme.test")
@@ -116,7 +116,7 @@ class ServiceWaitTest(unittest.TestCase):
 
         profile_env.wait_for_services(
             STATUS,
-            {"postgres": (5432, becomes_ready(1)), "minio": (9000, becomes_ready(3))},
+            {"postgres": (5432, becomes_ready(1)), "silo": (9000, becomes_ready(3))},
             sleep=lambda _: None,
         )
         self.assertEqual(calls.count(11940), 4)
@@ -124,9 +124,9 @@ class ServiceWaitTest(unittest.TestCase):
 
     def test_times_out_naming_the_service(self) -> None:
         now = iter(range(0, 1000, 10))
-        with self.assertRaisesRegex(profile_env.ProfileError, "minio"):
+        with self.assertRaisesRegex(profile_env.ProfileError, "silo"):
             profile_env.wait_for_services(
-                STATUS, {"minio": (9000, lambda port: False)}, timeout=30,
+                STATUS, {"silo": (9000, lambda port: False)}, timeout=30,
                 clock=lambda: next(now), sleep=lambda _: None,
             )
 

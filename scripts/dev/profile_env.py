@@ -155,7 +155,7 @@ def silo_ready(port: int) -> bool:
 SERVICE_PROBES = {
     "postgres": (POSTGRES_PORT, tcp_ready),
     "mailpit": (SMTP_PORT, tcp_ready),
-    "minio": (S3_PORT, silo_ready),
+    "silo": (S3_PORT, silo_ready),
 }
 
 
@@ -245,7 +245,7 @@ def app_environment(report: dict, status: dict, declared: dict[str, str], databa
         ),
         "SMTP_HOST": "127.0.0.1",
         "SMTP_PORT": str(published_port(status, "mailpit", SMTP_PORT)),
-        "EFFIGY_PROFILE_S3_ENDPOINT": f"http://127.0.0.1:{published_port(status, 'minio', S3_PORT)}",
+        "EFFIGY_PROFILE_S3_ENDPOINT": f"http://127.0.0.1:{published_port(status, 'silo', S3_PORT)}",
         # The profile's own Silo, not a deployed store: its catalog
         # credentials, and no instance-metadata lookup on a miss.
         "AWS_ACCESS_KEY_ID": SILO_ACCESS_KEY,
@@ -335,7 +335,7 @@ def bootstrap(repo: Path, container: str, env: dict[str, str]) -> None:
     result = effigy(
         repo,
         "container", container, "shell",
-        "--service", "minio",
+        "--service", "silo",
         "--command", bootstrap_script(bucket, origins),
         timeout=180,
     )
