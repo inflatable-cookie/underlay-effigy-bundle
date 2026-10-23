@@ -223,8 +223,13 @@ to the gateway's CA (the private gateway's `ca/rootCA.pem`, else mkcert's
 root) unless already set, so host Node/Bun servers can call their API through
 the gateway; the workspace image installs that CA for container apps. Public names come from the
 effective host map; service connections use the published loopback ports, so
-host processes need no gateway DNS. The cookie domain is derived from the app
-hosts, because Effigy's reported cookie domain follows the first service route.
+host processes need no gateway DNS. The main container declares
+`dns.base_domain = inputs.host`. The `hybrid` and `hybrid-release` profiles
+declare that same checkout domain, while `test` declares `test.<inputs.host>`.
+These are the intended checkout/profile domains even when a service route is
+listed first or uses a custom route label. Effigy's host report uses the
+explicit base domain for `base_domain`, `cookie_domain`, `relying_party_id` and
+TCP service aliases; route domains remain independent publication names.
 
 The API and jobs worker run through the `profile:api` and `profile:jobs`
 tasks, which invoke `profiles.api_task` and `profiles.jobs_task` (default
