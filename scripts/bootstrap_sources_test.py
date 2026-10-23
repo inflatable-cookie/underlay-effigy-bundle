@@ -28,9 +28,9 @@ POODLE_PIN = "3fff871e6b21a0abdd08f766cd02a440d8871f91"
 LONGHORN_PIN = "64371e89b3f243cc00b40723b09427058de24b3a"
 OTHER_PIN = "1111111111111111111111111111111111111111"
 
-DEFAULT_SETUP = ["secrets init", "container up --detach", "minio:reconcile", "deps:prepare"]
-JS_ROOT_SETUP = ["secrets init", "container up --detach", "minio:reconcile", "workspace:js:prepare"]
-NO_DEPS_SETUP = ["secrets init", "container up --detach", "minio:reconcile"]
+DEFAULT_SETUP = ["secrets init", "container up --detach", "silo:reconcile", "deps:prepare"]
+JS_ROOT_SETUP = ["secrets init", "container up --detach", "silo:reconcile", "workspace:js:prepare"]
+NO_DEPS_SETUP = ["secrets init", "container up --detach", "silo:reconcile"]
 RETIRED = ("bootstrap.children", "deps sync", "db-seed", "submodules")
 DEFAULT_DIRS = {"api": "app-api", "client": "app-client", "admin": "app-admin", "front": "app-front"}
 ROLES = ("api", "client", "admin", "front", "ui", "docs")
@@ -310,7 +310,7 @@ class BootstrapSourcesTest(unittest.TestCase):
         for selector in DEFAULT_SETUP:
             if selector not in ("secrets init", "container up --detach"):
                 self.assertIn(selector, eff["tasks"], f"setup selector `{selector}` has no task")
-        self.assertIn("bootstrap-minio.rhai", json.dumps(eff["tasks"]["minio:reconcile"]))
+        self.assertIn("bootstrap-silo.rhai", json.dumps(eff["tasks"]["silo:reconcile"]))
         self.assertIn("ui-setup.rhai", json.dumps(eff["tasks"]["deps:prepare"]))
 
     # 8. The bundle raises its floor to v0.15.0. A released v0.14.x binary must
