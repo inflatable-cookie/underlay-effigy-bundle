@@ -151,7 +151,7 @@ summarised in [development profile ownership](docs/knowledge/contracts/dev-profi
 The default object store is PGSTY Silo, a maintained MinIO fork, from the
 Effigy catalog's `silo` service, run as the Compose service `silo`. Apps reach
 it through `s3.<host>` (or `http://silo:9000` inside the stack), and its
-console is `silo.<host>`. `effigy silo:reconcile` re-applies the bucket and
+console is `silo.<host>`. With the container stack running, `effigy silo:reconcile` re-applies the bucket and
 CORS setup against a running stack.
 
 The service was named `minio` until 2026-10-21. Its data lived in
