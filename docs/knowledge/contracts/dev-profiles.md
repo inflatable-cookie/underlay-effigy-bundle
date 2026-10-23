@@ -337,7 +337,7 @@ object PUT/GET/DELETE (200/200/204), and rejected incorrect credentials (403).
 A foreign-origin preflight returns 204 without a CORS grant. Actual front/admin
 origin and HMR probes also pass with this service override.
 
-The covering `proof:dev-profiles:reference-storage` execution passed the actual
+The covering Reference storage proof (since retired with the harness) passed the actual
 Reference application path through the CA-verified private gateway:
 registration and login (200), media creation (201), upload initiation (200),
 presigned PUT to the registered HTTPS Silo authority (200), finalisation (200,
@@ -392,29 +392,14 @@ coverage. Review/CI and any consumer migration remain separate gates.
 
 ## Qualification selectors
 
-Set `UNDERLAY_PROFILE_EFFIGY_SOURCE`, `UNDERLAY_PROFILE_EFFIGY_BIN` and
-`UNDERLAY_REFERENCE_SOURCE` explicitly. The repository owns these selectors:
+The bundle keeps `proof:dev-profiles:public-origin` (helper security, opt-out,
+hook chaining and request/body preservation tests with bounded runner
+lifetime) and `test:profiles`. The private-Effigy qualification harness
+(`proof:dev-profiles`, `:reference`, `:reference-runtime`,
+`:lifecycle-contract-tests`, `:reference-container`, `:silo-contract-tests`,
+`:silo-artifacts`, `:reference-storage`) was retired on 2026-10-23 (operator
+ruling 2026-10-21: no Python needed): it pinned an older private Effigy build
+and patched Reference source that has since moved. The evidence above is what
+it recorded. Consumer qualification now runs against installed Effigy builds
+on disposable clones; see the v0.15 qualification lane in Queue.
 
-- `proof:dev-profiles`: supporting synthetic binding/identity proof.
-- `proof:dev-profiles:reference`: disposable Reference assembly/configuration
-  and actual adapter plans; it does not launch applications.
-- `proof:dev-profiles:public-origin`: helper security, opt-out, hook chaining
-  and request/body preservation tests with bounded runner lifetime.
-- `proof:dev-profiles:reference-runtime`: real three-instance applications,
-  published Silo, HTTPS/HMR and lifecycle proof with owned teardown.
-- `proof:dev-profiles:lifecycle-contract-tests`: hermetic survivor identity
-  checks, including a recycled child under an unchanged supervisor.
-- `proof:dev-profiles:reference-container`: independent container-only
-  assembly/build/start with the disclosed published Silo override.
-- `proof:dev-profiles:silo-contract-tests`: hermetic digest/config/source and
-  attestation mismatch controls.
-- `proof:dev-profiles:silo-artifacts`: anonymous pinned registry metadata proof
-  for both Linux platforms, without runtime effects.
-- `proof:dev-profiles:reference-storage`: focused real Reference application and
-  Silo storage proof covering registration, presigned upload, finalisation and
-  signed retrieval/deletion with supported owned teardown. It retains unchanged
-  three-instance lifecycle coverage.
-
-Runtime selectors create fresh private roots and retain redacted receipts
-outside the repository. Published artifact/config mismatches fail closed; no
-manual source-image build or global Effigy replacement is required.
