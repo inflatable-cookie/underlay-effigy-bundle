@@ -390,26 +390,12 @@ def run_dev(repo: Path, container: str, tui: str) -> int:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     if not hung_up:
         print(f"[dev] stopping `{container}`...", flush=True)
+    quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if hung_up else {}
     down = subprocess.run(
         ["effigy", "--repo", str(repo), "container", container, "down"],
-        env=nested_environment(), check=False, capture_output=True, text=True,
+        env=nested_environment(), check=False, **quiet,
     )
-    if not hung_up:
-        sys.stdout.write(down.stdout)
-        if not never_prepared(down):
-            sys.stderr.write(down.stderr)
-    down_code = 0 if never_prepared(down) else down.returncode
-    return code or down_code
-
-
-def never_prepared(down: subprocess.CompletedProcess) -> bool:
-    """`down` of an environment that never started has nothing to clean.
-
-    Effigy renders unassigned ports as a required variable so `up` fails
-    closed, and until effigy#286 `down` dies on the same interpolation.
-    """
-    return down.returncode != 0 and "EFFIGY_UNASSIGNED_PORT is missing a value" in (down.stderr + down.stdout)
-
+    return code or down.returncode
 
 def run_session(repo: Path, container: str, start: str, idle=signal.pause) -> int:
     """The TUI's services tab: start the profile, show its hosts, then idle.
