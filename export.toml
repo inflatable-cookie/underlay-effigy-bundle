@@ -107,6 +107,7 @@ catalog = "mailpit"
 catalog = "silo"
 
 [containers.{{ inputs.container_name }}.dns]
+base_domain = "{{ inputs.host }}"
 routes = [
   { domain = "{{ route_domain(inputs.host, inputs.routes.front, '') }}", tls = true, port = {{ inputs.front_port }}, service = "{{ inputs.workspace_service_name }}" },
   { domain = "{{ route_domain(inputs.host, inputs.routes.admin, 'admin') }}", tls = true, port = {{ inputs.admin_port }}, service = "{{ inputs.workspace_service_name }}" },
@@ -294,6 +295,7 @@ catalog = "mailpit"
 catalog = "silo"
 
 [containers.{{ container }}.dns]
+base_domain = "{{ profile_host }}"
 routes = [
   { domain = "{{ s3_domain }}", tls = true, port = 9000, service = "minio" },
   { domain = "dbgate.{{ profile_host }}", tls = true, port = 3000, service = "dbgate" },
