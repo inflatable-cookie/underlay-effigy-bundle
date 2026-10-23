@@ -71,7 +71,7 @@ def nested_environment() -> dict[str, str]:
 
 def effigy(repo: Path, *args: str, timeout: float | None = 120) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["effigy", *args, "--repo", str(repo)],
+        ["effigy", "--repo", str(repo), *args],
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -359,7 +359,7 @@ def run_test(repo: Path, container: str, task: str, timeout: int, env: dict[str,
         child_env = {**nested_environment(), **resolved_environment(repo, container, env)}
         try:
             return subprocess.run(
-                ["effigy", task, "--repo", str(repo)], env=child_env, timeout=timeout, check=False
+                ["effigy", "--repo", str(repo), task], env=child_env, timeout=timeout, check=False
             ).returncode
         except subprocess.TimeoutExpired:
             print(f"dev:test: `{task}` exceeded {timeout}s", file=sys.stderr)
@@ -380,7 +380,7 @@ def run_dev(repo: Path, container: str, tui: str) -> int:
     hung_up = []
     for number in (signal.SIGHUP, signal.SIGTERM):
         signal.signal(number, lambda *_: hung_up.append(True))
-    child = subprocess.Popen(["effigy", tui, "--repo", str(repo)], env=nested_environment())
+    child = subprocess.Popen(["effigy", "--repo", str(repo), tui], env=nested_environment())
     while True:
         try:
             code = child.wait()
@@ -388,14 +388,27 @@ def run_dev(repo: Path, container: str, tui: str) -> int:
         except KeyboardInterrupt:
             continue
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL} if hung_up else {}
     if not hung_up:
         print(f"[dev] stopping `{container}`...", flush=True)
     down = subprocess.run(
-        ["effigy", "container", container, "down", "--repo", str(repo)],
-        env=nested_environment(), check=False, **quiet,
+        ["effigy", "--repo", str(repo), "container", container, "down"],
+        env=nested_environment(), check=False, capture_output=True, text=True,
     )
-    return code or down.returncode
+    if not hung_up:
+        sys.stdout.write(down.stdout)
+        if not never_prepared(down):
+            sys.stderr.write(down.stderr)
+    down_code = 0 if never_prepared(down) else down.returncode
+    return code or down_code
+
+
+def never_prepared(down: subprocess.CompletedProcess) -> bool:
+    """`down` of an environment that never started has nothing to clean.
+
+    Effigy renders unassigned ports as a required variable so `up` fails
+    closed, and until effigy#286 `down` dies on the same interpolation.
+    """
+    return down.returncode != 0 and "EFFIGY_UNASSIGNED_PORT is missing a value" in (down.stderr + down.stdout)
 
 
 def run_session(repo: Path, container: str, start: str, idle=signal.pause) -> int:
@@ -405,7 +418,7 @@ def run_session(repo: Path, container: str, start: str, idle=signal.pause) -> in
     failed start stays on screen until the operator quits.
     """
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    result = subprocess.run(["effigy", start, "--repo", str(repo)], env=nested_environment(), check=False)
+    result = subprocess.run(["effigy", "--repo", str(repo), start], env=nested_environment(), check=False)
     if result.returncode == 0:
         hosts = effigy(repo, "container", container, "hosts")
         print(hosts.stdout.rstrip(), flush=True)

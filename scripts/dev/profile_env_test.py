@@ -200,16 +200,19 @@ class DevSessionTest(unittest.TestCase):
         tui = mock.Mock(**{"wait.return_value": 3})
         with mock.patch.object(profile_env.subprocess, "Popen", return_value=tui) as popen, \
              mock.patch.object(profile_env.signal, "signal"), \
-             mock.patch.object(profile_env.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+             mock.patch.object(profile_env.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")) as run:
             self.assertEqual(profile_env.run_dev(Path("/repo"), "hybrid", "dev:hybrid:tui"), 3)
-        self.assertEqual(popen.call_args.args[0][:2], ["effigy", "dev:hybrid:tui"])
-        self.assertEqual(run.call_args.args[0][:4], ["effigy", "container", "hybrid", "down"])
+        self.assertEqual(popen.call_args.args[0][0], "effigy")
+        self.assertEqual(popen.call_args.args[0][-1], "dev:hybrid:tui")
+        self.assertLess(popen.call_args.args[0].index("--repo"), popen.call_args.args[0].index("dev:hybrid:tui"))
+        self.assertEqual(run.call_args.args[0][-3:], ["container", "hybrid", "down"])
+        self.assertEqual(run.call_args.args[0][1], "--repo")
 
     def test_interrupt_during_the_tui_still_stops_the_stack(self) -> None:
         tui = mock.Mock(**{"wait.side_effect": [KeyboardInterrupt, 0]})
         with mock.patch.object(profile_env.subprocess, "Popen", return_value=tui), \
              mock.patch.object(profile_env.signal, "signal"), \
-             mock.patch.object(profile_env.subprocess, "run", return_value=mock.Mock(returncode=1)) as run:
+             mock.patch.object(profile_env.subprocess, "run", return_value=mock.Mock(returncode=1, stdout="", stderr="")) as run:
             self.assertEqual(profile_env.run_dev(Path("/repo"), "hybrid", "dev:hybrid:tui"), 1)
         run.assert_called_once()
 
@@ -226,6 +229,30 @@ class DevSessionTest(unittest.TestCase):
             with self.assertRaises(Quit):
                 profile_env.run_session(Path("/repo"), "hybrid", "dev:hybrid", idle=idle)
             effigy.assert_not_called()
+
+
+class NeverPreparedDownTest(unittest.TestCase):
+    def test_unassigned_port_failure_is_nothing_to_clean(self) -> None:
+        tui = mock.Mock(**{"wait.return_value": 1})
+        down = mock.Mock(returncode=1, stdout="", stderr="required variable EFFIGY_UNASSIGNED_PORT is missing a value: unassigned")
+        with mock.patch.object(profile_env.subprocess, "Popen", return_value=tui), \
+             mock.patch.object(profile_env.signal, "signal"), \
+             mock.patch.object(profile_env.subprocess, "run", return_value=down):
+            self.assertEqual(profile_env.run_dev(Path("/repo"), "hybrid", "dev:hybrid:tui"), 1)
+
+    def test_other_down_failures_still_count(self) -> None:
+        tui = mock.Mock(**{"wait.return_value": 0})
+        down = mock.Mock(returncode=1, stdout="", stderr="compose down failed")
+        with mock.patch.object(profile_env.subprocess, "Popen", return_value=tui), \
+             mock.patch.object(profile_env.signal, "signal"), \
+             mock.patch.object(profile_env.subprocess, "run", return_value=down):
+            self.assertEqual(profile_env.run_dev(Path("/repo"), "hybrid", "dev:hybrid:tui"), 1)
+        down.returncode = 1
+        down.stderr = "required variable EFFIGY_UNASSIGNED_PORT is missing a value"
+        with mock.patch.object(profile_env.subprocess, "Popen", return_value=tui), \
+             mock.patch.object(profile_env.signal, "signal"), \
+             mock.patch.object(profile_env.subprocess, "run", return_value=down):
+            self.assertEqual(profile_env.run_dev(Path("/repo"), "hybrid", "dev:hybrid:tui"), 0)
 
 
 class FollowLogTest(unittest.TestCase):
