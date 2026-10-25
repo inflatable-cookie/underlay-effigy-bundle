@@ -228,7 +228,7 @@ example = "chromium"
 [[inputs]]
 name = "profiles.enabled"
 type = "bool"
-description = "Opt in to the host `dev:hybrid` and short-lived `dev:test` profiles: services stay in containers while the API, front and admin run on the host as Effigy managed listeners. Needs an Effigy build with managed host listeners (current `main`). Omitted or false leaves the container-only stack unchanged."
+description = "Opt in to the host `dev:hybrid` and short-lived `dev:test` profiles: services stay in containers while the API, front and admin run on the host as Effigy managed listeners. Needs the declared 0.15 candidate floor for native managed host listeners: Effigy reserves each loopback port and passes it to the task as `HOST`/`PORT`, so no bundle adapter is involved. Omitted or false leaves the container-only stack unchanged."
 default = false
 
 [[inputs]]

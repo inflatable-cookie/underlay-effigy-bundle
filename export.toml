@@ -303,9 +303,12 @@ routes = [
   { domain = "silo.{{ profile_host }}", tls = true, port = 9001, service = "silo" },
 ]
 
+# The API runs as the unchanged nested selector. Effigy reserves the
+# listener's loopback port and passes it to the task as HOST/PORT, so the
+# bundle adds no Rust listener adapter, report reader or startup timer.
 [[containers.{{ container }}.host_processes]]
 name = "api"
-run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec {{ container }} -- python3 "{{ bundle.root }}/scripts/dev/managed-rust-listener.py" -- effigy profile:api'
+run = 'python3 "{{ bundle.root }}/scripts/dev/profile_env.py" exec {{ container }} -- effigy profile:api'
 cwd = "."
 restart = "on-failure"
 env = { {{ profile_env }} }
