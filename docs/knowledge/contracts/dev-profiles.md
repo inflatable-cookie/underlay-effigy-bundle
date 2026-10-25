@@ -25,12 +25,14 @@ profile's volumes.
 
 ## Ownership
 
-The bundle owns Rust and Vite adapters, service declarations, profile-specific
-connection URLs, browser origins, HMR configuration and selector wiring.
-Effigy owns language-agnostic execution, environment delivery, readiness and
-gateway ownership primitives. Oxide separately owns Rust build and cache
-management. The bundle must not introduce another supervisor, allocator or
-cache manager to cover a missing Effigy primitive.
+The bundle owns service declarations, profile-specific connection URLs,
+browser origins, HMR configuration, selector wiring, and the Vite and release
+listeners. The Rust API and jobs run unchanged: Effigy reserves their loopback
+address and passes it as `HOST`/`PORT`, so the bundle ships no Rust listener
+adapter. Effigy owns language-agnostic execution, environment delivery,
+readiness and gateway ownership primitives. Oxide separately owns Rust build
+and cache management. The bundle must not introduce another supervisor,
+allocator, cache manager or startup timer to cover a missing Effigy primitive.
 
 Host processes connect to services through reachable loopback endpoints.
 Browser-facing HTTPS URLs are distinct from internal bind addresses. Qualified
@@ -42,9 +44,11 @@ interchangeable.
 
 An instance identity covers its checkout, runtime generation and profile.
 Frontend, admin, API and additional Rust listeners have distinct owned
-addresses. Prefer OS port zero with discovery of the actual listener where the
-adapter supports it. Otherwise require exclusive allocation claims, strict
-binding and bounded collision retry. A free-port probe is not a reservation.
+addresses. `listener.bind = "127.0.0.1:0"` asks Effigy to reserve a concrete
+loopback port before launch, and the process reads that address as
+`HOST`/`PORT`; Effigy proves the owned socket instead of trusting a free-port
+probe or an adapter report. A fixed port stays the manifest's own decision and
+is never reserved. A free-port probe is not a reservation.
 
 Publish a route only after proving readiness of its owned listener. Keep the
 actual address current across restart and reject foreign hostname takeover.
@@ -84,33 +88,40 @@ blocked capability must not become an invented CLI or private protocol.
 
 ## Supported mechanism
 
-Qualification uses Effigy source
+Qualification on 2026-10-15 used Effigy source
 `2f7b1819fd0e72afff18a6053be424719ecf71fc` and its private `effigy v0.14.1`
 binary, SHA-256
 `2f4f888c76f424d41cc981881bc544a14fb82f024c0c50a2e3b5022bd4fb16fc`.
-The scripts require explicit source and binary paths and verify both identities.
-The owning interfaces are Effigy's contract 005 managed host listener routes
-and guide 063 managed host listeners/private gateway at that source.
+The scripts required explicit source and binary paths and verified both
+identities. Those are dated qualification facts, not the current admission
+rule. The owning interfaces are Effigy's contract 005 managed host listener
+routes and guide 063 managed host listeners/private gateway.
 
 Effigy supports `containers.<name>.host_processes` with `listener.bind`, HTTP
-readiness, a TLS route, and `depends_on`. An adapter strictly binds
-`EFFIGY_MANAGED_HOST_LISTENER_BIND`, then writes
-`effigy.managed.host-listener-report.v1` to
-`EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE`, echoing
-`EFFIGY_MANAGED_HOST_LISTENER_GENERATION`. Effigy verifies kernel ownership
-and readiness before publication. Dependents receive current internal/public
-URLs, state file and generation through `EFFIGY_MANAGED_HOST_<NAME>_*` and
-restart on dependency endpoint/readiness changes. Failed-generation
-diagnostics describe report, ownership, HTTP readiness and publication phases;
-they are not ownership authority.
+readiness, a TLS route, and `depends_on`. For a listener it passes
+`EFFIGY_MANAGED_HOST_LISTENER_BIND` and the reserved address as `HOST` and
+`PORT`. Effigy verifies kernel ownership and readiness before publication.
+Dependents receive current internal/public URLs, state file and generation
+through `EFFIGY_MANAGED_HOST_<NAME>_*` and restart on dependency
+endpoint/readiness changes. Effigy still sets
+`EFFIGY_MANAGED_HOST_LISTENER_REPORT_FILE` and
+`EFFIGY_MANAGED_HOST_LISTENER_GENERATION` as a courtesy for older adapter
+scripts, but it never reads a listener report: the answering owned socket is
+the ownership and readiness story. Failed-generation diagnostics describe
+ownership, HTTP readiness and publication phases; they are not ownership
+authority.
 
-The bundle's opt-in Rust adapter passes the bind preference into the actual
-Rust task, discovers its descendant's loopback listener and reports the actual
-address. The Vite adapter loads the application's installed configuration,
-strictly binds its managed loopback address, consumes the current API public
-URL, and sets browser/HMR URLs including the gateway's actual HTTPS port.
-Effigy owns their lifecycle; these adapters introduce no allocator or cache
-manager. They are not connected to the bundle's default `dev` selector.
+The API host process is `profile_env.py exec <container> -- effigy
+profile:api`. `profile_env.py` maps the profile environment and execs the
+nested selector unchanged, so the Rust task receives the supervisor's
+`HOST`/`PORT` through every maintained process boundary and binds the port
+Effigy reserved. The bundle adds no second startup deadline, fallback or
+report reader for it. The Vite adapter loads the application's installed
+configuration, strictly binds its managed loopback address, consumes the
+current API public URL, and sets browser/HMR URLs including the gateway's
+actual HTTPS port. Effigy owns their lifecycle; the remaining adapters
+introduce no allocator or cache manager. They are not connected to the
+bundle's default `dev` selector.
 
 `scripts/dev/sveltekit-public-origin.mjs` supplies an explicit development hook
 wrapper for an HTTP Vite listener behind an HTTPS gateway. A consumer opts in
@@ -201,18 +212,25 @@ allow 900s.
 
 Operator ruling, 2026-10-15: profiles run on the operator's installed Effigy,
 built from Effigy `main` with `effigy bootstrap:local`. There is no pinned
-source or binary-checksum gate. Profiles need Effigy `main` at or after
-`e91cd4c` (2026-10-15): it publishes managed listener routes to the shared
-gateway (#283), accepts nerdctl compose bindings (#282) and lets a root-owned
-shared gateway verify user listeners (#285). Older builds refuse the profile
-manifest, time out activation on Colima, or answer listener routes with 503. Add a released `minimum_effigy_version` when
-Effigy next releases. This replaces the earlier exact-source admission.
+source or binary-checksum gate. That ruling's dated minimum (`e91cd4c`,
+2026-10-15) covered managed listener routes to the shared gateway (#283),
+nerdctl compose bindings (#282) and root-owned gateway verification of user
+listeners (#285); it is qualification evidence, not the current admission
+test. This replaced the earlier exact-source admission.
+
+The bundle declares `minimum_effigy_version = "0.15.0"`, the unreleased 0.15
+candidate, for the capability it actually needs: a managed host listener that
+reserves the loopback port and passes it to the task as `HOST`/`PORT`, with no
+adapter report. An older Effigy refuses the bundle at parse. A released 0.14.x
+is exercised by `proof:bootstrap-sources` when `EFFIGY_V014_BIN` names one;
+that check never fabricates a release or build attestation for 0.15.
 
 ### What the bundle does and does not own
 
-Effigy scopes hostnames, ports and loopback aliases per checkout, supervises
-the listeners, proves readiness before publishing routes, and tears down. The
-bundle adds no supervisor, allocator or cleanup of its own.
+Effigy scopes hostnames, ports and loopback aliases per checkout, reserves
+listener ports, supervises the listeners, proves readiness before publishing
+routes, and tears down. The bundle adds no supervisor, allocator, startup
+timer or cleanup of its own.
 
 `scripts/dev/profile_env.py` reads `effigy container <name> hosts --json` and
 `status --json` and sets the variables Underlay apps already read:
@@ -235,9 +253,11 @@ The API and jobs worker run through the `profile:api` and `profile:jobs`
 tasks, which invoke `profiles.api_task` and `profiles.jobs_task` (default
 `<api catalog>/api` and `/jobs`). Those selectors must run on the host; a
 consumer whose API catalog defaults into a workspace container names
-host-only tasks there instead. The profile tasks request vault secrets:
-host processes carry none of their own, and task secrets do not reach composed
-child tasks.
+host-only tasks there instead. The API host process execs `effigy profile:api`
+unchanged, so the task inherits Effigy's reserved `HOST`/`PORT` and binds it;
+no bundle adapter sits between the supervisor and the app. The profile tasks
+request vault secrets: host processes carry none of their own, and task
+secrets do not reach composed child tasks.
 
 ### Consumer adoption limits
 
@@ -398,7 +418,12 @@ coverage. Review/CI and any consumer migration remain separate gates.
 
 The bundle keeps `proof:dev-profiles:public-origin` (helper security, opt-out,
 hook chaining and request/body preservation tests with bounded runner
-lifetime) and `test:profiles`. The private-Effigy qualification harness
+lifetime) and `test:profiles` (profile environment mapping, the native
+`HOST`/`PORT` exec seam through a fake nested selector, and release-server
+units). `proof:bootstrap-sources` renders all three profiles and asserts the
+API host process is the unchanged nested selector with its owning task,
+secrets, environment and declared readiness/route, and no second Python
+process or startup timer. The private-Effigy qualification harness
 (`proof:dev-profiles`, `:reference`, `:reference-runtime`,
 `:lifecycle-contract-tests`, `:reference-container`, `:silo-contract-tests`,
 `:silo-artifacts`, `:reference-storage`) was retired on 2026-10-23 (operator

@@ -224,6 +224,52 @@ class BootstrapSourcesTest(unittest.TestCase):
         self.assert_no_retired(eff)
         self.assert_plan(fx, JS_ROOT_SETUP)
 
+    # 3c. All three host profiles run the API as the unchanged nested selector.
+    # Effigy reserves the listener's loopback port and passes HOST/PORT, so the
+    # rendered command keeps profile_env.py, the owning task, secrets and the
+    # declared readiness/route, and adds no second Python process or timer.
+    def test_profiles_render_native_api_listener(self) -> None:
+        fx = self.fixture(inputs={
+            "profiles.enabled": True,
+            "profiles.api_task": "acme-api/api:host",
+            "profiles.jobs_task": "acme-api/jobs:host",
+            "host": "acme.test", "workspace_subdir": "acme", "databases": ["acme"],
+        })
+        eff = fx.effective()
+        for container, host in (
+            ("hybrid", "acme.test"),
+            ("hybrid-release", "acme.test"),
+            ("test", "test.acme.test"),
+        ):
+            host_processes = eff["containers"][container]["host_processes"]
+            api = next(entry for entry in host_processes if entry["name"] == "api")
+            self.assertEqual(
+                api["run"],
+                f'python3 "{BUNDLE}/scripts/dev/profile_env.py" exec {container} -- effigy profile:api',
+            )
+            self.assertEqual(api["run"].count("python3"), 1)
+            self.assertEqual(api["cwd"], ".")
+            self.assertEqual(api["restart"], "on-failure")
+            self.assertEqual(api["env"]["ENVIRONMENT"], "effigy")
+            self.assertEqual(api["env"]["EFFIGY_PROFILE_DATABASE"], "acme")
+            self.assertEqual(api["listener"]["bind"], "127.0.0.1:0")
+            self.assertEqual(api["listener"]["readiness"]["path"], "/v1/health")
+            self.assertEqual(api["listener"]["readiness"]["status"], 200)
+            self.assertEqual(api["listener"]["readiness"]["timeout_secs"], 600)
+            self.assertEqual(api["listener"]["route"]["domain"], f"api.{host}")
+            self.assertTrue(api["listener"]["route"]["tls"])
+            if container != "test":
+                jobs = next(entry for entry in host_processes if entry["name"] == "jobs")
+                self.assertEqual(
+                    jobs["run"],
+                    f'python3 "{BUNDLE}/scripts/dev/profile_env.py" exec {container} -- effigy profile:jobs',
+                )
+        self.assertEqual(eff["tasks"]["profile:api"]["run"], "effigy acme-api/api:host")
+        self.assertEqual(eff["tasks"]["profile:api"]["run_in"], "host")
+        self.assertEqual(eff["tasks"]["profile:api"]["secrets"], "required")
+        self.assertEqual(eff["tasks"]["profile:jobs"]["run"], "effigy acme-api/jobs:host")
+        self.assert_no_retired(eff)
+
     # 4. Representative root/child shapes. Physical dirs and catalog aliases split.
     def test_acowtancy_shape(self) -> None:
         fx = self.fixture(inputs={

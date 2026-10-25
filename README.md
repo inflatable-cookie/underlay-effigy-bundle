@@ -17,8 +17,10 @@ databases = ["acme", "acme_test"]
 When `project_name` is omitted, the bundle derives one from
 `<workspace_subdir>-underlay`, for example `acme-underlay`.
 
-The bundle requires Effigy `>= 0.15.0` (`minimum_effigy_version`). Older
-releases refuse it.
+The bundle declares Effigy `>= 0.15.0` (`minimum_effigy_version`), the
+unreleased 0.15 candidate, for native managed host listeners: Effigy reserves
+the loopback port and passes it to the task as `HOST`/`PORT`. A released 0.14.x
+refuses the bundle.
 
 ## Inputs
 
@@ -122,8 +124,11 @@ Rust API and jobs are unchanged, and the data is shared with the dev modes.
 - Linked worktrees get their own scoped hostnames, ports and data
   automatically.
 
-Needs Effigy `main` at or after `e91cd4c` (2026-10-15), installed with
-`effigy bootstrap:local`; restart a running shared gateway after installing. The app reads its public host,
+Profiles run on the installed Effigy, built from `main` with
+`effigy bootstrap:local`; restart a running shared gateway after installing.
+They need the declared 0.15 candidate floor for native `HOST`/`PORT` managed
+listeners (older Effigy refuses the bundle); the 2026-10-15 qualification used
+`main` at `e91cd4c`. The app reads its public host,
 CORS origins, cookie domain, database and SMTP settings from the environment
 the bundle supplies; object-store settings still come from the app's own
 config. See [development profiles](docs/knowledge/contracts/dev-profiles.md#opt-in-profiles)
@@ -131,13 +136,16 @@ for the full contract and adoption limits.
 
 ## Development profile tooling
 
-`scripts/dev/` holds the bundle's profile adapters: the managed Rust and Vite
-listeners, the release server for the release modes, and the SvelteKit
-public-origin hook. They use Effigy's owned loopback binding, generation
-report, readiness and dependency interfaces. Their checks:
+`scripts/dev/` holds the bundle's profile glue: `profile_env.py` (environment
+mapping and the nested API/jobs `exec`), the Vite and release-server listeners
+for front and admin, and the SvelteKit public-origin hook. The Rust API and
+jobs run unchanged on the loopback address Effigy reserves and passes as
+`HOST`/`PORT`; there is no Rust listener adapter, report reader or startup
+timer. The Vite and release listeners use Effigy's owned loopback binding,
+readiness and dependency interfaces. Their checks:
 
 ```sh
-effigy test:profiles                      # profile_env and release-server unit tests
+effigy test:profiles                      # profile_env (including the HOST/PORT exec seam) and release-server unit tests
 effigy proof:dev-profiles:public-origin   # public-origin hook security and chaining
 effigy proof:bootstrap-sources            # bootstrap render/plan regression (fixtures only)
 effigy proof:dns-base-domain              # DNS base-domain render regression

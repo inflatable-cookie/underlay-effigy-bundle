@@ -34,3 +34,11 @@ owner = "docs/knowledge/contracts/dev-profiles.md"
 terms = ["minio:reconcile", "minio.<host>", "http://minio:9000", "services.minio", "bootstrap-minio"]
 paths = ["scripts/bootstrap-minio.rhai"]
 allow = ["CHANGELOG.md", "docs/knowledge/retired.toml", "README.md"]
+
+[[retired]]
+id = "managed-rust-listener-adapter"
+retired = "2026-10-25"
+replacement = "The API host process runs `profile_env.py exec ... -- effigy profile:api` unchanged: Effigy reserves the loopback port and passes it to the Rust task as `HOST`/`PORT`, so no bundle adapter, report reader or startup timer is needed."
+owner = "docs/knowledge/contracts/dev-profiles.md"
+terms = ["managed-rust-listener", "managed Rust listener adapter", "STARTUP_TIMEOUT_SECONDS"]
+paths = ["scripts/dev/managed-rust-listener.py"]

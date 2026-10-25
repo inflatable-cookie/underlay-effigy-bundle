@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hermetic tests for profile_env.py. No Effigy, containers or network."""
+"""Hermetic tests for profile_env.py. No Effigy, containers or external network."""
 
 from __future__ import annotations
 
@@ -102,6 +102,129 @@ class AppEnvironmentTest(unittest.TestCase):
         self.assertEqual(profile_env.shared_apex(["api.acme.test", "www.acme.test", "admin.acme.test"]), "acme.test")
         with self.assertRaises(profile_env.ProfileError):
             profile_env.shared_apex(["api.acme.test", "admin.other.dev"])
+
+
+class ExecSeamTest(unittest.TestCase):
+    """The supervisor's HOST/PORT must reach the app through the real exec seam.
+
+    A fake `effigy` stands in for the nested selector boundary: it records the
+    environment it receives and spawns the task that selector would run. The
+    queries it answers are Effigy's report envelopes, so `profile_env.py`
+    runs its production `exec` path unchanged.
+    """
+
+    FAKE_EFFIGY = '''#!__PYTHON__
+import json, os, subprocess, sys
+HOSTS = json.loads(__HOSTS__)
+STATUS = json.loads(__STATUS__)
+args = sys.argv[1:]
+if args[-2:] == ["hosts", "--json"]:
+    print(json.dumps({"ok": True, "result": HOSTS}))
+elif args[-2:] == ["status", "--json"]:
+    print(json.dumps({"ok": True, "result": STATUS}))
+else:
+    record = {
+        "stage": "selector",
+        "argv": args,
+        "HOST": os.environ.get("HOST"),
+        "PORT": os.environ.get("PORT"),
+        "PUBLIC_HOST": os.environ.get("PUBLIC_HOST"),
+        "API_PUBLIC_URL": os.environ.get("EFFIGY_PROFILE_API_PUBLIC_URL"),
+    }
+    with open(__OUT__, "w", encoding="utf-8") as handle:
+        json.dump(record, handle)
+    task = subprocess.run([
+        sys.executable,
+        "-c",
+        "import json,os,sys; json.dump({'HOST': os.environ.get('HOST'), 'PORT': os.environ.get('PORT')}, open(sys.argv[1], 'w'))",
+        __OUT__ + ".task",
+    ])
+    sys.exit(7 if task.returncode == 0 else task.returncode)
+'''
+
+    def test_host_and_port_survive_exec_and_the_nested_selector(self) -> None:
+        import http.server
+        import json
+        import os
+        import socket
+        import subprocess
+        import tempfile
+        import threading
+
+        class Ready(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *_args: object) -> None:
+                pass
+
+        def listening_port() -> int:
+            sock = socket.socket()
+            self.addCleanup(sock.close)
+            sock.bind(("127.0.0.1", 0))
+            sock.listen(8)
+            return sock.getsockname()[1]
+
+        silo = http.server.HTTPServer(("127.0.0.1", 0), Ready)
+        threading.Thread(target=silo.serve_forever, daemon=True).start()
+        self.addCleanup(silo.server_close)
+        self.addCleanup(silo.shutdown)
+        postgres, mailpit = listening_port(), listening_port()
+        status = {
+            "services": [
+                {"name": "postgres", "ports": [f"127.0.0.1:{postgres}->5432/tcp"]},
+                {"name": "mailpit", "ports": [f"127.0.0.1:{mailpit}->1025/tcp"]},
+                {"name": "silo", "ports": [f"127.0.0.1:{silo.server_port}->9000/tcp"]},
+            ]
+        }
+
+        with tempfile.TemporaryDirectory() as root:
+            out = Path(root, "selector.json")
+            bin_dir = Path(root, "bin")
+            bin_dir.mkdir()
+            fake = bin_dir / "effigy"
+            fake.write_text(
+                self.FAKE_EFFIGY.replace("__PYTHON__", sys.executable)
+                .replace("__HOSTS__", repr(json.dumps(report())))
+                .replace("__STATUS__", repr(json.dumps(status)))
+                .replace("__OUT__", json.dumps(str(out))),
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith(("EFFIGY_INTERNAL_", "EFFIGY_MANAGED_HOST_"))
+            }
+            env.update({
+                "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+                "EFFIGY_PROFILE_REPO": root,
+                "EFFIGY_PROFILE_DATABASE": "acme",
+                "EFFIGY_PROFILE_API_DECLARED": "api.acme.test",
+                "EFFIGY_PROFILE_FRONT_DECLARED": "acme.test",
+                "EFFIGY_PROFILE_ADMIN_DECLARED": "admin.acme.test",
+                "EFFIGY_PROFILE_S3_DECLARED": "s3.acme.test",
+                "NODE_EXTRA_CA_CERTS": str(Path(root, "ca.pem")),
+                "HOST": "127.0.0.1",
+                "PORT": "43123",
+            })
+            command = [
+                sys.executable,
+                str(Path(__file__).with_name("profile_env.py")),
+                "exec", "hybrid", "--", "effigy", "profile:api",
+            ]
+            proc = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(proc.returncode, 7, proc.stdout + proc.stderr)
+            selector = json.loads(out.read_text(encoding="utf-8"))
+            task = json.loads(Path(str(out) + ".task").read_text(encoding="utf-8"))
+
+        self.assertEqual(selector["argv"], ["profile:api"])
+        self.assertEqual((selector["HOST"], selector["PORT"]), ("127.0.0.1", "43123"))
+        self.assertEqual(selector["PUBLIC_HOST"], "api.acme.test")
+        self.assertEqual(selector["API_PUBLIC_URL"], "https://api.acme.test")
+        self.assertEqual((task["HOST"], task["PORT"]), ("127.0.0.1", "43123"))
 
 
 class ServiceWaitTest(unittest.TestCase):
