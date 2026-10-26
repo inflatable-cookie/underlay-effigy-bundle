@@ -175,6 +175,15 @@ log (the API tab shows the Rust build). Quitting the TUI always runs
 short for a stack teardown. `dev:hybrid` stays the detached form for scripts
 and agents.
 
+Operator ruling (2026-10-23): the vault passphrase is asked before the TUI
+opens, never inside a tab. The services tab's `dev:hybrid` is its own Effigy
+invocation, and only a task named `dev` gets prompt-free local-dev access, so
+the session checks `secrets doctor` (detached from the terminal, where doctor
+would prompt itself) and runs `effigy secrets unlock` first when the vault is
+locked. The vault then stays unlocked until `effigy secrets lock`. This is an
+interim: Effigy's native dev session (Effigy Q-007) resolves secret access
+once before rendering and replaces it.
+
 `profiles.dev = "hybrid"` makes `effigy dev` run `dev:hybrid:session` (and
 `dev:down` stop the profile); the container session stays available as
 `dev:container`. The default, `container`, leaves `dev` unchanged.
