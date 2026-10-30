@@ -517,6 +517,74 @@ class FollowLogTest(unittest.TestCase):
             self.assertTrue(swapped)
             self.assertEqual(out.getvalue(), profile_env.LOG_RESTART_MARKER + new_content.decode())
 
+    def test_stale_descriptor_after_path_cutover_is_never_read(self) -> None:
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            old_content = b"old-generation-000"
+            new_content = b"new-generation-11111"
+            log.write_bytes(old_content)
+            saved = log.with_name("api.log.saved")
+            real_fstat = os.fstat
+            faked: list[bool] = []
+
+            def fstat_once(fd):
+                # First descriptor check reports the pre-cutover inode
+                # the open actually raced, exactly the stale-descriptor
+                # case: the path already shows the new file.
+                if not faked:
+                    faked.append(True)
+                    return os.stat(saved)
+                return real_fstat(fd)
+
+            def cutover() -> None:
+                os.rename(log, saved)
+                staged = log.with_name("api.log.staged")
+                staged.write_bytes(new_content)
+                os.replace(staged, log)
+
+            marker = profile_env.LOG_RESTART_MARKER
+            with mock.patch.object(os, "fstat", fstat_once):
+                text = self._drive_follow(repo, "api", [cutover, lambda: None])
+            self.assertTrue(faked)
+            # The poll that saw the new path announced the cutover, then
+            # opened the pre-cutover descriptor: its bytes must never be
+            # emitted, and the next poll must not add a second marker.
+            self.assertEqual(text, marker + new_content.decode())
+            self.assertNotIn("old-generation", text)
+
+    def test_second_cutover_between_stat_and_open_emits_no_second_marker(self) -> None:
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_bytes(b"old-generation-000")
+            first = b"first-generation-aa"
+            second = b"second-generation-cc"
+            real_open = Path.open
+            armed: list[bool] = []
+
+            def swapping_open(self, *args, **kwargs):
+                if armed:
+                    armed.pop()
+                    staged = log.with_name("api.log.staged")
+                    staged.write_bytes(second)
+                    os.replace(staged, log)
+                return real_open(self, *args, **kwargs)
+
+            def cut_twice() -> None:
+                staged = log.with_name("api.log.staged")
+                staged.write_bytes(first)
+                os.replace(staged, log)
+                armed.append(True)
+
+            marker = profile_env.LOG_RESTART_MARKER
+            with mock.patch.object(Path, "open", swapping_open):
+                text = self._drive_follow(repo, "api", [cut_twice, lambda: None])
+            self.assertEqual(text, marker + second.decode())
+            self.assertNotIn("first-generation", text)
+
     def test_split_utf8_code_point_decodes_without_replacement(self) -> None:
         import tempfile
         with tempfile.TemporaryDirectory() as repo:

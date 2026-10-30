@@ -473,7 +473,10 @@ def follow_log(repo: Path, container: str, process: str, out=sys.stdout, sleep=t
     byte offset, and new bytes are read from the same opened descriptor
     whose identity was checked, so a path replacement (Effigy quarantines
     the old untrusted log under a new inode before a sanitized generation
-    starts) never mixes pre- and post-cutover bytes.  On an identity change
+    starts) never mixes pre- and post-cutover bytes.  A descriptor that
+    races a cutover already announced this poll is stale, never read: the
+    next poll reads the observed file under the single emitted marker.
+    On an identity change
     or an observed shrink the offset resets to zero and exactly one
     ``\u2026 log restarted \u2026`` gap line is emitted before the new bytes.
 
@@ -512,6 +515,7 @@ def follow_log(repo: Path, container: str, process: str, out=sys.stdout, sleep=t
             if path_stat is not None:
                 path_identity = _file_identity(path_stat)
                 announced = False
+                previous = identity
                 if identity is None:
                     identity = path_identity
                 elif path_identity != identity or path_stat.st_size < offset:
@@ -533,14 +537,24 @@ def follow_log(repo: Path, container: str, process: str, out=sys.stdout, sleep=t
                             live_stat = None
                         if live_stat is not None:
                             live_identity = _file_identity(live_stat)
+                            skip_read = False
                             if live_identity != identity:
-                                identity = live_identity
-                                offset = 0
-                                decoder.reset()
-                                if not announced:
-                                    out.write(LOG_RESTART_MARKER)
-                                    out.flush()
-                                    announced = True
+                                if announced and live_identity == previous:
+                                    # The open raced a path cutover that this
+                                    # poll already announced: the descriptor
+                                    # is the pre-cutover generation. Never
+                                    # emit it; the next poll reads the file
+                                    # the path now shows, with this poll's
+                                    # single marker covering the gap.
+                                    skip_read = True
+                                else:
+                                    identity = live_identity
+                                    offset = 0
+                                    decoder.reset()
+                                    if not announced:
+                                        out.write(LOG_RESTART_MARKER)
+                                        out.flush()
+                                        announced = True
                             elif live_stat.st_size < offset:
                                 offset = 0
                                 decoder.reset()
@@ -548,7 +562,7 @@ def follow_log(repo: Path, container: str, process: str, out=sys.stdout, sleep=t
                                     out.write(LOG_RESTART_MARKER)
                                     out.flush()
                                     announced = True
-                            if live_stat.st_size > offset:
+                            if not skip_read and live_stat.st_size > offset:
                                 handle.seek(offset)
                                 chunk = handle.read(live_stat.st_size - offset)
                                 offset += len(chunk)
