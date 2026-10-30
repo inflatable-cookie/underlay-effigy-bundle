@@ -420,6 +420,247 @@ class FollowLogTest(unittest.TestCase):
             profile_env.follow_log(Path(repo), "hybrid", "jobs", out=out, forever=False)
             self.assertIn("waiting for `jobs`", out.getvalue())
 
+    def _drive_follow(self, repo: str, process: str, steps: list) -> str:
+        """Run follow_log while each sleep call applies the next mutation."""
+        import io
+
+        class Stop(Exception):
+            pass
+
+        out = io.StringIO()
+        pending = iter(steps)
+
+        def sleep(_):
+            try:
+                mutation = next(pending)
+            except StopIteration:
+                raise Stop
+            mutation()
+
+        with self.assertRaises(Stop):
+            profile_env.follow_log(Path(repo), "hybrid", process, out=out, sleep=sleep)
+        return out.getvalue()
+
+    def _process_log(self, repo: str, process: str = "api") -> Path:
+        log = Path(repo, ".effigy/runtime/host-processes/hybrid/effigy", f"{process}.log")
+        log.parent.mkdir(parents=True)
+        return log
+
+    def test_normal_appends_stream_without_repeating_old_bytes(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_text("previous run\n")
+            text = self._drive_follow(repo, "api", [
+                lambda: log.write_text("previous run\n   Compiling api\n"),
+                lambda: log.write_text("previous run\n   Compiling api\n    Finished\n"),
+            ])
+            self.assertEqual(text, "   Compiling api\n    Finished\n")
+            self.assertNotIn("previous run", text)
+
+    def test_observed_shrink_restarts_from_zero_with_one_marker(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_bytes(b"old-generation-bytes")
+            marker = profile_env.LOG_RESTART_MARKER
+            text = self._drive_follow(repo, "api", [
+                lambda: log.write_bytes(b"new\n"),
+                lambda: None,
+            ])
+            self.assertEqual(text, marker + "new\n")
+            self.assertNotIn("old-generation", text)
+
+    def test_inode_replacement_reads_new_file_from_zero(self) -> None:
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_bytes(b"old-bytes-01234567")
+            new_content = b"NEW-LOG-CONTENT-0123456789"
+            self.assertGreaterEqual(len(new_content), 18)
+
+            def quarantine_and_replace() -> None:
+                staged = log.with_name("api.log.staged")
+                staged.write_bytes(new_content)
+                os.replace(staged, log)
+
+            marker = profile_env.LOG_RESTART_MARKER
+            text = self._drive_follow(repo, "api", [quarantine_and_replace, lambda: None])
+            # Without identity tracking the follower would seek to the saved
+            # offset inside the new file and emit only its tail.
+            self.assertEqual(text, marker + new_content.decode())
+            self.assertNotIn("old-bytes", text)
+
+    def test_replacement_between_stat_and_open_reads_new_bytes(self) -> None:
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_bytes(b"old-bytes-01234567")
+            new_content = b"cutover-bytes-here!!"
+            real_open = Path.open
+            swapped: list[bool] = []
+
+            def swapping_open(self, *args, **kwargs):
+                if not swapped and Path(self) == log:
+                    swapped.append(True)
+                    staged = log.with_name("api.log.staged")
+                    staged.write_bytes(new_content)
+                    os.replace(staged, log)
+                return real_open(self, *args, **kwargs)
+
+            import io
+            out = io.StringIO()
+            with mock.patch.object(Path, "open", swapping_open):
+                profile_env.follow_log(Path(repo), "hybrid", "api", out=out, forever=False)
+            self.assertTrue(swapped)
+            self.assertEqual(out.getvalue(), profile_env.LOG_RESTART_MARKER + new_content.decode())
+
+    def test_stale_descriptor_after_path_cutover_is_never_read(self) -> None:
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            old_content = b"old-generation-000"
+            new_content = b"new-generation-11111"
+            log.write_bytes(old_content)
+            saved = log.with_name("api.log.saved")
+            real_fstat = os.fstat
+            faked: list[bool] = []
+
+            def fstat_once(fd):
+                # First descriptor check reports the pre-cutover inode
+                # the open actually raced, exactly the stale-descriptor
+                # case: the path already shows the new file.
+                if not faked:
+                    faked.append(True)
+                    return os.stat(saved)
+                return real_fstat(fd)
+
+            def cutover() -> None:
+                os.rename(log, saved)
+                staged = log.with_name("api.log.staged")
+                staged.write_bytes(new_content)
+                os.replace(staged, log)
+
+            marker = profile_env.LOG_RESTART_MARKER
+            with mock.patch.object(os, "fstat", fstat_once):
+                text = self._drive_follow(repo, "api", [cutover, lambda: None])
+            self.assertTrue(faked)
+            # The poll that saw the new path announced the cutover, then
+            # opened the pre-cutover descriptor: its bytes must never be
+            # emitted, and the next poll must not add a second marker.
+            self.assertEqual(text, marker + new_content.decode())
+            self.assertNotIn("old-generation", text)
+
+    def test_second_cutover_between_stat_and_open_emits_no_second_marker(self) -> None:
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_bytes(b"old-generation-000")
+            first = b"first-generation-aa"
+            second = b"second-generation-cc"
+            real_open = Path.open
+            armed: list[bool] = []
+
+            def swapping_open(self, *args, **kwargs):
+                if armed:
+                    armed.pop()
+                    staged = log.with_name("api.log.staged")
+                    staged.write_bytes(second)
+                    os.replace(staged, log)
+                return real_open(self, *args, **kwargs)
+
+            def cut_twice() -> None:
+                staged = log.with_name("api.log.staged")
+                staged.write_bytes(first)
+                os.replace(staged, log)
+                armed.append(True)
+
+            marker = profile_env.LOG_RESTART_MARKER
+            with mock.patch.object(Path, "open", swapping_open):
+                text = self._drive_follow(repo, "api", [cut_twice, lambda: None])
+            self.assertEqual(text, marker + second.decode())
+            self.assertNotIn("first-generation", text)
+
+    def test_split_utf8_code_point_decodes_without_replacement(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_bytes(b"")
+            text = self._drive_follow(repo, "api", [
+                lambda: log.write_bytes(b"\xf0\x9f"),
+                lambda: log.write_bytes(b"\xf0\x9f\x98\x80"),
+            ])
+            self.assertEqual(text, "\U0001F600")
+            self.assertNotIn("\ufffd", text)
+
+    def test_truly_invalid_bytes_keep_replace_behavior(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_bytes(b"")
+            text = self._drive_follow(repo, "api", [
+                lambda: log.write_bytes(b"\xff\n"),
+            ])
+            self.assertEqual(text, "\ufffd\n")
+
+    def test_exactly_one_marker_per_cutover(self) -> None:
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_bytes(b"generation-one-bytes")
+
+            def replace_with(content: bytes):
+                def mutate() -> None:
+                    staged = log.with_name("api.log.staged")
+                    staged.write_bytes(content)
+                    os.replace(staged, log)
+                return mutate
+
+            marker = profile_env.LOG_RESTART_MARKER
+            text = self._drive_follow(repo, "api", [
+                replace_with(b"second-generation!!"),
+                lambda: None,
+                lambda: None,
+                replace_with(b"third-generation!!!"),
+                lambda: None,
+            ])
+            self.assertEqual(text.count(marker), 2)
+            self.assertEqual(
+                text,
+                marker + "second-generation!!" + marker + "third-generation!!!",
+            )
+
+    def test_same_inode_truncate_and_fast_regrow_documents_detection_limit(self) -> None:
+        """Expose the variant size/inode tracking cannot distinguish.
+
+        An in-place truncate followed by a fast append that regrows past the
+        saved offset, all under the same inode between two polls, looks like
+        a plain append.  This needs an explicit generation/cutover signal;
+        Effigy quarantines under a new inode, so the identity rule above
+        covers the selected cutover and this test pins the boundary.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as repo:
+            log = self._process_log(repo)
+            log.write_bytes(b"0123456789ABCDEF")
+            regrown = b"NEW-CONTENT-REGROWN!"
+            self.assertGreater(len(regrown), 16)
+
+            def truncate_and_regrow() -> None:
+                with log.open("r+b") as handle:
+                    handle.seek(0)
+                    handle.truncate(0)
+                    handle.write(regrown)
+
+            text = self._drive_follow(repo, "api", [truncate_and_regrow])
+            self.assertNotIn(profile_env.LOG_RESTART_MARKER, text)
+            self.assertEqual(text, regrown[16:].decode())
+
 
 if __name__ == "__main__":
     unittest.main()
