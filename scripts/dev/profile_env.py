@@ -18,6 +18,7 @@ profile's object store, and runs the bounded `dev:test` cycle.
 from __future__ import annotations
 
 import argparse
+import codecs
 import json
 import os
 import signal
@@ -458,25 +459,103 @@ def host_process_log(repo: Path, container: str, process: str) -> Path | None:
     return logs[-1] if logs else None
 
 
+LOG_RESTART_MARKER = "\u2026 log restarted \u2026\n"
+
+
+def _file_identity(stat_result) -> tuple:
+    return (stat_result.st_dev, stat_result.st_ino)
+
+
 def follow_log(repo: Path, container: str, process: str, out=sys.stdout, sleep=time.sleep, forever=True) -> None:
-    """Stream one host process's output from the moment the tab opens."""
+    """Stream one host process's output from the moment the tab opens.
+
+    The opened file's ``(st_dev, st_ino)`` identity is tracked alongside the
+    byte offset, and new bytes are read from the same opened descriptor
+    whose identity was checked, so a path replacement (Effigy quarantines
+    the old untrusted log under a new inode before a sanitized generation
+    starts) never mixes pre- and post-cutover bytes.  On an identity change
+    or an observed shrink the offset resets to zero and exactly one
+    ``\u2026 log restarted \u2026`` gap line is emitted before the new bytes.
+
+    Limit: an in-place truncate followed by a fast append that regrows past
+    the saved offset, all under the same inode between two polls, is
+    indistinguishable by size/inode alone and is not treated as a restart.
+    That variant needs an explicit generation/cutover signal; Effigy
+    quarantines under a new inode, so the identity rule covers it.
+
+    Only complete UTF-8 sequences are decoded across polls: a trailing
+    partial code point is held for the next read instead of emitting a
+    replacement character.  Truly invalid bytes still decode with the
+    existing ``replace`` behavior.  The incremental decoder buffers at most
+    the bytes of one incomplete sequence, so pending state stays bounded.
+    """
     log = host_process_log(repo, container, process)
-    offset = log.stat().st_size if log else 0
-    if not log:
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    identity = None
+    offset = 0
+    if log:
+        try:
+            identity = _file_identity(log.stat())
+            offset = log.stat().st_size
+        except OSError:
+            identity = None
+            offset = 0
+    else:
         print(f"[dev] waiting for `{process}` to start...", file=out, flush=True)
     while True:
         log = host_process_log(repo, container, process) or log
         if log and log.exists():
-            size = log.stat().st_size
-            if size < offset:
-                offset = 0
-            if size > offset:
-                with log.open("rb") as handle:
-                    handle.seek(offset)
-                    chunk = handle.read(size - offset)
-                offset = size
-                out.write(chunk.decode("utf-8", errors="replace"))
-                out.flush()
+            try:
+                path_stat = log.stat()
+            except OSError:
+                path_stat = None
+            if path_stat is not None:
+                path_identity = _file_identity(path_stat)
+                announced = False
+                if identity is None:
+                    identity = path_identity
+                elif path_identity != identity or path_stat.st_size < offset:
+                    identity = path_identity
+                    offset = 0
+                    decoder.reset()
+                    out.write(LOG_RESTART_MARKER)
+                    out.flush()
+                    announced = True
+                try:
+                    handle = log.open("rb")
+                except OSError:
+                    pass
+                else:
+                    with handle:
+                        try:
+                            live_stat = os.fstat(handle.fileno())
+                        except OSError:
+                            live_stat = None
+                        if live_stat is not None:
+                            live_identity = _file_identity(live_stat)
+                            if live_identity != identity:
+                                identity = live_identity
+                                offset = 0
+                                decoder.reset()
+                                if not announced:
+                                    out.write(LOG_RESTART_MARKER)
+                                    out.flush()
+                                    announced = True
+                            elif live_stat.st_size < offset:
+                                offset = 0
+                                decoder.reset()
+                                if not announced:
+                                    out.write(LOG_RESTART_MARKER)
+                                    out.flush()
+                                    announced = True
+                            if live_stat.st_size > offset:
+                                handle.seek(offset)
+                                chunk = handle.read(live_stat.st_size - offset)
+                                offset += len(chunk)
+                                text = decoder.decode(chunk, final=False)
+                                if text:
+                                    out.write(text)
+                                    out.flush()
         if not forever:
             return
         sleep(0.25)

@@ -105,7 +105,9 @@ test_timeout_secs = 900
 
 With `dev = "hybrid"`, `effigy dev` opens the hybrid TUI: a `services` tab
 plus live `front`, `admin`, `api` and `jobs` log tabs. Quitting it stops the
-stack. `effigy dev:hybrid` starts the same stack detached, and
+stack. Each log tab tails its host-process log from the moment the tab
+opens; when Effigy quarantines and replaces a log, the tab prints a
+`… log restarted …` gap line and then only bytes from the new file. `effigy dev:hybrid` starts the same stack detached, and
 `effigy dev:down` stops it. The whole-stack container session remains
 available as `dev:container`.
 
