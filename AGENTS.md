@@ -11,8 +11,8 @@ a release.
 - Knowledge: `docs/knowledge/README.md`
 - How a change is released: `docs/knowledge/contracts/release.md`
 
-Tasks, briefs and status live in Queue, never in this repository (lean
-Northstar, `northstar` skill).
+Tasks, briefs and status live in Queue, never in this repository (Northstar
+docs structure, `northstar-docs` skill).
 
 ## Product rules
 
