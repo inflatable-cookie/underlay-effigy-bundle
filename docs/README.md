@@ -1,11 +1,8 @@
-# Underlay Effigy bundle — current state
+# Underlay Effigy bundle documentation
 
-The shared Effigy bundle for Underlay-style workspaces. Usage and inputs are in
-[README.md](../README.md). Consumers track `main`, so a merge is a release; see
-[knowledge/contracts/release.md](knowledge/contracts/release.md).
+The entry point to the bundle's docs. Usage and inputs are in the
+[README](../README.md); every merge to `main` is a release.
 
-- Knowledge: [knowledge/README.md](knowledge/README.md)
-
-## What's next
-
-The project's plan is in Nucleus: its lanes, their documents and their order.
+- How a change is released: [knowledge/contracts/release.md](knowledge/contracts/release.md)
+- Development profile direction and ownership: [knowledge/contracts/dev-profiles.md](knowledge/contracts/dev-profiles.md)
+- Everything, by topic: [knowledge/README.md](knowledge/README.md)
