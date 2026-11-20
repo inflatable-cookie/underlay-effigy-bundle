@@ -147,12 +147,12 @@ description = "Application encryption key for local/API runtime."
 
 [secrets.keys.aws_access_key_id]
 required = false
-targets = ["tasks", "containers", "state", "artifacts", "rhai"]
+targets = ["tasks", "containers", "artifacts", "rhai"]
 description = "S3-compatible object-store access key id for media state/artifact workflows."
 
 [secrets.keys.aws_secret_access_key]
 required = false
-targets = ["tasks", "containers", "state", "artifacts", "rhai"]
+targets = ["tasks", "containers", "artifacts", "rhai"]
 description = "S3-compatible object-store secret access key for media state/artifact workflows."
 
 [secrets.keys.ai_router_api_key]
@@ -226,7 +226,7 @@ concurrent = [
   { name = "front", task = "{{ sel_front }}/dev", setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = 6, tab = 1 },
   { name = "admin", task = "{{ sel_admin }}/dev", setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = 5, tab = 2 },
   { name = "api", task = "{{ sel_api }}/api", start = 4, tab = 3 },
-  { name = "jobs", task = "{{ sel_api }}/jobs", start = 3, tab = 4, start_after_ms = 1500 },
+  { name = "jobs", task = "{{ sel_api }}/jobs", start = 3, tab = 4, after = ["environment"] },
   { role = "shell", service = "{{ inputs.workspace_service_name }}", start = 2, tab = 5 },
   { role = "lifecycle", start = 1, tab = 6 },
 ]
@@ -244,7 +244,7 @@ health_wait = true
 concurrent = [
 {% for app in [("front", inputs.dirs.front or "app-front", inputs.front_port, 6, 1), ("admin", inputs.dirs.admin or "app-admin", inputs.admin_port, 5, 2)] %}  { name = "{{ app[0] }}", run = 'cd {repo} && s=$(ls -t .effigy/cache/bundles/*/*/*/scripts/dev/release-server.mjs 2>/dev/null | head -1) && [ -n "$s" ] || { echo "release-server.mjs is not in .effigy/cache/bundles; container release needs a git or OCI bundle source" >&2; exit 1; }; cd {repo}/{{ app[1] }} && exec env ENVIRONMENT=effigy bun "{repo}/$s" --host 0.0.0.0 --port {{ app[2] }}', setup = [{ rhai = "{{ bundle.root }}/scripts/dev/ui-setup.rhai" }], start = {{ app[3] }}, tab = {{ app[4] }} },
 {% endfor %}  { name = "api", task = "{{ sel_api }}/api", start = 4, tab = 3 },
-  { name = "jobs", task = "{{ sel_api }}/jobs", start = 3, tab = 4, start_after_ms = 1500 },
+  { name = "jobs", task = "{{ sel_api }}/jobs", start = 3, tab = 4, after = ["environment"] },
   { role = "shell", service = "{{ inputs.workspace_service_name }}", start = 2, tab = 5 },
   { role = "lifecycle", start = 1, tab = 6 },
 ]
